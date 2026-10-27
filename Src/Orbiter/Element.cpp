@@ -1,11 +1,19 @@
 // Copyright (c) Martin Schweiger
 // Licensed under the MIT License
 
+#ifdef ORBITER_NATIVE
+#include "CoreSupport.h"
+#else
 #include "Orbiter.h"
+#endif
 #include "Element.h"
+#ifndef ORBITER_NATIVE
 #include "Config.h"
+#endif
 #include <fstream>
+#ifndef ORBITER_NATIVE
 #include <windows.h>
+#endif
 #include <stdio.h>
 
 using namespace std;
@@ -13,7 +21,9 @@ using namespace std;
 // =======================================================================
 // Externals
 
+#ifndef ORBITER_NATIVE
 extern Orbiter *g_pOrbiter;
+#endif
 extern TimeData td;
 extern char DBG_MSG[256];
 
@@ -59,7 +69,11 @@ Elements::Elements (const Elements &el)
 Elements::Elements (char *fname)
 {
 	double epoch;
+	#ifdef ORBITER_NATIVE
+	ifstream ifs (fname);
+#else
 	ifstream ifs (g_pOrbiter->ConfigPath (fname));
+#endif
 	if (!GetItemReal (ifs, "Epoch", epoch))           epoch  = 2000.0;
 	mjd_epoch = Jepoch2MJD (epoch);
 	t_epoch   = (mjd_epoch-td.MJD_ref)*86400.0;

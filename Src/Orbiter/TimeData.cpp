@@ -1,3 +1,4 @@
+#include <algorithm>
 #include "TimeData.h"
 #include "Astro.h"
 
