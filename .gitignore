@@ -32,3 +32,6 @@ Sound/XRSound/**/Release-with-OrbiterRelease/
 Doc/**/*.log
 Doc/**/*.pdf
 Doc/**/*.gz
+
+# macOS Finder metadata
+.DS_Store

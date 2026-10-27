@@ -1,14 +1,6 @@
-name: On Push (Linux)
+name: Upstream Linux placeholder (manual)
 
-on:  
-  push:
-    branches:
-      - linux
-    paths-ignore: [ 'Doc/**', 'Flights/**', 'Html/**', 'Images/**', 'Localdoc/**', 'Scenarios/**', 'Textures/**', 'Textures2/**']
-  pull_request:
-    branches:
-      - linux
-    paths-ignore: [ 'Doc/**', 'Flights/**', 'Html/**', 'Images/**', 'Localdoc/**', 'Scenarios/**', 'Textures/**', 'Textures2/**']
+on:
   workflow_dispatch:
 
 jobs:

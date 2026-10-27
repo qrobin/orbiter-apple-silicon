@@ -1,102 +1,45 @@
 ![Orbiter logo](./Src/Orbiter/Bitmaps/banner.png)
 
-# Orbiter Space Flight Simulator
+# Orbiter for Apple Silicon
 
-Orbiter is a spaceflight simulator based on Newtonian mechanics. Its playground
-is our solar system with many of its major bodies – the sun, planets and moons.
-You take control of a spacecraft – either historic, hypothetical, or purely
-science fiction. Orbiter is unlike most commercial computer games with a space
-theme – there are no predefined missions to complete (except the ones you set
-yourself), no aliens to destroy and no goods to trade. Instead, you will get a
-pretty good idea about what is involved in real space flight – how to plan an
-ascent into orbit, how to rendezvous with a space station, or how to fly to
-another planet. It is more difficult, but also more of a challenge. Some people
-get hooked, others get bored. Finding out for yourself is easy – simply give it
-a try. Orbiter is free, so you don’t need to invest more than a bit of your
-spare time.
+An experimental native macOS port of [Orbiter Space Flight Simulator](https://github.com/orbitersim/orbiter), starting with a playable single-spacecraft Delta-glider flight. The application runs as an **arm64 executable with a Metal renderer**, using Cocoa for its window, menus and systems panel.
 
-## License
+This is an early port. It reuses Orbiter's orbital mathematics and original spacecraft assets while replacing Windows-dependent application and rendering code. The full original simulator, vessel engine and add-on ecosystem are still being ported.
 
-Orbiter is now published as an Open Source project under the MIT License (see
-[LICENSE](./LICENSE) file for details).
+## Build and fly
 
-D3D9Client graphics engine is licensed under LGPL, see [LGPL](./OVP/D3D9Client/LGPL.txt)
+Requires **Apple Silicon, macOS 13 or newer, Xcode command-line tools, and CMake 3.19 or newer**. The native target fetches no dependencies and links Apple system frameworks.
 
-## Installation
-Hardware requirements needed by Orbiter:
-|  | Minimum requirements | Recommended requirements |
-| ---- | ---- | ---- |
-| RAM: | 500 MB | 2 GB |
-| CPU: | Dual Core |  |
-| GPU: | 50 GFlops | 100 GFlops |
-| Disk: | 5 GB of free space | 10 GB of free space (80 GB if you want hi-res textures) |
-
-Get the Orbiter source repository from github
-```bash
-git clone --recursive git@github.com:orbitersim/orbiter.git
-```
-or
-```bash
-git clone --recursive https://github.com/orbitersim/orbiter.git
+```sh
+git clone https://github.com/qrobin/orbiter-apple-silicon.git
+cd orbiter-apple-silicon
+./Native/build.sh --run
 ```
 
-To configure and generate the makefiles, you need a recent
-[CMake](https://cmake.org/download/).
+The script builds `build/macos-arm64/Native/Orbiter Native.app`, runs the native tests and applies a local ad-hoc signature. Developer ID signing and notarization are not yet provided.
 
-To compile Orbiter from its sources, you need
-[Microsoft Visual Studio](https://visualstudio.microsoft.com/downloads/).
-Orbiter has been successfully built with VS Community 2019, but other versions should
-also work. Note that VS2019 comes with built-in CMake support, so you don't
-need a separate CMake installation.
+Start with **M** for the glider systems panel, **V** for the original 3D cockpit, **+ / −** for main throttle, **X** to cut engines, **Space** to pause, and **T / Y** to change time acceleration. **F1** shows the controls. The **Flight** menu includes a mechanism demonstration.
 
-Some configuration caveats:
-- If you are using the [Ninja](https://cmake.org/cmake/help/latest/generator/Ninja.html)
-generator (default for the VS built-in CMake), you may also need
-[vspkg](https://github.com/microsoft/vcpkg) to configure the VS toolset.
-- If you are using the VS2019 generator, you may need to set up Visual Studio to use
-only a single thread for the build. This is because some of the build tools (especially
-those for generating the Orbiter documentation) are not threadsafe, and the VS2019
-generator doesn't understand the CMake JOB_POOL directive.
+See the [native guide](Native/README.md) for all controls, supported scenarios, capture options and implementation details.
 
-Orbiter is a 32-bit application. Be sure to configure vspkg and CMake accordingly.
+## Current implementation
 
-If you want to build the documentation, you need a few additional tools:
-- a filter to convert ODT and DOC sources to PDF, such as
-  [LibreOffice](https://www.libreoffice.org/download/download/).
-- a LaTeX compiler suite such as [MiKTeX](https://miktex.org/download).
-- [Doxygen](https://www.doxygen.nl/index.html) for building the source-level
-  documentation for developers.
+- Earth-orbit flight with original Kepler propagation, maneuvering, RCS, finite-torque attitude assists, fuel use and native scenario persistence.
+- Original Delta-glider exterior and cockpit meshes, 63 original animation components, staged deployment, 25 cockpit click regions and 16 animated cockpit switches.
+- Main, retro and hover propulsion; gimbals and balance; landing gear, nose, ladder, airlocks, hatch, radiator, airbrake, control surfaces and lights.
+- Live native orbit/propulsion displays, cabin and airlock pressure, a reduced thermal model, and original atmosphere/airfoil data with reduced native aerodynamic coupling.
+- Experimental ground-physics core: original touchdown geometry, suspension, wheel friction, braking, steering, hover liftoff, soft/hard contact and geographic landed-scenario loading. Ground controls, instruments and surface scenery still need integration; this is not a complete landing/takeoff experience.
 
-See [COMPILE.md](./COMPILE.md) for details on building Orbiter.
+The native target currently supports one focused standard `DeltaGlider` at Earth. Other ships and stations, docking, terrain and bases, complete MFDs and analog instruments, full damage/coolant models, DG-S scramjets, sound, scripting and Windows plug-ins are incomplete or unavailable. The [native guide](Native/README.md#implementation-boundary) describes these limits.
 
-## Planet textures
+## Validation and CI
 
-The Orbiter git repository does not include most of the planetary texture files
-required for running Orbiter.
-You need to install those separately. The easiest way to do so is by installing
-an [Orbiter](https://github.com/orbitersim/orbiter/releases) release. Optionally
-you can also install high-resolution versions of the textures from the Orbiter website.
-You should keep the Orbiter installation separate from your Orbiter git
-repository.
+The flight, glider and surface CTest suites pass locally in Release and with AddressSanitizer/UndefinedBehaviorSanitizer. They cover orbital propagation, fuel and propulsion, mechanism staging, cockpit/mesh geometry, scenario round trips and ground-contact behavior. These checks do not establish full equivalence with the original simulator.
 
-To configure Orbiter to use the texture installation, set the
-ORBITER_PLANET_TEXTURE_INSTALL_DIR entry in CMake. For example, if Orbiter
-was installed in `C:\Orbiter`, the CMake option should be set to
-`C:/Orbiter/Textures`.
+The [Apple Silicon workflow](.github/workflows/native-macos.yml) builds the arm64 app, runs all three suites, verifies the executable architecture and uploads a ZIP artifact. The imported Windows/Linux maintenance workflows are available as manual workflows.
 
-This path can also be set using ORBITER_PLANET_TEXTURE_INSTALL_DIR environment variable
+## Source and licensing
 
-Alternatively, you can configure the texture directory after building Orbiter
-by setting the `PlanetTexDir` entry in `Orbiter.cfg`.
+The `Native/` directory contains the macOS application, Metal shaders, native flight layer and tests. The original source and assets remain in the repository, with small portability changes to the reused core. See the [upstream README](README.upstream.md) and [Windows build guide](COMPILE.md) for the original platform.
 
-## Help
-
-Help files are located in the Doc subfolder (if you built them).
-Orbiter User Manual.pdf is the main Orbiter user manual.
-
-The in-game help system can be opened via the "Help" button on
-the Orbiter Launchpad dialog, or with Alt-F1 while running
-Orbiter.
-
-Remaining questions can be posted on the Orbiter user forum at
-[orbiter-forum.com](https://www.orbiter-forum.com).
+Orbiter is licensed under [MIT](LICENSE). The included D3D9Client retains its [LGPL license](OVP/D3D9Client/LGPL.txt) and is not part of the native Metal target. Original source notices are retained. NASA Earth imagery is credited in [Native/Assets/CREDITS.txt](Native/Assets/CREDITS.txt).

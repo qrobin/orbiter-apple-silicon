@@ -1,9 +1,7 @@
-name: Artifact Cleanup
+name: Artifact cleanup (manual)
 
 on:
-  schedule:
-    # Every day at 1am
-    - cron: '0 1 * * *'
+  workflow_dispatch:
 
 jobs:
   remove-old-artifacts:

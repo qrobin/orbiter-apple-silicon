@@ -1,9 +1,7 @@
-name: Nightly
+name: Upstream Windows package (manual)
 
-on: 
+on:
   workflow_dispatch:
-  schedule:
-    - cron: "13 01 * * *"
 
 permissions:
   contents: write

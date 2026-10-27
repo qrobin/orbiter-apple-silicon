@@ -1,0 +1,41 @@
+name: Apple Silicon
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-macos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native:
+    name: Build and test arm64
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build, test and sign locally
+        run: ./Native/build.sh
+      - name: Verify native architecture
+        run: |
+          app="build/macos-arm64/Native/Orbiter Native.app"
+          test "$(lipo -archs "$app/Contents/MacOS/Orbiter Native")" = arm64
+          codesign --verify --deep --strict "$app"
+      - name: Package application
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent \
+            "build/macos-arm64/Native/Orbiter Native.app" \
+            Orbiter-Native-Apple-Silicon.zip
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Orbiter-Native-Apple-Silicon
+          path: Orbiter-Native-Apple-Silicon.zip
+          if-no-files-found: error
+          retention-days: 14
