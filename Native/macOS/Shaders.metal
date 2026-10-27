@@ -6,19 +6,33 @@ struct Frame {
     float4 sun, screen; // screen: width, height, tan(fov/2), rotation
 };
 struct Object { float4x4 model; float4 color; float4 options; };
+struct SwitchUniform { float4 pivotAngle,axisStart,range; };
 struct Vertex { packed_float3 position; packed_float3 normal; packed_float2 uv; };
 struct Raster { float4 position [[position]]; float3 normal; float2 uv; float3 world; };
 vertex Raster meshVertex(uint id [[vertex_id]],const device Vertex *vertices [[buffer(0)]],
-                         constant Frame &f [[buffer(1)]],constant Object &o [[buffer(2)]]) {
-    Raster out; Vertex v=vertices[id]; float3 p=(o.model*float4(float3(v.position),1)).xyz;
+                         constant Frame &f [[buffer(1)]],constant Object &o [[buffer(2)]],constant SwitchUniform *switches [[buffer(3)]]) {
+    Raster out; Vertex v=vertices[id]; float3 local=float3(v.position),normal=float3(v.normal);
+    for(int i=0;i<int(o.options.w);++i) {
+        SwitchUniform sw=switches[i];
+        if(int(o.options.z)!=int(sw.range.y)||id<uint(sw.axisStart.w)||id>=uint(sw.axisStart.w+sw.range.x)) continue;
+        float3 axis=sw.axisStart.xyz,q=local-sw.pivotAngle.xyz;float c=cos(sw.pivotAngle.w),s=sin(sw.pivotAngle.w);
+        local=sw.pivotAngle.xyz+q*c+cross(axis,q)*s+axis*dot(axis,q)*(1-c);
+        normal=normal*c+cross(axis,normal)*s+axis*dot(axis,normal)*(1-c);
+    }
+    float3 p=(o.model*float4(local,1)).xyz;
     float3 view=float3(dot(p,f.cameraRight.xyz),dot(p,f.cameraUp.xyz),-dot(p,f.cameraForward.xyz));
     out.position=f.projection*float4(view,1);
-    out.normal=(o.model*float4(float3(v.normal),0)).xyz;
+    out.normal=(o.model*float4(normal,0)).xyz;
     out.world=p; out.uv=float2(v.uv); return out;
 }
 fragment float4 meshFragment(Raster in [[stage_in]],constant Frame &f [[buffer(1)]],
                              constant Object &o [[buffer(2)]],texture2d<float> tex [[texture(0)]]) {
     constexpr sampler s(filter::linear,mip_filter::linear,address::repeat, max_anisotropy(8));
+    if(o.options.x>2.5) return float4(tex.sample(s,in.uv).rgb,1);
+    if(o.options.x>.5) {
+        float alpha=o.options.x>1.5?pow(max(0.0f,1-length(in.uv)),2.0f):pow(max(0.0f,1-abs(in.uv.x)),1.5f)*pow(max(0.0f,1-in.uv.y),.65f);
+        return float4(o.color.rgb*(1.1+alpha*.7),o.color.a*alpha);
+    }
     float4 albedo=tex.sample(s,in.uv)*o.color;
     if(albedo.a<.03) discard_fragment();
     float3 normal=normalize(in.normal);
@@ -26,7 +40,7 @@ fragment float4 meshFragment(Raster in [[stage_in]],constant Frame &f [[buffer(1
     float lit=max(0.0f,dot(normal,f.sun.xyz));
     float3 view=normalize(-in.world);
     float spec=pow(max(0.0f,dot(normal,normalize(f.sun.xyz+view))),40.0f)*.18;
-    float3 color=albedo.rgb*(.20+lit*.8)+spec;
+    float3 color=albedo.rgb*(.20+o.options.y+lit*.8)+spec;
     return float4(color,albedo.a);
 }
 struct SkyRaster { float4 position [[position]]; float2 uv; };

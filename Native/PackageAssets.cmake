@@ -1,9 +1,11 @@
 set(src "${CMAKE_ARGV4}")
 set(dst "${CMAKE_ARGV5}")
 file(MAKE_DIRECTORY "${dst}/Meshes" "${dst}/Textures" "${dst}/Scenarios")
-file(COPY "${src}/Src/Vessel/DeltaGlider/Meshes/deltaglider_ns.msh" DESTINATION "${dst}/Meshes")
+file(COPY "${src}/Src/Vessel/DeltaGlider/Meshes/deltaglider_ns.msh" "${src}/Src/Vessel/DeltaGlider/Meshes/deltaglider_vc.msh" DESTINATION "${dst}/Meshes")
 file(COPY "${src}/Src/Vessel/DeltaGlider/Textures/" DESTINATION "${dst}/Textures/DG")
 file(COPY "${src}/Src/Vessel/DeltaGlider/Textures2/dgmk4_1.dds" "${src}/Src/Vessel/DeltaGlider/Textures2/dgmk4_2_ns.dds" DESTINATION "${dst}/Textures/DG")
 file(COPY "${src}/Scenarios/Delta-glider/DG Mk4 in orbit.scn" DESTINATION "${dst}/Scenarios")
 file(COPY "${src}/Native/macOS/Shaders.metal" "${src}/LICENSE" DESTINATION "${dst}")
 file(COPY "${src}/Native/Assets/" DESTINATION "${dst}")
+
+file(COPY "${src}/Textures/generic/noise1.dds" DESTINATION "${dst}/Textures/generic")

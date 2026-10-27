@@ -12,7 +12,7 @@ The user wants to fly Orbiter on an Apple Silicon Mac. They explicitly selected 
 Port the supplied Orbiter source to run natively and smoothly on Apple Silicon. Preserve its orbital simulation, spacecraft assets, and scenario data where feasible.
 
 ## Capabilities and Constraints
-The first milestone is a Delta-glider in Earth orbit. Full vessel-module, cockpit, atmosphere, terrain, multi-body and add-on compatibility remain later work. Native ARM64 machine code and Metal rendering are required. A Windows compatibility layer would not satisfy the request.
+The initial milestone is a Delta-glider in Earth orbit. The next update adds its mechanisms, engines, cockpit controls, pressure and reduced thermal systems. Full vessel-module, cockpit, atmosphere, terrain, multi-body and add-on compatibility remain later work. Native ARM64 machine code and Metal rendering are required. A Windows compatibility layer would not satisfy the request.
 
 ## Evidence on Hand
 Original source, meshes, DDS textures, scenarios, and MIT license are included. NASA Blue Marble imagery supplies the initial Earth surface map because the download lacks Orbiter's Earth terrain textures.

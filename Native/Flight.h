@@ -1,5 +1,6 @@
 #pragma once
 #include "Element.h"
+#include "Glider.h"
 #include <string>
 #include <filesystem>
 namespace native {
@@ -10,13 +11,14 @@ constexpr double MainCapacity = 12900.0;
 constexpr double RcsCapacity = 600.0;
 constexpr double EmptyMass = 11000.0;
 constexpr double ExhaustVelocity = 40000.0;
-struct Input { double pitch=0, yaw=0, roll=0, translate=0; };
+struct Input { double pitch=0, yaw=0, roll=0, translate=0, lateral=0, vertical=0; };
 enum class Assist { Free, Prograde, Retrograde, KillRotation };
 class Flight {
 public:
+    Glider glider;
     Vector position, velocity, right{1,0,0}, up{0,1,0}, forward{0,0,1}, angularVelocity;
     double mjd=51982.5292925579, elapsed=0, fuel=MainCapacity*.553, rcs=RcsCapacity*.9;
-    double throttle=0, warp=1, acceleration=0;
+    double throttle=0, warp=1, acceleration=0, dynamicPressure=0, mach=0, angleOfAttack=0;
     bool paused=false, impacted=false;
     Assist assist=Assist::Free;
     std::string name="GL-01";

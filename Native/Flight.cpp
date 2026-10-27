@@ -1,5 +1,6 @@
 #include "Flight.h"
 #include "TimeData.h"
+#include "Aerodynamics.h"
 #include <algorithm>
 #include <cmath>
 #include <fstream>
@@ -51,7 +52,9 @@ void Flight::load(const std::filesystem::path &path) {
         }
         if(key=="END") { selected=false; continue; }
         if(!selected) continue;
+        if(candidate.glider.parse(line)) continue;
         if(key=="STATUS") { std::string state,body; s>>state>>body; orbiting=state=="Orbiting"&&body=="Earth"; }
+        if(key=="DGMAIN") s>>candidate.throttle;
         if(key=="RPOS") gotPos=bool(s>>candidate.position.x>>candidate.position.y>>candidate.position.z);
         if(key=="RVEL") gotVel=bool(s>>candidate.velocity.x>>candidate.velocity.y>>candidate.velocity.z);
         if(key=="ELEMENTS") { gotElements=true; for(double &v: vals) if(!(s>>v)) gotElements=false; }
@@ -78,7 +81,7 @@ void Flight::load(const std::filesystem::path &path) {
        !std::isfinite(arot.length2())||!std::isfinite(vrot.length2())||
        crossp(candidate.position,candidate.velocity).length2()<1||
        candidate.fuel<0||candidate.fuel>MainCapacity||
-       candidate.rcs<0||candidate.rcs>RcsCapacity)
+       candidate.rcs<0||candidate.rcs>RcsCapacity||!candidate.glider.valid()||!std::isfinite(candidate.throttle)||candidate.throttle<0||candidate.throttle>1)
         throw std::runtime_error("Scenario contains invalid orbital state or fuel quantities.");
     candidate.align(candidate.velocity);
     if(hasArot) {
@@ -98,7 +101,10 @@ void Flight::save(const std::filesystem::path &path) const {
      <<"\n  RVEL "<<velocity.x<<' '<<velocity.y<<' '<<velocity.z
      <<"\n  AROT "<<Deg(angles.x)<<' '<<Deg(angles.y)<<' '<<Deg(angles.z)
      <<"\n  VROT "<<Deg(angularVelocity.x)<<' '<<Deg(angularVelocity.y)<<' '<<Deg(angularVelocity.z)
-     <<"\n  PRPLEVEL 0:"<<fuel/MainCapacity<<" 1:"<<rcs/RcsCapacity<<"\nEND\nEND_SHIPS\n";
+     <<"\n  PRPLEVEL 0:"<<fuel/MainCapacity<<" 1:"<<rcs/RcsCapacity<<'\n';
+    f<<"  DGMAIN "<<throttle<<'\n';
+    glider.save(f);
+    f<<"END\nEND_SHIPS\n";
     f.flush(); if(!f) throw std::runtime_error("Writing the scenario failed.");
 }
 Elements Flight::orbit() const {
@@ -114,36 +120,86 @@ void Flight::coast(double dt) {
 }
 void Flight::step(double dt,const Input &input) {
     Vector control(input.pitch,input.yaw,input.roll);
-    if(assist==Assist::Prograde||assist==Assist::Retrograde) {
-        align(assist==Assist::Prograde?velocity:-velocity); angularVelocity={};
-    } else {
-        if(rcs>0) {
-            angularVelocity+=control*(.22*dt);
-            double demand=control.length();
-            if(assist==Assist::KillRotation) {
-                demand+=angularVelocity.length(); angularVelocity*=exp(-4*dt);
-            }
-            rcs=std::max(0.0,rcs-demand*dt*1.0);
-        }
-        // Bound manual angular rates; original RCS thruster topology is a later milestone.
-        double rate=angularVelocity.length(); if(rate>1.5) angularVelocity*=1.5/rate;
-        Vector axis=right*angularVelocity.x+up*angularVelocity.y+forward*angularVelocity.z;
-        if(axis.length2()>1e-20) {
-            double angle=axis.length()*dt; axis.unify();
-            forward=rotate(forward,axis,angle).unit(); up=rotate(up,axis,angle).unit();
-            right=crossp(up,forward).unit(); up=crossp(forward,right).unit();
-        }
+    Vector translation(input.lateral,input.vertical,input.translate);
+    if(glider.rcsMode==2) { translation.x+=input.yaw; translation.y-=input.pitch; control={}; }
+    if(assist==Assist::KillRotation) {
+        Vector limit(40000/(mass()*15.5),30000/(mass()*22.1),30000/(mass()*7.7));
+        control={-angularVelocity.x/limit.x*3,-angularVelocity.y/limit.y*3,-angularVelocity.z/limit.z*3};
+    } else if(assist==Assist::Prograde||assist==Assist::Retrograde) {
+        Vector target=(assist==Assist::Prograde?velocity:-velocity).unit();
+        Vector error=crossp(forward,target);
+        // A 180-degree target needs an explicit axis: the cross product is zero there.
+        if(dotp(forward,target)<-.98&&error.length()<.05) error=up;
+        Vector desired(dotp(error,right),dotp(error,up),0);
+        desired*=.6;
+        control={(desired.x-angularVelocity.x)*mass()*15.5/40000*3,
+                 (desired.y-angularVelocity.y)*mass()*22.1/30000*3,
+                 -angularVelocity.z*mass()*7.7/30000*3};
     }
-    double force=fuel>0?400000.0*throttle:0;
-    // Limit impulse to actual fuel available, including the final partial burn.
-    double consumed=std::min(fuel,force*dt/ExhaustVelocity);
-    force=consumed*ExhaustVelocity/dt;
-    Vector thrust=forward*(force/mass()); acceleration=thrust.length();
-    fuel-=consumed;
-    double rcsForce=rcs>0?5000.0*input.translate:0;
-    double rcsUsed=std::min(rcs,fabs(rcsForce)*dt/ExhaustVelocity);
-    if(rcsForce) thrust+=forward*(copysign(rcsUsed*ExhaustVelocity/dt,rcsForce)/mass());
-    rcs-=rcsUsed;
+    for(int i=0;i<3;++i) { control(i)=std::clamp(control(i),-1.,1.); translation(i)=std::clamp(translation(i),-1.,1.); }
+    if(glider.rcsMode==0) { control={};translation={}; }
+    glider.rcsRotation=control; glider.rcsTranslation=translation;
+    glider.elevator=std::clamp(-input.pitch,-1.,1.); glider.rudder=input.yaw; glider.aileron=input.roll;
+    // Original DG thruster locations, directions and easy-model vacuum ratings.
+    Vector force,torque;
+    auto engine=[&](Vector position,Vector direction,double thrust) {
+        Vector f=direction*thrust; force+=f; torque+=crossp(position,f);
+    };
+    double left=throttle*std::clamp(1-glider.mainBalance,0.,1.)*200000;
+    double rightEngine=throttle*std::clamp(1+glider.mainBalance,0.,1.)*200000;
+    Vector mainDirection(glider.gimbalYaw/7.7,tan(5*RAD)*glider.gimbalPitch,1); mainDirection.unify();
+    double retro=glider.retroLevel*34000;
+    double hf=glider.hover*140000*std::clamp(1+glider.hoverBalance,0.,1.);
+    double ha=glider.hover*140000*(3./4.55)*.5*std::clamp(1-glider.hoverBalance,0.,1.);
+    double demand=(left+rightEngine+retro*2+hf+ha*2)*dt/ExhaustVelocity;
+    double scale=demand>0?std::min(1.,fuel/demand):1;
+    engine({-1,0,-7.7},mainDirection,left*scale); engine({1,0,-7.7},mainDirection,rightEngine*scale);
+    engine({-3,-.236,5.6},{0,.04210548,-.99911317},retro*scale);
+    engine({3,-.236,5.6},{0,.04210548,-.99911317},retro*scale);
+    engine({0,0,3},{0,1,0},hf*scale); engine({-3,0,-4.55},{0,1,0},ha*scale); engine({3,0,-4.55},{0,1,0},ha*scale);
+    fuel=demand>=fuel?0:fuel-demand;
+    glider.mainLevel=throttle*scale; glider.retroLevel*=scale; glider.hoverLevel=glider.hover*scale;
+    double rcsDemand=5000*(fabs(control.x)+fabs(control.y)+fabs(control.z)+fabs(translation.x)+fabs(translation.y)+fabs(translation.z))*dt/ExhaustVelocity;
+    double rcsScale=rcsDemand>0?std::min(1.,rcs/rcsDemand):1;
+    torque+=Vector(control.x*40000,control.y*30000,control.z*30000)*rcsScale;
+    force+=translation*(5000*rcsScale); rcs=rcsDemand>=rcs?0:rcs-rcsDemand;
+    glider.rcsRotation*=rcsScale; glider.rcsTranslation*=rcsScale;
+    auto air=earthAtmosphere(altitude());
+    Vector spin(0,cos(.4090928)*Pi2/86164.10132,sin(.4090928)*Pi2/86164.10132);
+    Vector airVelocity=velocity-crossp(spin,position);
+    double airspeed=airVelocity.length();
+    dynamicPressure=.5*air.rho*airspeed*airspeed;
+    mach=air.T>0?airspeed/sqrt(1.4*286.91*air.T):0;
+    Vector localVelocity(dotp(airVelocity,right),dotp(airVelocity,up),dotp(airVelocity,forward));
+    angleOfAttack=atan2(-localVelocity.y,localVelocity.z);
+    if(altitude()<120000&&airspeed>1) {
+        double cl,cm,cd,hcl,hcm,hcd;
+        verticalLift(angleOfAttack,mach,&cl,&cm,&cd);
+        horizontalLift(atan2(-localVelocity.x,localVelocity.z),mach,&hcl,&hcm,&hcd);
+        Vector vertical(0,localVelocity.z,-localVelocity.y),horizontal(localVelocity.z,0,-localVelocity.x);
+        if(vertical.length2()>1) force+=vertical.unit()*(dynamicPressure*90*cl);
+        if(horizontal.length2()>1) force+=horizontal.unit()*(dynamicPressure*15*hcl);
+        double extra=.8*glider.part(Part::Gear).position+.2*glider.part(Part::RetroCover).position+
+            3*glider.part(Part::Nose).position+glider.part(Part::Radiator).position+4*glider.part(Part::Airbrake).position;
+        force-=localVelocity.unit()*(dynamicPressure*(90*cd+15*hcd+extra));
+        torque.x+=dynamicPressure*(90*5*cm-glider.elevator*1.4*1.7*7.2-glider.trim*.3*1.7*7.2);
+        torque.y+=dynamicPressure*glider.rudder*.8*1.7*7.2;
+        torque.z+=dynamicPressure*glider.aileron*.3*1.7*15;
+        torque-=Vector(angularVelocity.x*.10,angularVelocity.y*.13,angularVelocity.z*.04)*(dynamicPressure*100);
+    }
+    Vector inertia=Vector(15.5,22.1,7.7)*mass();
+    Vector w=angularVelocity;
+    Vector angularAcceleration((torque.x+(inertia.y-inertia.z)*w.y*w.z)/inertia.x,
+                               (torque.y+(inertia.z-inertia.x)*w.z*w.x)/inertia.y,
+                               (torque.z+(inertia.x-inertia.y)*w.x*w.y)/inertia.z);
+    angularVelocity+=angularAcceleration*dt;
+    Vector axis=right*angularVelocity.x+up*angularVelocity.y+forward*angularVelocity.z;
+    if(axis.length2()>1e-20) {
+        double angle=axis.length()*dt; axis.unify();
+        forward=rotate(forward,axis,angle).unit(); up=rotate(up,axis,angle).unit();
+        right=crossp(up,forward).unit(); up=crossp(forward,right).unit();
+    }
+    Vector thrust=(right*force.x+up*force.y+forward*force.z)/mass(); acceleration=thrust.length();
     auto gravity=[](const Vector &p) { double r=p.length(); return p*(-Mu/(r*r*r)); };
     Vector k1p=velocity, k1v=gravity(position)+thrust;
     Vector k2p=velocity+k1v*(dt*.5), k2v=gravity(position+k1p*(dt*.5))+thrust;
@@ -154,10 +210,13 @@ void Flight::step(double dt,const Input &input) {
 }
 void Flight::advance(double realSeconds,const Input &input) {
     if(paused||impacted||realSeconds<=0||!std::isfinite(realSeconds)) return;
-    bool maneuver=throttle>0||input.pitch||input.yaw||input.roll||input.translate||angularVelocity.length2()>1e-16;
-    if(maneuver) warp=1;
+    bool atmosphericFlight=altitude()<120000;
+    bool maneuver=throttle>0||glider.hover>0||glider.retro>0||input.pitch||input.yaw||input.roll||input.translate||input.lateral||input.vertical||angularVelocity.length2()>1e-16;
+    if(maneuver||atmosphericFlight) warp=1;
     double dt=std::min(realSeconds,.1)*std::clamp(warp,1.0,1000.0);
-    if(!maneuver) {
+    glider.elevator=-input.pitch;glider.rudder=input.yaw;glider.aileron=input.roll;
+    glider.advance(dt,throttle,earthAtmosphere(altitude()).p);
+    if(!maneuver&&!atmosphericFlight&&(assist==Assist::Free||warp>1)) {
         coast(dt); acceleration=0;
         if(assist==Assist::Prograde||assist==Assist::Retrograde) align(assist==Assist::Prograde?velocity:-velocity);
     } else {
