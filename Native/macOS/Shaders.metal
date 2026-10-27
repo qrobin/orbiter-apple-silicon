@@ -4,6 +4,7 @@ struct Frame {
     float4x4 projection;
     float4 cameraRight, cameraUp, cameraForward, cameraPosition;
     float4 sun, screen; // screen: width, height, tan(fov/2), rotation
+    float4 environment; // exact camera altitude / radius, vessel altitude in metres
 };
 struct Object { float4x4 model; float4 color; float4 options; };
 struct SwitchUniform { float4 pivotAngle,axisStart,range; };
@@ -48,13 +49,17 @@ vertex SkyRaster skyVertex(uint id [[vertex_id]]) {
     float2 p=float2((id<<1)&2,id&2); return {float4(p*2-1,1,1),p};
 }
 float hash(float3 p) { return fract(sin(dot(p,float3(127.1,311.7,74.7)))*43758.5453); }
-fragment float4 skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buffer(1)]],
+struct SkyOutput { float4 color [[color(0)]]; float depth [[depth(any)]]; };
+fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buffer(1)]],
                             texture2d<float> earth [[texture(0)]]) {
     constexpr sampler s(filter::linear,mip_filter::linear,s_address::repeat,t_address::clamp_to_edge);
     float2 xy=in.uv*2-1;
     float3 ray=normalize(f.cameraForward.xyz+f.cameraRight.xyz*xy.x*f.screen.z*(f.screen.x/f.screen.y)+f.cameraUp.xyz*xy.y*f.screen.z);
     float3 origin=f.cameraPosition.xyz;
-    float b=dot(origin,ray), c=dot(origin,origin)-1, disc=b*b-c;
+    // Computing height on the CPU in double precision avoids subtracting nearly
+    // equal float radii when the camera is only a few metres above the ground.
+    float height=f.environment.x;
+    float b=dot(normalize(origin),ray)*(1+height), c=height*(2+height), disc=b*b-c;
     float3 sky=float3(.0008,.0012,.0025);
     float3 cell=floor(ray*900);
     float star=hash(cell);
@@ -64,8 +69,14 @@ fragment float4 skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buffer
     }
     float sunDot=dot(ray,f.sun.xyz);
     sky+=float3(1,.9,.72)*pow(max(0.0f,sunDot),4000.0f)*3;
+    float dayAtCamera=smoothstep(-.18,.12,dot(normalize(origin),f.sun.xyz));
+    float air=exp(-max(0.0f,height)*6371010/18000)*dayAtCamera;
+    float elevation=max(0.0f,dot(ray,normalize(origin)));
+    float3 airColor=mix(float3(.45,.61,.72),float3(.07,.27,.56),pow(elevation,.35f));
+    sky=mix(sky,airColor,air*.98);
     if(disc>=0&&b<0) {
-        float t=-b-sqrt(disc); float3 n=normalize(origin+ray*t);
+        // The direct near-root subtraction loses centimetres at ground level.
+        float t=c/max(1e-12f,-b+sqrt(disc)); float3 n=normalize(origin+ray*t);
         // Ecliptic to terrestrial equatorial frame (mean obliquity), then Earth rotation.
         float ob=.4090928;
         float3 equ=float3(n.x,n.y*cos(ob)+n.z*sin(ob),-n.y*sin(ob)+n.z*cos(ob));
@@ -74,9 +85,16 @@ fragment float4 skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buffer
         float day=smoothstep(-.14,.16,dot(n,f.sun.xyz));
         float light=max(.03f,dot(n,f.sun.xyz));
         float3 surface=base*(.035+light*.96)*day+base*.018*(1-day);
+        // The supplied archive has no local Earth terrain tiles. Keep the global
+        // imagery, with modest ground detail and distance haze for surface flight.
+        float groundDetail=1-.13*hash(floor(n*6371010/2));
+        surface*=mix(1.0f,groundDetail,exp(-max(0.0f,height)*6371010/1800));
         float fresnel=pow(1-max(0.0f,dot(n,-ray)),4.0f);
         surface=mix(surface,float3(.14,.37,.68)*(.3+.7*day),fresnel*.72);
-        return float4(surface,1);
+        surface=mix(surface,airColor,air*(1-exp(-t*6371010/35000))*.8);
+        float viewZ=-t*6371010*dot(ray,f.cameraForward.xyz);
+        float4 clip=f.projection*float4(0,0,viewZ,1);
+        return {float4(surface,1),clamp(clip.z/clip.w,0.0f,1.0f)};
     }
     float atmosphereDisc=b*b-(dot(origin,origin)-1.025*1.025);
     if(atmosphereDisc>0&&b<0) {
@@ -86,5 +104,5 @@ fragment float4 skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buffer
         float light=smoothstep(-.3,.4,dot(n,f.sun.xyz));
         sky+=float3(.10,.33,.75)*glow*light;
     }
-    return float4(sky,1);
+    return {float4(sky,1),1};
 }

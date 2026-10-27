@@ -46,6 +46,7 @@ Mesh loadMesh(const std::filesystem::path &path) {
         for(float &v:m.diffuse) s>>v;
         line(); line(); line(); mesh.materials.push_back(m);
     }
+    if(mesh.materials.empty()) mesh.materials.emplace_back(); // Original base meshes may use MATERIAL 0.
     std::istringstream(line())>>tag>>count;
     if(tag!="TEXTURES"||count>10000) throw std::runtime_error("Missing mesh textures.");
     for(size_t j=0;j<count;++j) { std::string name; std::istringstream(line())>>name;

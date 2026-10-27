@@ -10,6 +10,7 @@
     NSMutableArray<NSTextField *> *mechanismValues,*engineValues;
     NSMutableArray<NSSlider *> *engineSliders;
     NSTextField *summary,*pressure,*thermal,*warning;
+    NSButton *parkingBrake;
     NSSegmentedControl *rcsSelector;
     NSTimer *refreshTimer;
 }
@@ -25,7 +26,7 @@
     panel.releasedWhenClosed=NO;
     NSScrollView *scroll=[[NSScrollView alloc] initWithFrame:NSMakeRect(0,0,440,690)];
     scroll.hasVerticalScroller=YES; scroll.autohidesScrollers=YES;
-    FlippedGliderDocument *doc=[[FlippedGliderDocument alloc] initWithFrame:NSMakeRect(0,0,420,1440)];
+    FlippedGliderDocument *doc=[[FlippedGliderDocument alloc] initWithFrame:NSMakeRect(0,0,420,1510)];
     scroll.documentView=doc; panel.contentView=scroll;
     mechanismButtons=[NSMutableArray new]; mechanismValues=[NSMutableArray new];
     engineSliders=[NSMutableArray new]; engineValues=[NSMutableArray new]; switches=[NSMutableArray new];
@@ -71,13 +72,18 @@
     warning=label(@"",18,1340,386,11);warning.frame=NSMakeRect(18,1340,386,58);warning.maximumNumberOfLines=3;
     warning.textColor=[NSColor colorWithRed:1 green:.72 blue:.36 alpha:1];
     label(@"Mechanisms follow simulation time. M opens this panel.",18,1402,390,11);
+    for(NSView *item in doc.subviews) if(item!=summary) {NSRect frame=item.frame;frame.origin.y+=68;item.frame=frame;}
+    parkingBrake=[NSButton checkboxWithTitle:@"Parking brake  (Shift-W)" target:self action:@selector(changeParkingBrake:)];
+    parkingBrake.frame=NSMakeRect(18,43,384,24);[doc addSubview:parkingBrake];
+    label(@"Hold , / . for left/right brakes. [ / ] changes hover thrust.",18,76,390,11);
     [self refresh:nil];
     refreshTimer=[NSTimer scheduledTimerWithTimeInterval:.2 target:self selector:@selector(refresh:) userInfo:nil repeats:YES];
     [panel center]; return self;
 }
 - (void)refresh:(id)sender {
     FlightView *view=flightView; if(!view) return; auto &f=view->flight;auto &g=f.glider;
-    summary.stringValue=f.paused?@"Paused — resume flight to move mechanisms":@"Systems active · standard Delta-glider";
+    summary.stringValue=f.paused?@"Paused — resume flight to move mechanisms":f.groundContact?[NSString stringWithFormat:@"Ground %.1f m/s · %d wheels in contact",f.groundSpeed,f.wheelContacts]:@"Systems active · standard Delta-glider";
+    parkingBrake.state=g.parkingBrake?NSControlStateValueOn:NSControlStateValueOff;
     for(size_t i=0;i<PartCount;++i) {
         auto &a=g.parts[i];
         mechanismValues[i].stringValue=[NSString stringWithFormat:@"%@ %.0f%%",a.moving()?(a.target>a.position?@"Opening":@"Closing"):(a.position>.99?@"Open":a.position<.01?@"Closed":@"Stopped"),a.position*100];
@@ -101,6 +107,7 @@
     double *values[]={&f.throttle,&g.hover,&g.retro,&g.mainBalance,&g.gimbalPitch,&g.gimbalYaw,&g.hoverBalance,&g.trim};
     *values[sender.tag]=sender.doubleValue; [self refresh:nil];
 }
+- (void)changeParkingBrake:(NSButton *)sender {flightView->flight.glider.parkingBrake=sender.state==NSControlStateValueOn;}
 - (void)changeRCS:(NSSegmentedControl *)sender { flightView->flight.glider.rcsMode=(int)sender.selectedSegment; }
 - (void)changeSwitch:(NSButton *)sender {
     auto &g=flightView->flight.glider;

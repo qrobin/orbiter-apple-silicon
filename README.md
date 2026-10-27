@@ -27,10 +27,11 @@ See the [native guide](Native/README.md) for all controls, supported scenarios, 
 - Earth-orbit flight with original Kepler propagation, maneuvering, RCS, finite-torque attitude assists, fuel use and native scenario persistence.
 - Original Delta-glider exterior and cockpit meshes, 63 original animation components, staged deployment, 25 cockpit click regions and 16 animated cockpit switches.
 - Main, retro and hover propulsion; gimbals and balance; landing gear, nose, ladder, airlocks, hatch, radiator, airbrake, control surfaces and lights.
-- Live native orbit/propulsion displays, cabin and airlock pressure, a reduced thermal model, and original atmosphere/airfoil data with reduced native aerodynamic coupling.
-- Experimental ground-physics core: original touchdown geometry, suspension, wheel friction, braking, steering, hover liftoff, soft/hard contact and geographic landed-scenario loading. Ground controls, instruments and surface scenery still need integration; this is not a complete landing/takeoff experience.
+- A partial Cape Canaveral base with 10 original landing pads, 123 block buildings, two native runway surfaces at their original coordinates, and original tarmac geometry/textures. Local ground cover is approximate; custom base objects, lights and building collisions remain unported.
+- Live native surface/orbit/propulsion displays, cabin and airlock pressure, a reduced thermal model, and original atmosphere/airfoil data with reduced native aerodynamic coupling.
+- Experimental ground-physics core: original touchdown geometry, suspension, wheel friction, braking, steering, hover liftoff, soft/hard contact and geographic landed-scenario loading. Interactive wheel/parking brakes, hover throttle keys, a surface start and native surface instruments are connected. Ground handling remains experimental.
 
-The native target currently supports one focused standard `DeltaGlider` at Earth. Other ships and stations, docking, terrain and bases, complete MFDs and analog instruments, full damage/coolant models, DG-S scramjets, sound, scripting and Windows plug-ins are incomplete or unavailable. The [native guide](Native/README.md#implementation-boundary) describes these limits.
+The native target currently supports one focused standard `DeltaGlider` at Earth. Other ships and stations, docking, terrain and complete bases, complete MFDs and analog instruments, full damage/coolant models, DG-S scramjets, sound, scripting and Windows plug-ins are incomplete or unavailable. The [native guide](Native/README.md#implementation-boundary) describes these limits.
 
 ## Validation and CI
 

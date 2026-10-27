@@ -9,3 +9,5 @@ Native file dialogs handle scenario open/save and errors. Native focus behavior 
 The glider systems panel uses native macOS controls in a scrollable utility window. Mechanisms show actual position and motion, engines use bounded continuous sliders, and pressure/thermal readouts reflect simulation state. M opens this panel. The original cockpit's supported click areas have equivalent large, accessible controls here.
 
 In the virtual cockpit, suppress external instrument panels and use live native textures on the original MFD displays. Keep cockpit labeling in its original orientation. Switches and levers use original pivots and vertex ranges.
+
+Below 120 km, the lower-left readouts and left cockpit display show surface flight data. The optional center diagram becomes a surface attitude instrument. Dark header and footer strips keep labels readable against daytime terrain. The systems panel exposes the parking brake near the top, alongside the keyboard controls for brakes and hover thrust.

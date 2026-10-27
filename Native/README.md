@@ -1,6 +1,6 @@
-# Orbiter Native 0.2 — Delta-glider systems
+# Orbiter Native 0.3 — surface flight
 
-A partial native Apple Silicon port of the supplied Orbiter source. Version 0.2 adds standard Delta-glider mechanisms, propulsion and cockpit interaction to the original native Earth-orbit flight milestone. This remains an experimental native flight target, **not a complete port of Orbiter or every Delta-glider subsystem**.
+A partial native Apple Silicon port of the supplied Orbiter source. Version 0.3 connects ground controls, surface instruments and a subset of the original Cape Canaveral base to the native Delta-glider. This remains an experimental native flight target, **not a complete port of Orbiter or every Delta-glider subsystem**.
 
 ## Try it
 
@@ -10,7 +10,11 @@ Choose **Flight → Mechanism Demonstration** to watch gear, nose, retro covers,
 
 Press **V** to enter the original 3D cockpit. Drag to look around. Twenty-five original click regions operate supported switches, gear/nose/airbrake levers, main and hover throttles, RCS selector, trim and gimbal controls. Sixteen switch handles rotate about their original pivots; the original main/hover throttle, gear and nose lever animations are connected. Click-and-drag the main or hover throttle to adjust it. **M** provides larger accessible controls for the same systems.
 
-The cockpit has live native orbit and propulsion displays on the original MFD meshes. These are new native displays, not the full Orbiter MFD implementation. Original analog instruments and other cockpit buttons are not all connected.
+The cockpit has live native surface/orbit and propulsion displays on the original MFD meshes. These are new native displays, not the full Orbiter MFD implementation. Original analog instruments and other cockpit buttons are not all connected.
+
+Choose **Flight → Cape Canaveral — Surface Flight** to start parked at the original scenario location with low fuel, gear deployed, RCS off and parking brake set. **Shift-W** releases the parking brake; hold **,** and **.** for left/right wheel brakes. Use **[ / ]** to lower/raise hover throttle. **M** has the equivalent parking-brake switch and hover slider. Around 95% hover thrust lifts this light configuration; keep the gear down while learning. Hover attitude/altitude autopilots are still unported, so sustained hovering requires manual attitude control (enable RCS in the panel).
+
+The HUD and left cockpit display automatically show surface altitude, ground-relative speed, vertical speed, heading, pitch and bank below 120 km. The external orbit diagram becomes a surface attitude indicator. Select **Flight → Earth Orbit** to return to the orbital starting scenario. **R** restarts the scenario most recently selected or opened.
 
 ## Implemented systems
 
@@ -38,6 +42,9 @@ The native animation registry contains **63 components extracted from upstream s
 | Control | Action |
 | --- | --- |
 | M | Open glider systems panel |
+| [ / ] | Decrease / increase hover throttle |
+| , / . | Hold left / right wheel brake; hold both to stop |
+| Shift-W | Toggle parking brake |
 | V | External view / virtual cockpit |
 | Drag / scroll | Orbit external camera / zoom; drag in cockpit to look around |
 | + / − or keypad + / − | Increase / decrease main throttle |
@@ -59,9 +66,9 @@ The native animation registry contains **63 components extracted from upstream s
 | I / Shift-I | Toggle outer / inner airlock |
 | T / Y | Increase / decrease time acceleration |
 | Space | Pause / resume |
-| R | Restart supplied orbital flight |
+| R | Restart the current scenario |
 | F1 | Show controls |
-| F2 | Show / hide external orbit diagram |
+| F2 | Show / hide external orbit or surface attitude diagram |
 | ⌘O / ⌘S | Open / save scenario |
 | ⌘Q | Quit |
 
@@ -87,21 +94,26 @@ For a bounded rendering run:
   --capture /absolute/path/frame.png --report /absolute/path/performance.json
 ```
 
-Use `--cockpit` for the 3D cockpit, `--scenario /absolute/path/file.scn` for a supported scenario. `--glider-demo` starts with selected mechanisms deployed for a repeatable render capture; the menu demonstration runs their actual transitions. Bounded frame runs ignore manual keyboard/camera input.
+Use `--surface` for the bundled Cape start, `--cockpit` for the 3D cockpit, `--scenario /absolute/path/file.scn` for a supported scenario. `--glider-demo` starts with selected mechanisms deployed for a repeatable render capture; the menu demonstration runs their actual transitions. Bounded frame runs ignore manual keyboard/camera input.
 
 Animation and cockpit geometry data can be regenerated from the included upstream sources with:
 
 ```sh
 python3 Native/tools/extract_glider_animations.py
+python3 Native/tools/extract_base_geometry.py
 ```
 
 The generated `.inc` files are committed, so Python is not a build dependency.
 
-## Experimental ground physics
+## Ground physics and Cape Canaveral
 
-The source now includes a tested ground-contact core using the original Delta-glider touchdown geometry: spring/damper suspension, wheel friction, independent rear brakes, parking brake, nose-wheel steering, gentle landing, hard-impact detection and hover liftoff. Geographic `STATUS Landed Earth` scenarios such as `Scenarios/Delta-glider/Cape Canaveral.scn` can be loaded through Open Scenario or `--scenario`.
+The native flight includes a tested ground-contact core using the original Delta-glider touchdown geometry: spring/damper suspension, wheel friction, independent rear brakes, parking brake, nose-wheel steering, gentle landing, hard-impact detection and hover liftoff. Geographic `STATUS Landed Earth` scenarios such as `Scenarios/Delta-glider/Cape Canaveral.scn` can be loaded through Open Scenario or `--scenario`.
 
-This is a development feature. The surface is a smooth sphere at the mean Earth radius; there are no terrain elevations, bases, runways or local surface textures. Brake/parking controls are currently exposed through the native core API and scenario state, with interactive control integration still pending. Surface instruments and a dedicated ground scenario menu are not connected. Orbital flight remains the primary playable milestone.
+The original `Canaveral.cfg` supplies its geographic anchor, 10 landing-pad placements, 123 block buildings, two runway layouts and the visitor-area tarmac mesh. Landing pads retain the original geometry, numbered texture atlas, scale and rotation. Building wall/roof textures are original. The runways use native surfaces and markings at the original endpoints; they do not implement the full original runway-segment renderer or lights. Draw calls are batched by material/texture, and the geometry follows Earth curvature and rotation.
+
+The supplied archive lacks local Earth terrain tiles. A native textured ground patch gives the Cape subset a visible surface; it is an approximation, not Florida coastline or elevation data. The Earth pass writes depth to hide geometry below the horizon, and the external camera stays above the ground. Forty unsupported base objects are omitted, including custom launch-complex meshes and hangars; base buildings currently provide visual scenery only, with no building collision response.
+
+The physics surface is a smooth sphere at the mean Earth radius. Ground handling remains experimental, without terrain elevations or full original takeoff/landing equivalence.
 
 ## Implementation boundary
 
@@ -111,7 +123,7 @@ Pressure uses a continuous solution to the original cabin/airlock volume and con
 
 Still incomplete:
 
-- Full native vessel/body engine, moving solar-system bodies, SPICE modules, perturbations, terrain, bases, complete ground controls/instruments and validated takeoff/landing scenarios. Ground contact currently uses an experimental spherical-surface model; hard impacts stop the flight.
+- Full native vessel/body engine, moving solar-system bodies, SPICE modules, perturbations, terrain, complete bases and validated atmospheric flight-model equivalence. Ground contact currently uses an experimental spherical-surface model; hard impacts stop the flight.
 - Full DG damage/failure model, complete coolant circuit, hover altitude/attitude hold and atmospheric autopilots, original analog instruments, all cockpit buttons and complete MFD modes.
 - Docking/undocking mechanics, other ships and stations. The animated nose exposes the port, but docking requires the unported multi-vessel infrastructure.
 - DG-S scramjet systems (a separate variant), original sound, Lua scripting and Windows DLL plug-ins.
