@@ -1,6 +1,7 @@
 #include "Flight.h"
 #include "TimeData.h"
 #include "Aerodynamics.h"
+#include "Surface.h"
 #include <algorithm>
 #include <cmath>
 #include <fstream>
@@ -26,10 +27,27 @@ void Flight::align(const Vector &direction) {
     if(fabs(dotp(normal,forward))>.98) normal={1,0,0};
     right=crossp(normal,forward).unit(); up=crossp(forward,right).unit();
 }
+void Flight::placeOnEarth(double latitude,double longitude,double headingAngle,double clearance) {
+    auto frame=earthSurface(latitude,longitude,mjd,elapsed);
+    position=frame.up*(EarthRadius+clearance);up=frame.up;
+    forward=(frame.north*cos(headingAngle)+frame.east*sin(headingAngle)).unit();right=crossp(up,forward).unit();
+    velocity=crossp(earthSpin(),position);
+    angularVelocity={dotp(earthSpin(),right),dotp(earthSpin(),up),dotp(earthSpin(),forward)};
+    glider.part(Part::Gear).position=glider.part(Part::Gear).target=1;
+    groundContact=true;wheelContacts=3;paused=false;impacted=false;assist=Assist::Free;
+}
+double Flight::pitch() const { return asin(std::clamp(dotp(forward,position.unit()),-1.,1.)); }
+double Flight::bank() const { auto n=position.unit();return atan2(-dotp(right,n),dotp(up,n)); }
+double Flight::heading() const {
+    double lat,lng;earthCoordinates(position,mjd,elapsed,lat,lng);auto frame=earthSurface(lat,lng,mjd,elapsed);
+    double h=atan2(dotp(forward,frame.east),dotp(forward,frame.north));return h<0?h+Pi2:h;
+}
+double Flight::surfaceVerticalSpeed() const { return dotp(velocity-crossp(earthSpin(),position),position.unit()); }
 void Flight::load(const std::filesystem::path &path) {
     std::ifstream file(path); if(!file) throw std::runtime_error("Cannot open scenario.");
     Flight candidate; std::string line, focus, blockName;
-    bool ships=false, selected=false, found=false, orbiting=false, gotPos=false, gotVel=false;
+    bool ships=false, selected=false, found=false, orbiting=false, landed=false, gotPos=false, gotVel=false, gotSurface=false, gearSpecified=false, gotVrot=false;
+    double longitude=0,latitude=0,headingAngle=0,clearance=2.53;
     bool gotElements=false; double vals[7]={}; Vector arot,vrot; bool hasArot=false;
     // Read focus and date first; vessel blocks can appear in any order.
     while(std::getline(file,line)) {
@@ -52,13 +70,18 @@ void Flight::load(const std::filesystem::path &path) {
         }
         if(key=="END") { selected=false; continue; }
         if(!selected) continue;
+        if(key=="GEAR") gearSpecified=true;
         if(candidate.glider.parse(line)) continue;
-        if(key=="STATUS") { std::string state,body; s>>state>>body; orbiting=state=="Orbiting"&&body=="Earth"; }
+        if(key=="STATUS") { std::string state,body; s>>state>>body; orbiting=state=="Orbiting"&&body=="Earth";landed=state=="Landed"&&body=="Earth"; }
+        if(key=="POS") gotSurface=bool(s>>longitude>>latitude);
+        if(key=="HEADING") s>>headingAngle;
+        if(key=="ALT") s>>clearance;
+        if(key=="RCSMODE") s>>candidate.glider.rcsMode;
         if(key=="DGMAIN") s>>candidate.throttle;
         if(key=="RPOS") gotPos=bool(s>>candidate.position.x>>candidate.position.y>>candidate.position.z);
         if(key=="RVEL") gotVel=bool(s>>candidate.velocity.x>>candidate.velocity.y>>candidate.velocity.z);
         if(key=="ELEMENTS") { gotElements=true; for(double &v: vals) if(!(s>>v)) gotElements=false; }
-        if(key=="VROT") s>>vrot.x>>vrot.y>>vrot.z;
+        if(key=="VROT") gotVrot=bool(s>>vrot.x>>vrot.y>>vrot.z);
         if(key=="AROT") hasArot=bool(s>>arot.x>>arot.y>>arot.z);
         if(key=="PRPLEVEL") { std::string token; while(s>>token) {
             auto c=token.find(':'); if(c==std::string::npos) continue;
@@ -68,8 +91,15 @@ void Flight::load(const std::filesystem::path &path) {
             } catch(...) { throw std::runtime_error("Invalid propellant value."); }
         }}
     }
-    if(!found||!orbiting) throw std::runtime_error("Choose an Earth-orbit scenario focused on a DeltaGlider. Other vessels and surface flight are not ported yet.");
-    if(!(gotPos&&gotVel)) {
+    if(!found||(!orbiting&&!landed)) throw std::runtime_error("Choose an Earth scenario focused on a DeltaGlider. Landed flights need POS coordinates; other bodies and vessels are not ported yet.");
+    bool nativeCartesian=gotPos&&gotVel;
+    if(landed&&!nativeCartesian) {
+        if(!gotSurface||!std::isfinite(latitude)||!std::isfinite(longitude)||!std::isfinite(headingAngle)||!std::isfinite(clearance)||fabs(latitude)>90||clearance<0||clearance>1000)
+            throw std::runtime_error("The landed scenario needs valid POS, HEADING and ALT values.");
+        auto originalGear=candidate.glider.part(Part::Gear);
+        candidate.placeOnEarth(Rad(latitude),Rad(longitude),Rad(headingAngle),std::max(.1,clearance));
+        if(gearSpecified) candidate.glider.part(Part::Gear)=originalGear;
+    } else if(!nativeCartesian) {
         if(!gotElements) throw std::runtime_error("The focused vessel needs RPOS/RVEL or ELEMENTS.");
         td.Reset(candidate.mjd);
         Elements e(vals[0],vals[1],Rad(vals[2]),Rad(vals[3]),Rad(vals[4]),Rad(vals[5]),vals[6]);
@@ -79,17 +109,18 @@ void Flight::load(const std::filesystem::path &path) {
        !std::isfinite(candidate.mjd)||candidate.altitude()<=0||candidate.position.length()>1e10||
        candidate.velocity.length()>1e6||!std::isfinite(candidate.fuel)||!std::isfinite(candidate.rcs)||
        !std::isfinite(arot.length2())||!std::isfinite(vrot.length2())||
-       crossp(candidate.position,candidate.velocity).length2()<1||
+       (!landed&&crossp(candidate.position,candidate.velocity).length2()<1)||
        candidate.fuel<0||candidate.fuel>MainCapacity||
        candidate.rcs<0||candidate.rcs>RcsCapacity||!candidate.glider.valid()||!std::isfinite(candidate.throttle)||candidate.throttle<0||candidate.throttle>1)
         throw std::runtime_error("Scenario contains invalid orbital state or fuel quantities.");
-    candidate.align(candidate.velocity);
-    if(hasArot) {
+    if(!landed) candidate.align(candidate.velocity);
+    if(hasArot&&(!landed||nativeCartesian)) {
         Matrix m; m.Set(Vector(Rad(arot.x),Rad(arot.y),Rad(arot.z)));
         candidate.right=mul(m,Vector(1,0,0)); candidate.up=mul(m,Vector(0,1,0));
         candidate.forward=mul(m,Vector(0,0,1));
     }
-    candidate.angularVelocity=vrot*RAD;
+    if(!landed||nativeCartesian||gotVrot) candidate.angularVelocity=vrot*RAD;
+    candidate.groundContact=landed;
     *this=candidate;
 }
 void Flight::save(const std::filesystem::path &path) const {
@@ -97,11 +128,12 @@ void Flight::save(const std::filesystem::path &path) const {
     Vector angles(atan2(forward.y,forward.z),-asin(std::clamp(forward.x,-1.,1.)),atan2(up.x,right.x));
     f<<std::setprecision(16)<<"BEGIN_ENVIRONMENT\n  System Sol\n  Date MJD "<<mjd+elapsed/86400.0
      <<"\nEND_ENVIRONMENT\n\nBEGIN_FOCUS\n  Ship "<<name<<"\nEND_FOCUS\n\nBEGIN_SHIPS\n"<<name
-     <<":DeltaGlider\n  STATUS Orbiting Earth\n  RPOS "<<position.x<<' '<<position.y<<' '<<position.z
+     <<":DeltaGlider\n  STATUS "<<(groundContact?"Landed":"Orbiting")<<" Earth\n  RPOS "<<position.x<<' '<<position.y<<' '<<position.z
      <<"\n  RVEL "<<velocity.x<<' '<<velocity.y<<' '<<velocity.z
      <<"\n  AROT "<<Deg(angles.x)<<' '<<Deg(angles.y)<<' '<<Deg(angles.z)
      <<"\n  VROT "<<Deg(angularVelocity.x)<<' '<<Deg(angularVelocity.y)<<' '<<Deg(angularVelocity.z)
      <<"\n  PRPLEVEL 0:"<<fuel/MainCapacity<<" 1:"<<rcs/RcsCapacity<<'\n';
+    if(groundContact) {double lat,lng;earthCoordinates(position,mjd,elapsed,lat,lng);f<<"  POS "<<Deg(lng)<<' '<<Deg(lat)<<"\n  HEADING "<<Deg(heading())<<"\n  ALT "<<altitude()<<'\n';}
     f<<"  DGMAIN "<<throttle<<'\n';
     glider.save(f);
     f<<"END\nEND_SHIPS\n";
@@ -187,6 +219,16 @@ void Flight::step(double dt,const Input &input) {
         torque.z+=dynamicPressure*glider.aileron*.3*1.7*15;
         torque-=Vector(angularVelocity.x*.10,angularVelocity.y*.13,angularVelocity.z*.04)*(dynamicPressure*100);
     }
+    GroundResponse ground;
+    if(altitude()<15) ground=groundForces(position,velocity,right,up,forward,angularVelocity,mass(),
+        glider.part(Part::Gear).open(),input.yaw,
+        glider.parkingBrake?1:std::clamp(input.leftBrake,0.,1.),glider.parkingBrake?1:std::clamp(input.rightBrake,0.,1.),dt);
+    groundContact=ground.contacts>0;wheelContacts=ground.wheels;contactLoad=ground.load;
+    force+=Vector(dotp(ground.force,right),dotp(ground.force,up),dotp(ground.force,forward));
+    torque+=ground.torque;
+    if(ground.maximumClosingSpeed>12&&ground.contacts>0) {
+        impacted=true;paused=true;throttle=glider.hover=glider.retro=0;return;
+    }
     Vector inertia=Vector(15.5,22.1,7.7)*mass();
     Vector w=angularVelocity;
     Vector angularAcceleration((torque.x+(inertia.y-inertia.z)*w.y*w.z)/inertia.x,
@@ -220,10 +262,12 @@ void Flight::advance(double realSeconds,const Input &input) {
         coast(dt); acceleration=0;
         if(assist==Assist::Prograde||assist==Assist::Retrograde) align(assist==Assist::Prograde?velocity:-velocity);
     } else {
-        int steps=std::max(1,(int)ceil(dt*120));
-        for(int i=0;i<steps;++i) step(dt/steps,input);
+        int steps=std::max(1,(int)ceil(dt*(altitude()<20?480:120)));
+        for(int i=0;i<steps&&!impacted;++i) step(dt/steps,input);
     }
     elapsed+=dt;
-    if(altitude()<=0) { impacted=true; paused=true; throttle=0; }
+    Vector relativeVelocity=velocity-crossp(earthSpin(),position);
+    groundSpeed=(relativeVelocity-position.unit()*dotp(relativeVelocity,position.unit())).length();
+    if(altitude()<-10) { impacted=true; paused=true; throttle=glider.hover=glider.retro=0; }
 }
 }

@@ -113,6 +113,7 @@ bool Glider::parse(const std::string &line) {
         parts[i].position=p; parts[i].target=v>0?1:v<0?0:p; return true;
     }
     if(key=="DGTARGETS") { for(auto &a:parts) if(!(s>>a.target)) throw std::runtime_error("Invalid mechanism target.");return true; }
+    if(key=="DGPARKBRAKE") { if(!(s>>parkingBrake)) throw std::runtime_error("Invalid parking brake state.");return true; }
     if(key=="DGENGINES") { if(!(s>>hover>>retro>>mainBalance>>gimbalPitch>>gimbalYaw>>hoverBalance)) throw std::runtime_error("Invalid engine controls."); return true; }
     if(key=="DGCONTROLS") { if(!(s>>rcsMode>>trim)) throw std::runtime_error("Invalid flight controls."); return true; }
     if(key=="DGPRESSURE") { if(!(s>>cabinPressure>>lockPressure)) throw std::runtime_error("Invalid pressure state."); for(auto &v:valves) {int n=0;if(!(s>>n)) throw std::runtime_error("Invalid valve state.");v=n!=0;} return true; }
@@ -126,6 +127,7 @@ void Glider::save(std::ostream &o) const {
         o<<"  "<<keys[i]<<' '<<a.position<<' '<<speed<<'\n';
     }
     o<<"  DGTARGETS"; for(const auto &a:parts)o<<' '<<a.target;o<<'\n';
+    o<<"  DGPARKBRAKE "<<parkingBrake<<'\n';
     o<<"  DGENGINES "<<hover<<' '<<retro<<' '<<mainBalance<<' '<<gimbalPitch<<' '<<gimbalYaw<<' '<<hoverBalance
      <<"\n  DGCONTROLS "<<rcsMode<<' '<<trim<<"\n  DGPRESSURE "<<cabinPressure<<' '<<lockPressure;
     for(bool v:valves) o<<' '<<v;

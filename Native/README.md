@@ -77,7 +77,7 @@ Requires Apple Silicon, macOS 13+, Xcode command-line tools and CMake 3.19+. The
 ./Native/build.sh --run
 ```
 
-Result: `build/macos-arm64/Native/Orbiter Native.app`. Set `ORBITER_NATIVE_BUILD_DIR` for another directory. The build runs the native flight and glider test suites and applies a local ad-hoc signature. Public notarization is not provided.
+Result: `build/macos-arm64/Native/Orbiter Native.app`. Set `ORBITER_NATIVE_BUILD_DIR` for another directory. The build runs the native flight, glider and surface test suites and applies a local ad-hoc signature. Public notarization is not provided.
 
 For a bounded rendering run:
 
@@ -97,6 +97,12 @@ python3 Native/tools/extract_glider_animations.py
 
 The generated `.inc` files are committed, so Python is not a build dependency.
 
+## Experimental ground physics
+
+The source now includes a tested ground-contact core using the original Delta-glider touchdown geometry: spring/damper suspension, wheel friction, independent rear brakes, parking brake, nose-wheel steering, gentle landing, hard-impact detection and hover liftoff. Geographic `STATUS Landed Earth` scenarios such as `Scenarios/Delta-glider/Cape Canaveral.scn` can be loaded through Open Scenario or `--scenario`.
+
+This is a development feature. The surface is a smooth sphere at the mean Earth radius; there are no terrain elevations, bases, runways or local surface textures. Brake/parking controls are currently exposed through the native core API and scenario state, with interactive control integration still pending. Surface instruments and a dedicated ground scenario menu are not connected. Orbital flight remains the primary playable milestone.
+
 ## Implementation boundary
 
 Original `Element.cpp`, `Vecmat.cpp`, `Astro.cpp` and `TimeData.cpp` are compiled into the native library with small portability changes. The native single-vessel flight layer uses original Kepler propagation for unpowered vacuum coasting and RK4 for maneuvering/atmospheric flight. The full original `Vessel`/`BodyIntegrator` engine is not compiled into this target.
@@ -105,12 +111,12 @@ Pressure uses a continuous solution to the original cabin/airlock volume and con
 
 Still incomplete:
 
-- Full native vessel/body engine, moving solar-system bodies, SPICE modules, perturbations, terrain, bases, surface collision response, wheel braking and takeoff/landing scenarios. Surface contact currently stops the flight.
+- Full native vessel/body engine, moving solar-system bodies, SPICE modules, perturbations, terrain, bases, complete ground controls/instruments and validated takeoff/landing scenarios. Ground contact currently uses an experimental spherical-surface model; hard impacts stop the flight.
 - Full DG damage/failure model, complete coolant circuit, hover altitude/attitude hold and atmospheric autopilots, original analog instruments, all cockpit buttons and complete MFD modes.
 - Docking/undocking mechanics, other ships and stations. The animated nose exposes the port, but docking requires the unported multi-vessel infrastructure.
 - DG-S scramjet systems (a separate variant), original sound, Lua scripting and Windows DLL plug-ins.
 
-Only Earth-orbit scenarios focused on a `DeltaGlider` are accepted. Other objects in those scenarios are not instantiated; native saves contain the focused vessel only, with native extension fields for its additional controls. No full-simulator equivalence is claimed.
+Only Earth scenarios focused on a standard `DeltaGlider` are accepted; landed scenario support is experimental. Other objects in those scenarios are not instantiated; native saves contain the focused vessel only, with native extension fields for its additional controls. No full-simulator equivalence is claimed.
 
 NASA's credited global Earth image is a visual backdrop, not the high-resolution terrain/elevation system. Solar direction is fixed for this milestone. Display settings are not changed; presentation rate follows the active refresh mode.
 
