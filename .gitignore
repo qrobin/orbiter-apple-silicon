@@ -1,0 +1,34 @@
+*.user
+*.VC.db
+**/.vs/
+meshres*.h
+CMakeSettings.json
+out/**
+!/Sound/XRSound/XRSound/**/*.vcxproj.user
+**/*.bak
+*.log
+/keymap.cfg
+
+# developer-specific bat files in the root
+/*.bat
+
+# .NET-specific directories
+bin/
+obj/
+
+# XRSound-specific directories
+Sound/XRSound/**/Debug/
+Sound/XRSound/**/Release/
+Sound/XRSound/**/x64/
+Sound/XRSound/**/dist/
+Sound/XRSound/**/Debug-with-OrbiterRelease/
+Sound/XRSound/**/Release-with-OrbiterRelease/
+
+# KDevelop-specific files
+*.kdev4
+.kdev/
+[Bb]uild/
+
+Doc/**/*.log
+Doc/**/*.pdf
+Doc/**/*.gz
