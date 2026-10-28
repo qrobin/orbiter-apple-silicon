@@ -382,7 +382,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         else if([args[i] isEqual:@"--rcs-demo"])rcsDemo=true;
         else if([args[i] isEqual:@"--camera-yaw"]&&i+1<args.count)externalCamera.yaw=[args[++i] doubleValue]*RAD;
         else if([args[i] isEqual:@"--camera-pitch"]&&i+1<args.count)externalCamera.pitch=std::clamp([args[++i] doubleValue]*RAD,-1.35,1.35);
-        else if([args[i] isEqual:@"--camera-distance"]&&i+1<args.count)externalCamera.distance=std::clamp([args[++i] doubleValue],14.,1000.);
+        else if([args[i] isEqual:@"--camera-distance"]&&i+1<args.count)externalCamera.distance=std::clamp([args[++i] doubleValue],14.,MaxExternalCameraDistance);
         else if([args[i] isEqual:@"--surface"]) {[self startSurface:nil];warmHover=false;}
         else if([args[i] isEqual:@"--hover-demo"]) {[self startHoverPractice:nil];warmHover=true;}
         else if([args[i] isEqual:@"--cockpit"]) cockpit=true;
@@ -441,7 +441,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     uniforms.position=f4((flight.position+offset)/flight.centralBody().radius);
     uniforms.screen={(float)self.drawableSize.width,(float)self.drawableSize.height,tanHalf,0};
     uniforms.environment={0,(float)flight.altitude(),0,(float)fmod(flight.elapsed,86400.)};
-    if(lastBody!=flight.reference){[visuals reset];lastBody=flight.reference;}
+    if(lastBody!=flight.reference){[visuals resetForReferenceChange];lastBody=flight.reference;}
     [solar updateFrame:&uniforms flight:flight offset:offset];
     [visuals prepare:&uniforms width:drawable.texture.width height:drawable.texture.height];
     ObjectUniforms object={};
@@ -606,7 +606,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     NSDictionary *report=@{@"architecture":@"arm64",@"renderer":@"Metal",@"body":[NSString stringWithUTF8String:flight.centralBody().name],@"bodyRadius":@(flight.centralBody().radius),@"bodyMu":@(flight.gravityMu()),@"solarSystemBodies":@(BodyCount),@"device":self.device.name,
         @"frames":@(frameCount),@"drawableWidth":@(self.drawableSize.width),@"drawableHeight":@(self.drawableSize.height),
         @"screenMaximumFPS":@(self.window.screen.maximumFramesPerSecond),@"requestedFPS":@(self.preferredFramesPerSecond),@"sampleCount":@(self.sampleCount),@"weather":flight.reference==BodyId::Earth?[visuals weatherName]:@"Not applicable",@"cloudWidth":@(visuals.cloudWidth),@"cloudHeight":@(visuals.cloudHeight),@"hdr":@YES,
-        @"exhaustEmitters":@(visuals.emitterCount),@"exhaustParticles":@([visuals liveParticleCount]),@"cameraDistance":@(externalCamera.distance),@"forwardLength":@(flight.forward.length()),@"rightLength":@(flight.right.length()),@"meanFrameMs":@(mean),@"p95FrameMs":@(p95),@"meanFPS":@(mean?1000/mean:0),
+        @"exhaustEmitters":@(visuals.emitterCount),@"exhaustParticles":@([visuals liveParticleCount]),@"exhaustTrailPuffs":@([visuals liveTrailPuffCount]),@"cameraDistance":@(externalCamera.distance),@"forwardLength":@(flight.forward.length()),@"rightLength":@(flight.right.length()),@"meanFrameMs":@(mean),@"p95FrameMs":@(p95),@"meanFPS":@(mean?1000/mean:0),
         @"meanCPUEncodeMs":@(cpuSum/frameCount),@"lastGPUFrameMs":@(gpuMs),@"scenarioElapsed":@(flight.elapsed),
         @"altitudeMeters":@(flight.altitude()),@"meshGroups":@(groups.size()),
         @"groundSpeed":@(flight.groundSpeed),@"wheelContacts":@(flight.wheelContacts),@"parkingBrake":@(flight.glider.parkingBrake),@"impacted":@(flight.impacted),

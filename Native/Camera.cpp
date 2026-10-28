@@ -55,7 +55,7 @@ void OrbitCamera::drag(double horizontalPoints,double verticalPoints){
 void OrbitCamera::zoom(double scrollPoints){
     if(!std::isfinite(scrollPoints))return;
     if(mode==ExternalCameraMode::GroundObserver){groundFov=std::clamp(groundFov*exp(std::clamp(scrollPoints*.025,-30.,30.)),.001*RAD,100*RAD);return;}
-    distance=std::clamp(distance*exp(std::clamp(scrollPoints*.025,-30.,30.)),14.,1000.);
+    distance=std::clamp(distance*exp(std::clamp(scrollPoints*.025,-30.,30.)),14.,MaxExternalCameraDistance);
 }
 double OrbitCamera::tanHalfFov()const{return tan((mode==ExternalCameraMode::GroundObserver?groundFov:50*RAD)*.5);}
 void CockpitCamera::zoom(double scrollPoints){

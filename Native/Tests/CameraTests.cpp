@@ -16,7 +16,7 @@ int main(){try {
     OrbitCamera fractional;double before=fractional.yaw;fractional.drag(.125,0);check(fractional.yaw>before,"Subpixel motion is not discarded");
     fractional.drag(0,10000);check(fractional.pitch==1.35,"Upper native pitch stop");fractional.drag(0,-10000);check(fractional.pitch==-1.35,"Lower native pitch stop");
     full.zoom(5);check(fabs(full.distance-43*exp(.125))<1e-10,"Continuous native zoom response");
-    full.zoom(-100000);check(full.distance==14,"Near distance stop");full.zoom(100000);check(full.distance==1000,"Far distance stop");
+    full.zoom(-100000);check(full.distance==14,"Near distance stop");full.zoom(100000);check(full.distance==MaxExternalCameraDistance,"Far distance stop allows viewing kilometre-scale trails");
     CockpitCamera cockpit,steps;check(fabs(cockpit.fov-50*RAD)<1e-12,"Original cockpit field of view");
     Vector edge=cockpit.ray(0,0,1,0,16./9);cockpit.zoom(-10);for(int i=0;i<10;++i)steps.zoom(-1);
     check(fabs(cockpit.fov-steps.fov)<1e-12,"Cockpit zoom is independent of event batching");

@@ -195,19 +195,61 @@ ExhaustRaster exhaustProject(float3 p,float2 uv,float4 color,constant FrameUnifo
     float3 view=float3(dot(p,f.right.xyz),dot(p,f.up.xyz),-dot(p,f.forward.xyz));
     return {f.projection*float4(view,1),uv,color,p,-view.z,0};
 }
-vertex ExhaustRaster flameVertex(uint id [[vertex_id]],uint instance [[instance_id]],constant FrameUniforms &f [[buffer(0)]],
-                                 constant EffectUniforms &e [[buffer(1)]],constant EmitterUniforms *emitters [[buffer(2)]]) {
-    EmitterUniforms jet=emitters[instance];uint layer=id/(12*12*6),v=id%(12*12*6),ring=v/(12*6),side=(v/6)%12,corner=v%6;
-    uint2 tri[6]={uint2(0,0),uint2(1,0),uint2(1,1),uint2(0,0),uint2(1,1),uint2(0,1)};
-    float t=float(ring+tri[corner].y)/12.0f,angle=float(side+tri[corner].x)*(2*M_PI_F/12);
-    float3 d=jet.directionRadius.xyz,a=exhaustBasis(d),b=cross(d,a);
-    float diamonds=1+.075*cos(t*12*M_PI_F-e.clock.y*22)*(1-min(1.0f,jet.style.w*6));
-    float radius=jet.directionRadius.w*sqrt(jet.positionLevel.w)*pow(max(.002f,1-t),layer?.7f:.4f)*(layer?.47f:1.0f);
-    radius*=diamonds*(1+jet.style.w*t*5);
-    float3 p=jet.positionLevel.xyz-e.offset.xyz+d*(t*jet.style.y*sqrt(jet.positionLevel.w))+(a*cos(angle)+b*sin(angle))*radius;
-    float opacity=(layer?.30f:.10f)*pow(1-t,1.3f)*sqrt(jet.positionLevel.w);
-    float3 color=layer?mix(float3(10,18,30),float3(.15,.8,3),t):float3(.15,1.1,5);
-    return exhaustProject(p,float2(t,angle/(2*M_PI_F)),float4(color,opacity),f);
+struct FlameRaster {float4 position [[position]];float3 ray;float3 origin [[flat]];float3 axis [[flat]];float4 properties [[flat]];float time [[flat]];};
+vertex FlameRaster flameVertex(uint id [[vertex_id]],uint instance [[instance_id]],constant FrameUniforms &f [[buffer(0)]],
+                               constant EffectUniforms &e [[buffer(1)]],constant EmitterUniforms *emitters [[buffer(2)]]) {
+    EmitterUniforms jet=emitters[instance];float2 quad[6]={float2(-1,-1),float2(1,-1),float2(1,1),float2(-1,-1),float2(1,1),float2(-1,1)};
+    float3 axis=normalize(jet.directionRadius.xyz),origin=jet.positionLevel.xyz-e.offset.xyz;
+    float plumeLength=jet.style.y*sqrt(jet.positionLevel.w),radius=jet.directionRadius.w*(.82+.18*sqrt(jet.positionLevel.w));
+    float3 center=origin+axis*(plumeLength*.5);float2 projected=float2(dot(axis,f.right.xyz),dot(axis,f.up.xyz));
+    float projectedLength=length(projected);float2 along=projectedLength>.001?projected/projectedLength:float2(0,1),across=float2(-along.y,along.x);
+    float maxRadius=radius*(1.8+jet.style.w*3),depth=dot(center,f.forward.xyz);
+    float nearDepth=depth-abs(dot(axis,f.forward.xyz))*plumeLength*.5-maxRadius;
+    float planeDepth=max(depth,.5f);center+=f.forward.xyz*(planeDepth-depth);
+    float perspective=clamp(planeDepth/max(.2f,nearDepth),1.0f,4.0f);
+    float2 corner=along*quad[id].y*(plumeLength*projectedLength*.5+maxRadius)*perspective+across*quad[id].x*maxRadius*perspective;
+    float3 p=center+f.right.xyz*corner.x+f.up.xyz*corner.y;
+    float3 view=float3(dot(p,f.right.xyz),dot(p,f.up.xyz),-dot(p,f.forward.xyz));
+    return {f.projection*float4(view,1),p,origin,axis,float4(radius,plumeLength,jet.positionLevel.w,jet.style.w),e.clock.y};
+}
+fragment float4 flameFragment(FlameRaster in [[stage_in]],constant FrameUniforms &f [[buffer(0)]],
+                              texture2d<float,access::read> depth [[texture(0)]],texture3d<float> noise [[texture(1)]]) {
+    float3 ray=normalize(in.ray),axis=in.axis,ro=-in.origin;
+    float radialBound=in.properties.x*(1.8+in.properties.w*3),len=in.properties.y;
+    float rdAxis=dot(ray,axis),roAxis=dot(ro,axis);float3 rd=ray-axis*rdAxis,radial=ro-axis*roAxis;
+    float a=dot(rd,rd),b=dot(radial,rd),c=dot(radial,radial)-radialBound*radialBound;
+    float nearCylinder=0,farCylinder=1e8;
+    if(a>1e-7){float disc=b*b-a*c;if(disc<=0)discard_fragment();float root=sqrt(disc);nearCylinder=(-b-root)/a;farCylinder=(-b+root)/a;}
+    else if(c>0)discard_fragment();
+    float nearAxial=0,farAxial=1e8;
+    if(abs(rdAxis)>1e-7){float x=-roAxis/rdAxis,y=(len-roAxis)/rdAxis;nearAxial=min(x,y);farAxial=max(x,y);}
+    else if(roAxis<0||roAxis>len)discard_fragment();
+    float start=max(0.0f,max(nearCylinder,nearAxial)),end=min(farCylinder,farAxial);
+    uint2 pixel=min(uint2(in.position.xy),uint2(depth.get_width()-1,depth.get_height()-1));float z=depth.read(pixel).r;
+    if(z>0)end=min(end,(.2/z)/max(.001f,dot(ray,f.forward.xyz)));
+    if(end<=start)discard_fragment();
+    constexpr sampler s(filter::linear,address::repeat);float3 basis=exhaustBasis(axis),second=cross(axis,basis);
+    float stepLength=(end-start)/12,trans=1;float3 radiance=0;
+    for(int i=0;i<12&&trans>.015;++i){
+        float t=start+(float(i)+.5)*stepLength;float3 local=ro+ray*t;
+        float along=saturate(dot(local,axis)/len);float3 lateral=local-axis*dot(local,axis);
+        float width=in.properties.x*(.90+along*(.9+in.properties.w*3))*pow(max(.001f,1-along),.45f);
+        float2 crossSection=float2(dot(lateral,basis),dot(lateral,second))/max(.001f,width);
+        float3 samplePoint=float3(along*5-in.time*.8,crossSection*1.4+in.time*.035);
+        float n=noise.sample(s,samplePoint).g,detail=noise.sample(s,samplePoint*2.2+float3(3,1,7)).b;
+        float r=length(crossSection),edge=1-smoothstep(.63f,1.10f,r+(n-.5)*.55+(detail-.5)*.18);
+        float density=edge*(.28+.72*smoothstep(.16f,.76f,n*.72+detail*.28))*(1-smoothstep(.90f,1.0f,along));
+        float core=(1-smoothstep(.08f,.75f,r))*(1-along*.55);
+        float shock=.90+.10*cos(along*12*M_PI_F)*(1-saturate(in.properties.w*5));
+        float3 hot=mix(float3(7,1.0,.035),float3(12,5.5,.85),core);
+        hot=mix(hot,float3(15,13,9),saturate(core*core*shock));hot*=1-along*.60;
+        float opacity=1-exp(-density*stepLength*1.5/max(.02f,in.properties.x));
+        radiance+=trans*opacity*hot;trans*=1-opacity;
+    }
+    float alpha=(1-trans)*sqrt(in.properties.z)*.8;if(alpha<.002)discard_fragment();
+    if(f.environment.x*f.body.x<f.clouds.y+1000&&f.clouds.z>0){float distance=(start+end)*.5,optical=0;float3 origin=f.position.xyz*f.body.x;
+        for(int i=0;i<4;++i)optical+=cloudDensity(origin+ray*distance*((i+.5)/4.0f),f,noise)*distance*.25;alpha*=exp(-optical);}
+    return float4(radiance/max(.001f,1-trans),alpha);
 }
 vertex ExhaustRaster particleVertex(uint id [[vertex_id]],uint instance [[instance_id]],constant FrameUniforms &f [[buffer(0)]],
                                     constant EffectUniforms &e [[buffer(1)]],const device ParticleUniforms *particles [[buffer(2)]]) {
@@ -219,7 +261,8 @@ vertex ExhaustRaster particleVertex(uint id [[vertex_id]],uint instance [[instan
     float2 corner=across*quad[id].x*size+along*quad[id].y*max(size,min(2.5f,length(flow)*.012f));
     float3 q=p.positionAge.xyz-e.offset.xyz+f.right.xyz*corner.x+f.up.xyz*corner.y;
     float alpha=p.positionAge.w>=0?.055f*sqrt(p.style.y)*pow(max(0.0f,1-age),1.7f):0;
-    ExhaustRaster out=exhaustProject(q,quad[id],float4(.55,1.4,4,alpha),f);
+    float3 fire=mix(float3(7,5,2.2),float3(3,.42,.045),saturate(age));
+    ExhaustRaster out=exhaustProject(q,quad[id],float4(fire,alpha),f);
     out.effect=1;if(alpha<=0)out.position=float4(2,2,2,1);return out;
 }
 fragment float4 exhaustFragment(ExhaustRaster in [[stage_in]],constant FrameUniforms &f [[buffer(0)]],
@@ -230,8 +273,9 @@ fragment float4 exhaustFragment(ExhaustRaster in [[stage_in]],constant FrameUnif
     if(in.effect>.5)alpha*=exp(-dot(in.uv,in.uv)*3.5);
     else {
         constexpr sampler s(filter::linear,address::repeat);
-        float turbulence=noise.sample(s,float3(in.uv.x*1.8,in.uv.y,f.environment.w*.35)).g;
-        alpha*=.55+.45*smoothstep(.2f,.8f,turbulence);
+        float turbulence=noise.sample(s,float3(in.uv.x*2.8,in.uv.y*2+f.environment.w*.11,f.environment.w*.25)).g;
+        float detail=noise.sample(s,float3(in.uv.x*7,in.uv.y*3,f.environment.w*.4)).b;
+        alpha*=.35+.65*smoothstep(.2f,.75f,turbulence*.7+detail*.3);
     }
     // Attenuate only cloud between the camera and the jet, rather than clouds behind it.
     if(f.environment.x*f.body.x<f.clouds.y+1000&&f.clouds.z>0){
@@ -239,6 +283,35 @@ fragment float4 exhaustFragment(ExhaustRaster in [[stage_in]],constant FrameUnif
         float3 origin=f.position.xyz*f.body.x;
         for(int i=0;i<4;++i)optical+=cloudDensity(origin+in.cameraRelative*((i+.5)/4.0f),f,noise)*lengthToJet*.25;
         alpha*=exp(-optical);
+    }
+    return float4(in.color.rgb,alpha);
+}
+vertex ExhaustRaster smokeVertex(uint id [[vertex_id]],uint instance [[instance_id]],constant FrameUniforms &f [[buffer(0)]],
+                                 const device ParticleUniforms *particles [[buffer(1)]]) {
+    ParticleUniforms p=particles[instance];float2 quad[6]={float2(-1,-1),float2(1,-1),float2(1,1),float2(-1,-1),float2(1,1),float2(-1,1)};
+    float2 axis=float2(dot(p.velocityLife.xyz,f.right.xyz),dot(p.velocityLife.xyz,f.up.xyz));
+    float projected=length(axis);float2 along=projected>.001?axis/projected:float2(0,1),across=float2(-along.y,along.x);
+    float radius=p.style.x,halfLength=radius+p.velocityLife.w*projected;
+    float2 corner=across*quad[id].x*radius+along*quad[id].y*halfLength;
+    float3 world=p.positionAge.xyz+f.right.xyz*corner.x+f.up.xyz*corner.y;
+    float3 fresh=float3(.84,.65,.47),aged=float3(.68,.71,.74);
+    float3 color=p.style.w>.5?mix(float3(1.4,.7,.28),float3(.48,.64,.82),smoothstep(0.0f,.10f,p.positionAge.w))*(.4+.6*f.sun.w):mix(fresh,aged,smoothstep(0.0f,.09f,p.positionAge.w))*(.25+.75*f.sun.w);
+    ExhaustRaster result=exhaustProject(world,quad[id],float4(color,p.style.y),f);result.effect=p.style.z+p.style.w*2;return result;
+}
+fragment float4 smokeFragment(ExhaustRaster in [[stage_in]],constant FrameUniforms &f [[buffer(0)]],
+                              texture2d<float,access::read> depth [[texture(0)]],texture3d<float> noise [[texture(1)]]) {
+    float r2=dot(in.uv,in.uv);if(r2>1.3)discard_fragment();
+    constexpr sampler s(filter::linear,address::repeat);
+    float seed=fract(in.effect);float3 uvw=float3(in.uv*1.4+seed*13,seed*7+f.environment.w*.006);
+    float n=noise.sample(s,uvw).r,detail=noise.sample(s,uvw*2.3).g;
+    float edge=1-smoothstep(.12f,1.02f,r2+(n-.5)*.34);
+    float alpha=in.color.a*edge*(.42+.58*smoothstep(.18f,.8f,n*.7+detail*.3));
+    uint2 pixel=min(uint2(in.position.xy),uint2(depth.get_width()-1,depth.get_height()-1));
+    float z=depth.read(pixel).r,scene=z>0?.2/z:1e9;
+    alpha*=saturate((scene-in.viewDepth)/2.0f);
+    if(f.environment.x*f.body.x<f.clouds.y+1000&&f.clouds.z>0){
+        float distance=length(in.cameraRelative);float3 midpoint=f.position.xyz*f.body.x+in.cameraRelative*.5;
+        alpha*=exp(-cloudDensity(midpoint,f,noise)*distance);
     }
     return float4(in.color.rgb,alpha);
 }

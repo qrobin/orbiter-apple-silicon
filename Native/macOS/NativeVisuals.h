@@ -15,6 +15,8 @@
 - (void)encodeExhaust:(id<MTLCommandBuffer>)cb frame:(const FrameUniforms &)frame flight:(const native::Flight &)flight offset:(Vector)offset;
 - (void)encodePresent:(id<MTLCommandBuffer>)cb drawable:(id<CAMetalDrawable>)drawable;
 - (NSUInteger)liveParticleCount;
+- (NSUInteger)liveTrailPuffCount;
 - (NSString *)weatherName;
 - (void)reset;
+- (void)resetForReferenceChange;
 @end

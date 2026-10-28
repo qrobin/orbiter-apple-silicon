@@ -1,6 +1,7 @@
 #pragma once
 #include "Flight.h"
 namespace native {
+constexpr double MaxExternalCameraDistance=1000000.;
 enum class ExternalCameraMode { OrbitalChase, TargetRelative, AbsoluteDirection, GlobalFrame, TargetTo, TargetFrom, GroundObserver };
 const char *externalCameraModeName(ExternalCameraMode mode);
 struct CameraPose { Vector offset,up; };
