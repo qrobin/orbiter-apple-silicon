@@ -10,11 +10,12 @@
 static FVector U(const Vector &V){return FVector(V.z,V.x,V.y);}
 AOrbiterWorld::AOrbiterWorld() {
     RootComponent=CreateDefaultSubobject<USceneComponent>(TEXT("PlanetCenter"));
-    Globe=CreateDefaultSubobject<UProceduralMeshComponent>(TEXT("Earth"));Globe->SetupAttachment(RootComponent);Globe->SetCollisionEnabled(ECollisionEnabled::NoCollision);Globe->SetCanEverAffectNavigation(false);
+    Globe=CreateDefaultSubobject<UProceduralMeshComponent>(TEXT("Earth"));Globe->SetupAttachment(RootComponent);Globe->SetCastShadow(false);Globe->SetCollisionEnabled(ECollisionEnabled::NoCollision);Globe->SetCanEverAffectNavigation(false);
     Atmosphere=CreateDefaultSubobject<USkyAtmosphereComponent>(TEXT("Atmosphere"));Atmosphere->SetupAttachment(RootComponent);
-    Atmosphere->TransformMode=ESkyAtmosphereTransformMode::PlanetCenterAtComponentTransform;Atmosphere->SetBottomRadius(native::EarthRadius/1000);
+    // Keep the analytic atmosphere ground below the globe triangle chords (up to 240 m sag).
+    Atmosphere->TransformMode=ESkyAtmosphereTransformMode::PlanetCenterAtComponentTransform;Atmosphere->SetBottomRadius(native::EarthRadius/1000-.5);
     Clouds=CreateDefaultSubobject<UVolumetricCloudComponent>(TEXT("WeatherClouds"));Clouds->SetupAttachment(RootComponent);Clouds->SetPlanetRadius(native::EarthRadius/1000);
-    Clouds->SetLayerBottomAltitude(1.5);Clouds->SetLayerHeight(4.5);Clouds->SetTracingStartMaxDistance(2000);Clouds->SetTracingMaxDistance(4000);Clouds->SetViewSampleCountScale(1.25);Clouds->SetShadowViewSampleCountScale(.5);
+    Clouds->SetLayerBottomAltitude(1.5);Clouds->SetLayerHeight(4.5);Clouds->SetTracingStartMaxDistance(2000);Clouds->SetTracingMaxDistance(4000);Clouds->SetViewSampleCountScale(.75);Clouds->SetShadowViewSampleCountScale(.5);
     Sun=CreateDefaultSubobject<UDirectionalLightComponent>(TEXT("Sun"));Sun->SetupAttachment(RootComponent);Sun->SetAtmosphereSunLight(true);Sun->SetIntensity(110000);Sun->bCastCloudShadows=true;Sun->bPerPixelAtmosphereTransmittance=true;Sun->CloudShadowExtent=80;Sun->CloudShadowMapResolutionScale=1;
     Sun->SetWorldRotation((-U(Vector(.32,.84,-.44).unit())).Rotation());
     SkyLight=CreateDefaultSubobject<USkyLightComponent>(TEXT("SkyLight"));SkyLight->SetupAttachment(RootComponent);SkyLight->SetRealTimeCapture(true);SkyLight->CubemapResolution=64;SkyLight->SetIntensity(.5);SkyLight->bLowerHemisphereIsBlack=false;
@@ -37,7 +38,7 @@ void AOrbiterWorld::BuildGlobe() {
     }
     Globe->CreateMeshSection_LinearColor(0,Vertices,Indices,Normals,UV,Colors,Tangents,false);
     Globe->SetRelativeScale3D(FVector(native::EarthRadius*100));
-    if(auto *Material=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Materials/M_Earth.M_Earth")))Globe->SetMaterial(0,Material);
+    if(auto *Material=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Materials/M_Earth.M_Earth"))){Globe->SetMaterial(0,Material);UE_LOG(LogTemp,Display,TEXT("ORBITER_EARTH_MATERIAL %s"),*Material->GetPathName());}
 }
 void AOrbiterWorld::Update(const native::Flight &Flight) {
     SetActorLocation(-U(Flight.position)*100);

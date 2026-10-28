@@ -9,6 +9,7 @@ class UCameraComponent;
 class UMaterialInterface;
 class UTexture2D;
 class AOrbiterWorld;
+class AOrbiterExhaust;
 struct FOrbiterSimulation;
 struct FOrbiterSimulationDeleter { void operator()(FOrbiterSimulation *Value) const; };
 UCLASS()
@@ -27,8 +28,11 @@ private:
     UPROPERTY() TArray<TObjectPtr<UTexture2D>> Textures;
     UPROPERTY() TArray<TObjectPtr<UMaterialInterface>> Materials;
     UPROPERTY() TObjectPtr<AOrbiterWorld> Earth;
+    UPROPERTY() TObjectPtr<AOrbiterExhaust> Exhaust;
+    bool RcsDemo=false;
     float CameraYaw=-25,CameraPitch=17,CameraDistance=4300;
     FString Error,CapturePath;
+    double SampleStart=0;
     int32 SmokeFrames=0,Frames=0;
     void LoadFlight(bool Surface);
     void BuildShip();

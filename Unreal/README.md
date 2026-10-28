@@ -39,3 +39,24 @@ The globe uses the versioned 8K NASA Blue Marble monthly composite, with mipmaps
 Unreal Sky Atmosphere and volumetric clouds provide the atmospheric limb, cloud lighting and cloud shadows. W cycles clear, scattered, overcast and storm visual presets. These are synthetic weather presets, not live weather or a meteorological simulation. The camera uses physical daylight exposure (ISO 100, f/16, 1/125 s) with a 110,000 lux sun.
 
 Validation: the arm64 editor module builds; the native bridge automation test passed; a 1600 × 1000 Metal render check completed with the original glider, a curved atmospheric horizon and visible volumetric clouds. Performance has not yet been measured for the finished effects.
+
+## Exhaust and RCS
+
+Main, retro, hover and RCS nozzles use the applied, fuel-scaled commands from the shared flight model. Main balance and gimbals, all three independent hover outputs, and both signs of all rotation/translation axes drive their own particles. Nozzles retain the original Delta-glider visual positions. Atmospheric pressure controls plume expansion and lifetime. Soft additive particles fade with age and scene depth; main-engine glow lights the rear hull.
+
+These are bounded visual particles, not a computational fluid dynamics model or a calibrated propellant spectrum. The system caps particle count at 1536 and batches their geometry into one mesh section.
+
+- **M:** cycle RCS rotation → translation → off.
+- **Arrows / Q / E:** attitude in rotation mode; arrows give lateral/vertical translation in translation mode.
+- **Numpad 8 / 2:** forward/back translation.
+- **Numpad 6 / 4:** right/left translation.
+- **Numpad 9 / 3:** up/down translation.
+- **K:** toggle kill rotation.
+- **T / Y:** increase/decrease simulation time acceleration. The simulation returns to real time for powered flight.
+- **F5:** toggle hover attitude control; **F6/F7:** toggle altitude/zero vertical speed hold.
+
+The separate RCS tank, RCS-off state and fuel exhaustion remain part of the flight model. Native exhaust tests check torque and force direction for both signs on every axis, mixer output, cutoff and vacuum expansion (44 checks). All five native suites pass in Release and with address/undefined-behavior sanitizers.
+
+Material generation validates every graph connection. Editor render checks wait for shader and texture compilation before capturing a frame. The global globe does not cast mesh shadows; atmospheric transmittance handles planet-scale sunlight, and clouds cast their own shadows. The analytic atmospheric ground lies 500 m below the globe radius to avoid intersecting the globe's polygon chords.
+
+The current procedural spacecraft has no Lumen distance-field representation. The default uses direct solar lighting, atmospheric transmittance, captured sky lighting and screen-space reflections; hardware ray tracing is disabled. Cloud ray samples are capped through the component's 0.75 view sample scale. This configuration preserves the current lighting while avoiding unsupported procedural-mesh Lumen work.
