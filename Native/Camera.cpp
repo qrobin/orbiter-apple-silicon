@@ -16,8 +16,8 @@ Vector OrbitCamera::offset(const Flight &flight) const {
     Vector radial=flight.position.unit(),direction=flight.altitude()<10000?flight.forward:flight.velocity;
     Vector tangent=direction-radial*dotp(direction,radial);
     if(tangent.length2()<1e-12){
-        double latitude,longitude;earthCoordinates(flight.position,flight.mjd,flight.elapsed,latitude,longitude);
-        tangent=earthSurface(latitude,longitude,flight.mjd,flight.elapsed).north;
+        double latitude,longitude;bodyCoordinates(flight.reference,flight.position,flight.mjd,flight.elapsed,latitude,longitude);
+        tangent=bodySurface(flight.reference,latitude,longitude,flight.mjd,flight.elapsed).north;
     }
     tangent.unify();Vector lateral=crossp(radial,tangent).unit();
     Vector result=(-tangent*(cos(yaw)*cos(pitch))+lateral*(sin(yaw)*cos(pitch))+radial*sin(pitch))*distance;

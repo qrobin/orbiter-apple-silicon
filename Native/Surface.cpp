@@ -6,23 +6,17 @@
 #include <cmath>
 namespace native {
 Vector earthSpin() { return Vector(0,cos(.4090928023),sin(.4090928023))*(Pi2/SiderealDay); }
-static Vector equatorialToEcliptic(const Vector &v) {
-    const double c=cos(.4090928023),s=sin(.4090928023);
-    return {v.x,v.y*c-v.z*s,v.y*s+v.z*c};
+SurfaceFrame bodySurface(BodyId id,double latitude,double longitude,double mjd,double elapsed) {
+    const auto &b=body(id);double phi=longitude-b.rotation(mjd+elapsed/86400),cl=cos(latitude),sl=sin(latitude),cp=cos(phi),sp=sin(phi);
+    Vector x=b.equatorX(),y=b.pole(),z=b.equatorZ();
+    return {x*(cl*cp)+y*sl+z*(cl*sp),x*(-sl*cp)+y*cl+z*(-sl*sp),x*(-sp)+z*cp};
 }
-SurfaceFrame earthSurface(double latitude,double longitude,double mjd,double elapsed) {
-    double theta=4.88948754+((mjd-51544.5)*86400+elapsed)*Pi2/SiderealDay;
-    double phi=longitude-theta,cl=cos(latitude),sl=sin(latitude),cp=cos(phi),sp=sin(phi);
-    return {equatorialToEcliptic({cl*cp,sl,cl*sp}),
-            equatorialToEcliptic({-sl*cp,cl,-sl*sp}),equatorialToEcliptic({-sp,0,cp})};
+SurfaceFrame earthSurface(double lat,double lon,double mjd,double elapsed){return bodySurface(BodyId::Earth,lat,lon,mjd,elapsed);}
+void bodyCoordinates(BodyId id,const Vector &p,double mjd,double elapsed,double &latitude,double &longitude){
+    const auto &b=body(id);auto n=p.unit();latitude=asin(std::clamp(dotp(n,b.pole()),-1.,1.));
+    longitude=remainder(atan2(dotp(n,b.equatorZ()),dotp(n,b.equatorX()))+b.rotation(mjd+elapsed/86400),Pi2);
 }
-void earthCoordinates(const Vector &p,double mjd,double elapsed,double &latitude,double &longitude) {
-    auto n=p.unit(); const double c=cos(.4090928023),s=sin(.4090928023);
-    Vector equ(n.x,n.y*c+n.z*s,-n.y*s+n.z*c);
-    latitude=asin(std::clamp(equ.y,-1.,1.));
-    double theta=4.88948754+((mjd-51544.5)*86400+elapsed)*Pi2/SiderealDay;
-    longitude=remainder(atan2(equ.z,equ.x)+theta,Pi2);
-}
+void earthCoordinates(const Vector &p,double mjd,double elapsed,double &latitude,double &longitude){bodyCoordinates(BodyId::Earth,p,mjd,elapsed,latitude,longitude);}
 const std::array<ContactPoint,13> &gliderContacts(bool down) {
     static const std::array<ContactPoint,13> deployed={{{{0,-2.57,10},1e6,1e5,1.6,true,0},
         {{-3.5,-2.57,-1},1e6,1e5,3,true,1},{{3.5,-2.57,-1},1e6,1e5,3,true,2},
@@ -39,16 +33,16 @@ const std::array<ContactPoint,13> &gliderContacts(bool down) {
 }
 GroundResponse groundForces(const Vector &position,const Vector &velocity,
     const Vector &right,const Vector &up,const Vector &forward,const Vector &angularVelocity,
-    double mass,bool gearDown,double steering,double leftBrake,double rightBrake,double dt) {
+    double mass,bool gearDown,double steering,double leftBrake,double rightBrake,double dt,BodyId id) {
     GroundResponse result;
     auto world=[&](const Vector &v){return right*v.x+up*v.y+forward*v.z;};
     auto body=[&](const Vector &v){return Vector(dotp(v,right),dotp(v,up),dotp(v,forward));};
     Vector omega=world(angularVelocity),inertia=Vector(15.5,22.1,7.7)*mass;
     for(const auto &contact:gliderContacts(gearDown)) {
-        Vector lever=world(contact.position),point=position+lever; double depth=EarthRadius-point.length();
+        Vector lever=world(contact.position),point=position+lever; double depth=native::body(id).radius-point.length();
         if(depth<=0) continue;
         Vector normal=point.unit();
-        Vector v=velocity+crossp(omega,lever)-crossp(earthSpin(),point);
+        Vector v=velocity+crossp(omega,lever)-crossp(native::body(id).spin(),point);
         double normalSpeed=dotp(v,normal);
         result.maximumClosingSpeed=std::max(result.maximumClosingSpeed,-normalSpeed);
         double load=std::clamp(contact.stiffness*depth-contact.damping*normalSpeed,0.,mass*9.81*100);

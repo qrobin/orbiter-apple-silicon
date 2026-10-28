@@ -1,7 +1,14 @@
 #include <math.h>
 #include <fstream>
 
+#ifdef ORBITER_NATIVE
+#include <cstdio>
+extern const char *NativeMoonDataFile();
+#define oapiWriteLogError(...) std::fprintf(stderr,__VA_ARGS__)
+#define oapiWriteLogV(...) ((void)0)
+#else
 #include "OrbiterAPI.h"
+#endif
 
 using namespace std;
 
@@ -191,7 +198,11 @@ int ELP82_read (double prec)
 	pre[1] = prec*rad;
 	pre[2] = prec*ath;
 
-	const char *datf = "Config\\Moon\\Data\\ELP82.dat";
+	#ifdef ORBITER_NATIVE
+    const char *datf = NativeMoonDataFile();
+#else
+    const char *datf = "Config\\Moon\\Data\\ELP82.dat";
+#endif
 	ifstream ifs (datf);  // term data stream
 	if (!ifs) {
 		oapiWriteLogError("ELP82: Data file not found: %s", datf);

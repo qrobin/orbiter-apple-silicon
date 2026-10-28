@@ -7,6 +7,10 @@ endif()
 set(CORE ${PROJECT_SOURCE_DIR}/Src/Orbiter)
 add_library(OrbiterFlightCore STATIC
     ${CORE}/Vecmat.cpp ${CORE}/Astro.cpp ${CORE}/Element.cpp ${CORE}/TimeData.cpp
+    Body.cpp SolarSystem.cpp
+    ${PROJECT_SOURCE_DIR}/Src/Celbody/Moon/ELP82.cpp
+    ${PROJECT_SOURCE_DIR}/Src/Celbody/Galsat/Lieske.cpp
+    ${PROJECT_SOURCE_DIR}/Src/Celbody/Satsat/Tass17.cpp
     Flight.cpp Mesh.cpp Glider.cpp Aerodynamics.cpp Cockpit.cpp Surface.cpp Base.cpp Hover.cpp Exhaust.cpp Camera.cpp)
 target_include_directories(OrbiterFlightCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${CORE})
 target_compile_definitions(OrbiterFlightCore PUBLIC ORBITER_NATIVE=1)
@@ -63,3 +67,8 @@ add_test(NAME Native.Exhaust COMMAND ExhaustTests)
 add_executable(CameraTests Tests/CameraTests.cpp)
 target_link_libraries(CameraTests PRIVATE OrbiterFlightCore)
 add_test(NAME Native.Camera COMMAND CameraTests)
+
+add_executable(SolarSystemTests Tests/SolarSystemTests.cpp)
+target_link_libraries(SolarSystemTests PRIVATE OrbiterFlightCore)
+target_compile_definitions(SolarSystemTests PRIVATE ORBITER_TEST_DATA="${PROJECT_SOURCE_DIR}")
+add_test(NAME Native.SolarSystem COMMAND SolarSystemTests)

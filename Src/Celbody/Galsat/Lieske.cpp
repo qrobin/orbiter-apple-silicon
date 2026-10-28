@@ -9,7 +9,9 @@
 #include <stdio.h>
 #include <memory.h>
 #include <math.h>
+#ifndef ORBITER_NATIVE
 #include "Galsat.h"
+#endif
 
 // Global variables
 
