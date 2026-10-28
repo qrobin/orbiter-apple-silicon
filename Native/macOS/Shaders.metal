@@ -1,11 +1,6 @@
 #include <metal_stdlib>
 using namespace metal;
-struct Frame {
-    float4x4 projection;
-    float4 cameraRight, cameraUp, cameraForward, cameraPosition;
-    float4 sun, screen; // screen: width, height, tan(fov/2), rotation
-    float4 environment; // exact camera altitude / radius, vessel altitude in metres
-};
+using Frame=FrameUniforms;
 struct Object { float4x4 model; float4 color; float4 options; };
 struct SwitchUniform { float4 pivotAngle,axisStart,range; };
 struct Vertex { packed_float3 position; packed_float3 normal; packed_float2 uv; };
@@ -26,13 +21,13 @@ vertex Raster meshVertex(uint id [[vertex_id]],const device Vertex *vertices [[b
         normal=normal*c+cross(axis,normal)*s+axis*dot(axis,normal)*(1-c);
     }
     float3 p=(o.model*float4(local,1)).xyz;
-    float3 view=float3(dot(p,f.cameraRight.xyz),dot(p,f.cameraUp.xyz),-dot(p,f.cameraForward.xyz));
+    float3 view=float3(dot(p,f.right.xyz),dot(p,f.up.xyz),-dot(p,f.forward.xyz));
     out.position=f.projection*float4(view,1);
     out.normal=(o.model*float4(normal,0)).xyz;
     out.world=p; out.uv=uv; return out;
 }
 fragment float4 meshFragment(Raster in [[stage_in]],constant Frame &f [[buffer(1)]],
-                             constant Object &o [[buffer(2)]],texture2d<float> tex [[texture(0)]]) {
+                             constant Object &o [[buffer(2)]],texture2d<float> tex [[texture(0)]],texture2d<float> shadows [[texture(1)]]) {
     constexpr sampler s(filter::linear,mip_filter::linear,address::repeat, max_anisotropy(8));
     if(o.options.x>2.5) return float4(tex.sample(s,in.uv).rgb,1);
     if(o.options.x>.5) {
@@ -44,23 +39,26 @@ fragment float4 meshFragment(Raster in [[stage_in]],constant Frame &f [[buffer(1
     float3 normal=normalize(in.normal);
     if(dot(normal,-in.world)<0) normal=-normal;
     float lit=max(0.0f,dot(normal,f.sun.xyz));
+    if(f.environment.y<f.clouds.y&&f.clouds.z>0){
+        float2 shadowUV=in.position.xy/f.screen.xy;
+        lit*=shadows.sample(s,shadowUV).r;
+    }
     float3 view=normalize(-in.world);
     float spec=pow(max(0.0f,dot(normal,normalize(f.sun.xyz+view))),40.0f)*.18;
     float3 color=albedo.rgb*(.20+o.options.y+lit*.8)+spec;
     return float4(color,albedo.a);
 }
-struct SkyRaster { float4 position [[position]]; float2 uv; };
 vertex SkyRaster skyVertex(uint id [[vertex_id]]) {
     float2 p=float2((id<<1)&2,id&2); return {float4(p*2-1,1,1),p};
 }
 float hash(float3 p) { return fract(sin(dot(p,float3(127.1,311.7,74.7)))*43758.5453); }
 struct SkyOutput { float4 color [[color(0)]]; float depth [[depth(any)]]; };
 fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buffer(1)]],
-                            texture2d<float> earth [[texture(0)]]) {
+                            texture2d<float> earth [[texture(0)]],texture2d<float> shadows [[texture(1)]]) {
     constexpr sampler s(filter::linear,mip_filter::linear,s_address::repeat,t_address::clamp_to_edge);
     float2 xy=in.uv*2-1;
-    float3 ray=normalize(f.cameraForward.xyz+f.cameraRight.xyz*xy.x*f.screen.z*(f.screen.x/f.screen.y)+f.cameraUp.xyz*xy.y*f.screen.z);
-    float3 origin=f.cameraPosition.xyz;
+    float3 ray=normalize(f.forward.xyz+f.right.xyz*xy.x*f.screen.z*(f.screen.x/f.screen.y)+f.up.xyz*xy.y*f.screen.z);
+    float3 origin=f.position.xyz;
     // Computing height on the CPU in double precision avoids subtracting nearly
     // equal float radii when the camera is only a few metres above the ground.
     float height=f.environment.x;
@@ -89,7 +87,8 @@ fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buf
         float3 base=earth.sample(s,uv).rgb;
         float day=smoothstep(-.14,.16,dot(n,f.sun.xyz));
         float light=max(.03f,dot(n,f.sun.xyz));
-        float3 surface=base*(.035+light*.96)*day+base*.018*(1-day);
+        float cloudShade=shadows.sample(s,in.position.xy/f.screen.xy).r;
+        float3 surface=base*(.035+light*.96*cloudShade)*day+base*.018*(1-day);
         // The supplied archive has no local Earth terrain tiles. Keep the global
         // imagery, with modest ground detail and distance haze for surface flight.
         float groundDetail=1-.13*hash(floor(n*6371010/2));
@@ -97,14 +96,14 @@ fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buf
         float fresnel=pow(1-max(0.0f,dot(n,-ray)),4.0f);
         surface=mix(surface,float3(.14,.37,.68)*(.3+.7*day),fresnel*.72);
         surface=mix(surface,airColor,air*(1-exp(-t*6371010/35000))*.8);
-        float viewZ=-t*6371010*dot(ray,f.cameraForward.xyz);
+        float viewZ=-t*6371010*dot(ray,f.forward.xyz);
         float4 clip=f.projection*float4(0,0,viewZ,1);
         return {float4(surface,1),clamp(clip.z/clip.w,0.0f,1.0f)};
     }
-    float atmosphereDisc=b*b-(dot(origin,origin)-1.025*1.025);
+    float atmosphereDisc=b*b-(dot(origin,origin)-1.013*1.013);
     if(atmosphereDisc>0&&b<0) {
         float closest=sqrt(max(0.0f,dot(origin,origin)-b*b));
-        float glow=exp(-(closest-1)*160)*.7;
+        float glow=exp(-(closest-1)*480)*.7;
         float3 n=normalize(origin+ray*(-b));
         float light=smoothstep(-.3,.4,dot(n,f.sun.xyz));
         sky+=float3(.10,.33,.75)*glow*light;

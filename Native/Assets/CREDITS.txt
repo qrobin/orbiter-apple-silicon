@@ -12,7 +12,7 @@ This image supplies a global visual backdrop, not Orbiter terrain/elevation tile
 
 # Earth imagery
 
-`Earth-May-8K.jpg` is an 8192 × 4096 resampling of NASA's Blue Marble: Next Generation, May 2004, topography composite.
+`earth-8k.jpg` is an 8192 × 4096 resampling of NASA's Blue Marble: Next Generation, May 2004, topography composite.
 
 Source: https://science.nasa.gov/earth/earth-observatory/blue-marble-next-generation/base-topography/
 Original image: https://assets.science.nasa.gov/content/dam/science/esd/eo/images/bmng/bmng-topography/may/world.topo.200405.3x21600x10800.jpg

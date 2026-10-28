@@ -11,7 +11,7 @@ add_library(OrbiterFlightCore STATIC
 target_include_directories(OrbiterFlightCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${CORE})
 target_compile_definitions(OrbiterFlightCore PUBLIC ORBITER_NATIVE=1)
 target_compile_options(OrbiterFlightCore PRIVATE -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable)
-add_executable(OrbiterNative MACOSX_BUNDLE macOS/App.mm macOS/GliderPanel.inc)
+add_executable(OrbiterNative MACOSX_BUNDLE macOS/App.mm macOS/NativeVisuals.mm macOS/GliderPanel.inc)
 target_compile_options(OrbiterNative PRIVATE -fobjc-arc -Wall -Wextra -Wno-unused-parameter)
 target_link_libraries(OrbiterNative PRIVATE OrbiterFlightCore
     "-framework UniformTypeIdentifiers" "-framework Cocoa" "-framework Metal" "-framework MetalKit" "-framework QuartzCore")
@@ -27,6 +27,8 @@ file(GLOB_RECURSE NATIVE_ASSET_INPUTS CONFIGURE_DEPENDS
 file(GLOB BASE_TEXTURE_INPUTS CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/Textures/*.dds)
 set_property(TARGET OrbiterNative APPEND PROPERTY LINK_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/macOS/Shaders.metal
+    ${CMAKE_CURRENT_SOURCE_DIR}/macOS/NativeVisuals.metal
+    ${CMAKE_CURRENT_SOURCE_DIR}/macOS/VisualTypes.h
     ${CMAKE_CURRENT_SOURCE_DIR}/PackageAssets.cmake
     ${PROJECT_SOURCE_DIR}/Src/Vessel/DeltaGlider/Meshes/deltaglider_ns.msh
     "${PROJECT_SOURCE_DIR}/Scenarios/Delta-glider/DG Mk4 in orbit.scn"

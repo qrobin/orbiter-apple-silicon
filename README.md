@@ -22,6 +22,12 @@ Start with **M** for the glider systems panel, **V** for the original 3D cockpit
 
 See the [native guide](Native/README.md) for all controls, supported scenarios, capture options and implementation details.
 
+## Native graphics
+
+Earth uses the credited 8K NASA Blue Marble map. Metal renders spherical volumetric cloud layers, sun attenuation and cloud shadows with temporal reconstruction. **Weather** in the menu bar or **F3** selects clear, scattered, overcast or storm presets. These are visual presets, not live meteorological data.
+
+Main, retro, hover and RCS engines have nozzle-aligned 3D flame cores and GPU particles driven by applied thrust. The renderer uses an FP16 scene, bloom, tone mapping and depth-aware compositing, while retaining the native cockpit, instruments and camera controls. See the [native guide](Native/README.md#native-graphics-in-06) for rendering details and limits.
+
 ## Native Metal implementation
 
 - Earth-orbit flight with original Kepler propagation, maneuvering, RCS, finite-torque attitude assists, fuel use and native scenario persistence.

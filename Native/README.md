@@ -1,6 +1,16 @@
-# Orbiter Native 0.4 — hover controls
+# Orbiter Native 0.6 — Metal clouds and exhaust
 
-A partial native Apple Silicon port of the supplied Orbiter source. Version 0.4 adds hover attitude stabilization, altitude/vertical-speed hold and the original cockpit hover controls to the native Delta-glider. This remains an experimental native flight target, **not a complete port of Orbiter or every Delta-glider subsystem**.
+A partial native Apple Silicon port of the supplied Orbiter source. Version 0.6 adds volumetric cloud/weather presets, the 8K Earth map, GPU exhaust and HDR lighting to the existing native Delta-glider, cockpit and hover controls. This remains an experimental native flight target, **not a complete port of Orbiter or every Delta-glider subsystem**.
+
+## Native graphics in 0.6
+
+The application now renders the 8K NASA Earth map, volumetric clouds, cloud shadows and exhaust directly in Metal. Choose **Weather → Clear / Scattered / Overcast / Storm**, or **F3** to cycle. Function keys may require Fn on Mac keyboards. These presets control procedural cloud coverage, density and layer height; they are not live weather and do not change the aerodynamic forces.
+
+Clouds occupy a spherical layer above Earth. A GPU-generated 128³ Perlin/Worley noise volume shapes the density, sunlight is attenuated through the volume, and a forward-scattering phase approximation produces bright edges. A screen-space cloud shadow pass follows the actual visible ground. The cloud pass uses 48 primary samples and four sun samples, up to 760 pixels wide (no more than half output resolution), temporal reprojection and depth-aware reconstruction. Spacecraft geometry, cockpit instruments and HUD remain at full output resolution. Camera cuts, resize, scenario changes and weather changes invalidate the history.
+
+Main, retro, hover and RCS effects use the tested shared nozzle/command data. Instanced 3D blue-white flame cores follow the craft and gimbals. A 4096-slot GPU particle pool emits and advects exhaust in the inertial frame, retaining the spacecraft's velocity at emission and responding to gravity. Pressure changes the visible spread. Soft depth intersections, local cloud attenuation, FP16 scene rendering, bloom and tone mapping integrate the exhaust into the view. The flame and particle appearance is an approximation, not a fluid/combustion simulation.
+
+The native camera sensitivity, flight controls, original cockpit, glider systems and Cape scenery remain available. The solar direction is still fixed for this milestone. Global imagery is not detailed local terrain; the Cape ground cover remains approximate.
 
 ## Try it
 
@@ -59,6 +69,7 @@ The native animation registry contains **63 components extracted from upstream s
 | Control | Action |
 | --- | --- |
 | M | Open glider systems panel |
+| F3 | Cycle visual cloud/weather presets |
 | F5 | Toggle automatic hover attitude |
 | F6 | Toggle altitude hold at current height |
 | F7 | Toggle zero vertical speed hold |
@@ -104,7 +115,7 @@ Requires Apple Silicon, macOS 13+, Xcode command-line tools and CMake 3.19+. The
 ./Native/build.sh --run
 ```
 
-Result: `build/macos-arm64/Native/Orbiter Native.app`. Set `ORBITER_NATIVE_BUILD_DIR` for another directory. The build runs the native flight, glider, surface and hover test suites and applies a local ad-hoc signature. Public notarization is not provided.
+Result: `build/macos-arm64/Native/Orbiter Native.app`. Set `ORBITER_NATIVE_BUILD_DIR` for another directory. The build runs the native flight, glider, surface, hover, exhaust and camera test suites and applies a local ad-hoc signature. Public notarization is not provided.
 
 For a bounded rendering run:
 
@@ -124,6 +135,8 @@ python3 Native/tools/extract_base_geometry.py
 ```
 
 The generated `.inc` files are committed, so Python is not a build dependency.
+
+Additional bounded render options: `--weather 0` through `--weather 3`, `--throttle .8`, `--rcs-demo`, `--camera-yaw -30`, `--camera-pitch 45`, and `--camera-distance 60` (angles in degrees, distance in metres). `--altitude 3500 --paused` places a stationary render-review state at the current latitude/longitude inside the cloud layer. It is a visual test setup, not a flying autopilot.
 
 ## Ground physics and Cape Canaveral
 
