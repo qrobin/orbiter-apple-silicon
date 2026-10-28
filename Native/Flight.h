@@ -10,7 +10,7 @@ constexpr double RcsCapacity = 600.0;
 constexpr double EmptyMass = 11000.0;
 constexpr double ExhaustVelocity = 40000.0;
 struct Input { double pitch=0, yaw=0, roll=0, translate=0, lateral=0, vertical=0, leftBrake=0, rightBrake=0; };
-enum class Assist { Free, Prograde, Retrograde, KillRotation };
+enum class Assist { Free, Prograde, Retrograde, KillRotation, Maneuver };
 class Flight {
 public:
     Glider glider;
@@ -29,6 +29,7 @@ public:
     int wheelContacts=0;
     double groundSpeed=0,contactLoad=0;
     Assist assist=Assist::Free;
+    Vector maneuverDirection{0,0,1};
     std::string name="GL-01";
     Flight();
     void load(const std::filesystem::path &path);

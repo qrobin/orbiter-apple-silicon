@@ -207,8 +207,8 @@ void Flight::step(double dt,const Input &input) {
     if(assist==Assist::KillRotation) {
         Vector limit(40000/(mass()*15.5),30000/(mass()*22.1),30000/(mass()*7.7));
         control={-angularVelocity.x/limit.x*3,-angularVelocity.y/limit.y*3,-angularVelocity.z/limit.z*3};
-    } else if(assist==Assist::Prograde||assist==Assist::Retrograde) {
-        Vector target=(assist==Assist::Prograde?velocity:-velocity).unit();
+    } else if(assist==Assist::Prograde||assist==Assist::Retrograde||assist==Assist::Maneuver) {
+        Vector target=(assist==Assist::Maneuver?maneuverDirection:assist==Assist::Prograde?velocity:-velocity).unit();
         Vector error=crossp(forward,target);
         // A 180-degree target needs an explicit axis: the cross product is zero there.
         if(dotp(forward,target)<-.98&&error.length()<.05) error=up;
@@ -308,7 +308,7 @@ void Flight::step(double dt,const Input &input) {
 void Flight::advance(double realSeconds,const Input &input) {
     if(paused||impacted||realSeconds<=0||!std::isfinite(realSeconds)) return;
     bool atmosphericFlight=(reference==BodyId::Earth?altitude()<120000:bodyAtmosphere(reference,altitude()).rho>1e-12)||(centralBody().solid&&altitude()<20);
-    bool maneuver=throttle>0||glider.hover>0||glider.hoverControl.holdActive||glider.retro>0||input.pitch||input.yaw||input.roll||input.translate||input.lateral||input.vertical||angularVelocity.length2()>1e-16;
+    bool maneuver=assist==Assist::Maneuver||throttle>0||glider.hover>0||glider.hoverControl.holdActive||glider.retro>0||input.pitch||input.yaw||input.roll||input.translate||input.lateral||input.vertical||angularVelocity.length2()>1e-16;
     if(warp>1&&centralBody().solid&&orbit().PeDist()<centralBody().radius+20){warp=1;atmosphericFlight=true;}
     if(maneuver||atmosphericFlight) warp=1;
     double dt=std::min(realSeconds,.1)*std::clamp(warp,1.0,1000.0);

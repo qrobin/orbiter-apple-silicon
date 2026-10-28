@@ -7,7 +7,7 @@ endif()
 set(CORE ${PROJECT_SOURCE_DIR}/Src/Orbiter)
 add_library(OrbiterFlightCore STATIC
     ${CORE}/Vecmat.cpp ${CORE}/Astro.cpp ${CORE}/Element.cpp ${CORE}/TimeData.cpp
-    Body.cpp SolarSystem.cpp
+    Body.cpp SolarSystem.cpp Transfer.cpp
     ${PROJECT_SOURCE_DIR}/Src/Celbody/Moon/ELP82.cpp
     ${PROJECT_SOURCE_DIR}/Src/Celbody/Galsat/Lieske.cpp
     ${PROJECT_SOURCE_DIR}/Src/Celbody/Satsat/Tass17.cpp
@@ -73,3 +73,8 @@ add_executable(SolarSystemTests Tests/SolarSystemTests.cpp)
 target_link_libraries(SolarSystemTests PRIVATE OrbiterFlightCore)
 target_compile_definitions(SolarSystemTests PRIVATE ORBITER_TEST_DATA="${PROJECT_SOURCE_DIR}")
 add_test(NAME Native.SolarSystem COMMAND SolarSystemTests)
+
+add_executable(TransferTests Tests/TransferTests.cpp)
+target_link_libraries(TransferTests PRIVATE OrbiterFlightCore)
+target_compile_definitions(TransferTests PRIVATE ORBITER_TEST_DATA="${PROJECT_SOURCE_DIR}")
+add_test(NAME Native.Transfer COMMAND TransferTests)
