@@ -51,7 +51,8 @@ struct GpuGroup { id<MTLBuffer> vertices,indices; NSUInteger count; size_t mater
 @public
     Flight flight;
     std::array<bool,256> held;
-    double yaw,pitch,distance,fps,cpuMs,gpuMs,cockpitYaw,cockpitPitch;
+    double fps,cpuMs,gpuMs,cockpitYaw,cockpitPitch;
+    OrbitCamera externalCamera;
     CockpitCamera cockpitCamera;
     bool helpVisible,cockpit,panelView,orbitVisible,demoLadderQueued;
     NSString *status,*navigationStatus;
@@ -123,6 +124,10 @@ struct GpuGroup { id<MTLBuffer> vertices,indices; NSUInteger count; size_t mater
 - (void)chooseHudMode:(NSMenuItem *)sender;
 - (void)cycleHudColour:(id)sender;
 - (void)adjustHudBrightness:(NSMenuItem *)sender;
+- (void)chooseExternalCamera:(NSMenuItem *)sender;
+- (void)chooseCameraReference:(NSMenuItem *)sender;
+- (void)cycleExternalCamera:(id)sender;
+- (void)applyExternalCamera:(ExternalCameraMode)mode reference:(BodyId)reference;
 @end
 @interface FlightView (NavigationControls)
 - (void)showNavigation:(id)sender;
@@ -205,7 +210,8 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         NSDictionary *attributes=@{NSFontAttributeName:[NSFont monospacedDigitSystemFontOfSize:10 weight:NSFontWeightRegular],NSForegroundColorAttributeName:hudInk};
         NSSize size=[readout sizeWithAttributes:attributes];[readout drawAtPoint:NSMakePoint(cx-size.width*.5,cy-24) withAttributes:attributes];
     }
-    text(v->panelView?@"2D PANEL":v->cockpit?@"VIRTUAL COCKPIT":@"EXTERNAL VIEW",cx-53,h-34,10,muted);
+    NSString *viewName=v->panelView?@"2D PANEL":v->cockpit?@"VIRTUAL COCKPIT":[NSString stringWithFormat:@"EXTERNAL · %s",externalCameraModeName(v->externalCamera.mode)];
+    text(viewName,cx-53,h-34,10,muted);
     if(!v->cockpit) {
     CGFloat left=26,bottom=35,pw=252,ph=194;
     [panel setFill]; NSRectFill(NSMakeRect(left,bottom,pw,ph));
@@ -279,8 +285,8 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         CGFloat bw=620,bh=534,x=(w-bw)/2,y=(h-bh)/2;
         [panel setFill]; NSRectFill(NSMakeRect(x,y,bw,bh));
         text(@"Flight controls",x+24,y+bh-44,23,white);
-        NSArray<NSString *> *rows=@[@"+ / −      Increase / decrease main throttle",@"X          Cut main, hover and retro engines",@"↑ ↓ ← →    Pitch and yaw    ·    Q / E  Roll",@"W/S A/D Z/J   RCS forward/side/vertical",@"P / O      Prograde / retrograde assist",@"; / '      Normal / anti-normal    ·    Shift-L  Horizon level",@"K / N      Kill rotation / manual control",@"Ctrl-H / Option-H   Cycle HUD mode / colour",@"T / Y      Increase / decrease time acceleration",@"[ / ]      Decrease / increase hover throttle",@", / .      Hold left / right wheel brake",@"Shift-W    Toggle parking brake",@"F5/F6/F7   Hover attitude / hold altitude / zero climb",@"M / V      Glider systems / cycle camera views",@"F4         Original TransX MFD / navigation controls",@"G C F B    Gear / nose / radiator / airbrake",@"H L U I    Hatch / ladder / retro covers / airlock",@"Drag       Look around / rotate TransX graph    ·    Scroll  Zoom",@"Space      Pause    ·    R  Restart    ·    F2  Diagram",@"⌘O / ⌘S    Open / save scenario    ·    F1  Close help"];
-        for(NSUInteger i=0;i<rows.count;++i) text(rows[i],x+24,y+bh-81-i*23,13,ink,YES);
+        NSArray<NSString *> *rows=@[@"+ / −      Increase / decrease main throttle",@"X          Cut main, hover and retro engines",@"↑ ↓ ← →    Pitch and yaw    ·    Q / E  Roll",@"W/S A/D Z/J   RCS forward/side/vertical",@"P / O      Prograde / retrograde assist",@"; / '      Normal / anti-normal    ·    Shift-L  Horizon level",@"K / N      Kill rotation / manual control",@"Ctrl-H / Option-H   Cycle HUD mode / colour",@"T / Y      Increase / decrease time acceleration",@"[ / ]      Decrease / increase hover throttle",@", / .      Hold left / right wheel brake",@"Shift-W    Toggle parking brake",@"F5/F6/F7   Hover attitude / hold altitude / zero climb",@"M / V      Glider systems / cycle camera views",@"F8         Cycle external tracking frames",@"F4         Original TransX MFD / navigation controls",@"G C F B    Gear / nose / radiator / airbrake",@"H L U I    Hatch / ladder / retro covers / airlock",@"Drag       Look around / rotate TransX graph    ·    Scroll  Zoom",@"Space      Pause    ·    R  Restart    ·    F2  Diagram",@"⌘O / ⌘S    Open / save scenario    ·    F1  Close help"];
+        for(NSUInteger i=0;i<rows.count;++i) text(rows[i],x+24,y+bh-81-i*20,13,ink,YES);
     }
 }
 @end
@@ -290,7 +296,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     if(!device) @throw [NSException exceptionWithName:@"Metal unavailable" reason:@"A Metal-capable Mac is required." userInfo:nil];
     self=[super initWithFrame:frame device:device]; if(!self) return nil;
     activeCockpitControl=-1;cockpitPitch=-.25;restartBody=-1;lastBody=BodyId::Earth;
-    held.fill(false);lastMfdLabels.fill(false);transxMfd.fill(false);transxAlignDisplay=-1;transxRefresh=0; yaw=-.55; pitch=.32; distance=43; helpVisible=false; orbitVisible=true;
+    held.fill(false);lastMfdLabels.fill(false);transxMfd.fill(false);transxAlignDisplay=-1;transxRefresh=0; externalCamera.yaw=-.55; externalCamera.pitch=.32; externalCamera.distance=43; helpVisible=false; orbitVisible=true;
     self.colorPixelFormat=MTLPixelFormatBGRA8Unorm_sRGB; self.depthStencilPixelFormat=MTLPixelFormatDepth32Float;
     self.sampleCount=[device supportsTextureSampleCount:4]?4:1;self.clearDepth=0;
     self.preferredFramesPerSecond=120; self.framebufferOnly=NO; self.clearColor=MTLClearColorMake(0,0,0,1);
@@ -366,7 +372,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     for(NSUInteger i=1;i<args.count;++i) {
         if([args[i] isEqual:@"--frames"]&&i+1<args.count) smokeFrames=[args[++i] integerValue];
         else if([args[i] isEqual:@"--capture"]&&i+1<args.count) capturePath=args[++i];
-        else if([args[i] isEqual:@"--body"]&&i+1<args.count){restartBody=(NSInteger)findBody(args[++i].UTF8String);[self resetFlight:nil];pitch=flight.centralBody().solid?.32:1.35;warmHover=false;}
+        else if([args[i] isEqual:@"--body"]&&i+1<args.count){restartBody=(NSInteger)findBody(args[++i].UTF8String);[self resetFlight:nil];externalCamera.pitch=flight.centralBody().solid?.32:1.35;warmHover=false;}
         else if([args[i] isEqual:@"--look-at"]&&i+1<args.count)lookAt=(NSInteger)findBody(args[++i].UTF8String);
         else if([args[i] isEqual:@"--transx-target"]&&i+1<args.count)navigationTarget=(NSInteger)findBody(args[++i].UTF8String);
         else if([args[i] isEqual:@"--weather"]&&i+1<args.count)visuals.weather=[args[++i] integerValue];
@@ -374,9 +380,9 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         else if([args[i] isEqual:@"--altitude"]&&i+1<args.count){double lat,lon;bodyCoordinates(flight.reference,flight.position,flight.mjd,flight.elapsed,lat,lon);flight.placeOnBody(lat,lon,flight.heading(),std::clamp([args[++i] doubleValue],2.53,1000000.));flight.groundContact=false;flight.wheelContacts=0;}
         else if([args[i] isEqual:@"--paused"])flight.paused=true;
         else if([args[i] isEqual:@"--rcs-demo"])rcsDemo=true;
-        else if([args[i] isEqual:@"--camera-yaw"]&&i+1<args.count)yaw=[args[++i] doubleValue]*RAD;
-        else if([args[i] isEqual:@"--camera-pitch"]&&i+1<args.count)pitch=std::clamp([args[++i] doubleValue]*RAD,-1.35,1.35);
-        else if([args[i] isEqual:@"--camera-distance"]&&i+1<args.count)distance=std::clamp([args[++i] doubleValue],14.,1000.);
+        else if([args[i] isEqual:@"--camera-yaw"]&&i+1<args.count)externalCamera.yaw=[args[++i] doubleValue]*RAD;
+        else if([args[i] isEqual:@"--camera-pitch"]&&i+1<args.count)externalCamera.pitch=std::clamp([args[++i] doubleValue]*RAD,-1.35,1.35);
+        else if([args[i] isEqual:@"--camera-distance"]&&i+1<args.count)externalCamera.distance=std::clamp([args[++i] doubleValue],14.,1000.);
         else if([args[i] isEqual:@"--surface"]) {[self startSurface:nil];warmHover=false;}
         else if([args[i] isEqual:@"--hover-demo"]) {[self startHoverPractice:nil];warmHover=true;}
         else if([args[i] isEqual:@"--cockpit"]) cockpit=true;
@@ -393,7 +399,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     if(lookAt>=0){
         double date=flight.mjd+flight.elapsed/86400;Vector direction=bodyState((BodyId)lookAt,date).position-bodyState(flight.reference,date).position-flight.position;
         Vector radial=flight.position.unit(),tangent=flight.velocity-radial*dotp(flight.velocity,radial);if(tangent.length2()<1)tangent=flight.forward;tangent.unify();Vector lateral=crossp(radial,tangent).unit(),out=-direction.unit();
-        pitch=std::clamp(asin(std::clamp(dotp(out,radial),-1.,1.)),-1.35,1.35);yaw=atan2(dotp(out,lateral),-dotp(out,tangent));
+        externalCamera.pitch=std::clamp(asin(std::clamp(dotp(out,radial),-1.,1.)),-1.35,1.35);externalCamera.yaw=atan2(dotp(out,lateral),-dotp(out,tangent));
     }
     [self updateCockpitDisplays];previous=begin=CACurrentMediaTime(); return self;
 }
@@ -424,13 +430,12 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     dispatch_semaphore_wait(inflight,DISPATCH_TIME_FOREVER);
     id<CAMetalDrawable> drawable=self.currentDrawable;
     if(!drawable) { dispatch_semaphore_signal(inflight); return; }
-    Vector radial=flight.position.unit();
-    OrbitCamera orbitCamera;orbitCamera.yaw=yaw;orbitCamera.pitch=pitch;orbitCamera.distance=distance;
-    Vector offset=orbitCamera.offset(flight);
-    Vector dir=(-offset).unit(),up=radial;
+    auto cameraPose=externalCamera.pose(flight);
+    Vector offset=cameraPose.offset;
+    Vector dir=(-offset).unit(),up=cameraPose.up;
     if(cockpit) { offset=flight.up*1.467+flight.forward*6.782; dir=panelView?flight.forward:(flight.forward*(cos(cockpitYaw)*cos(cockpitPitch))+flight.right*(sin(cockpitYaw)*cos(cockpitPitch))+flight.up*sin(cockpitPitch)).unit(); up=flight.up; }
     Vector cameraRight=crossp(up,dir).unit(),cameraUp=crossp(dir,cameraRight).unit();
-    float aspect=self.drawableSize.width/std::max(1.,self.drawableSize.height),tanHalf=cockpit&&!panelView?cockpitCamera.tanHalfFov():tan(50*RAD*.5);
+    float aspect=self.drawableSize.width/std::max(1.,self.drawableSize.height),tanHalf=cockpit?(panelView?tan(50*RAD*.5):cockpitCamera.tanHalfFov()):externalCamera.tanHalfFov();
     FrameUniforms uniforms{}; uniforms.projection=projection(aspect,tanHalf);
     uniforms.right=f4(cameraRight); uniforms.up=f4(cameraUp); uniforms.forward=f4(dir);
     uniforms.position=f4((flight.position+offset)/flight.centralBody().radius);
@@ -601,7 +606,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     NSDictionary *report=@{@"architecture":@"arm64",@"renderer":@"Metal",@"body":[NSString stringWithUTF8String:flight.centralBody().name],@"bodyRadius":@(flight.centralBody().radius),@"bodyMu":@(flight.gravityMu()),@"solarSystemBodies":@(BodyCount),@"device":self.device.name,
         @"frames":@(frameCount),@"drawableWidth":@(self.drawableSize.width),@"drawableHeight":@(self.drawableSize.height),
         @"screenMaximumFPS":@(self.window.screen.maximumFramesPerSecond),@"requestedFPS":@(self.preferredFramesPerSecond),@"sampleCount":@(self.sampleCount),@"weather":flight.reference==BodyId::Earth?[visuals weatherName]:@"Not applicable",@"cloudWidth":@(visuals.cloudWidth),@"cloudHeight":@(visuals.cloudHeight),@"hdr":@YES,
-        @"exhaustEmitters":@(visuals.emitterCount),@"exhaustParticles":@([visuals liveParticleCount]),@"cameraDistance":@(distance),@"forwardLength":@(flight.forward.length()),@"rightLength":@(flight.right.length()),@"meanFrameMs":@(mean),@"p95FrameMs":@(p95),@"meanFPS":@(mean?1000/mean:0),
+        @"exhaustEmitters":@(visuals.emitterCount),@"exhaustParticles":@([visuals liveParticleCount]),@"cameraDistance":@(externalCamera.distance),@"forwardLength":@(flight.forward.length()),@"rightLength":@(flight.right.length()),@"meanFrameMs":@(mean),@"p95FrameMs":@(p95),@"meanFPS":@(mean?1000/mean:0),
         @"meanCPUEncodeMs":@(cpuSum/frameCount),@"lastGPUFrameMs":@(gpuMs),@"scenarioElapsed":@(flight.elapsed),
         @"altitudeMeters":@(flight.altitude()),@"meshGroups":@(groups.size()),
         @"groundSpeed":@(flight.groundSpeed),@"wheelContacts":@(flight.wheelContacts),@"parkingBrake":@(flight.glider.parkingBrake),@"impacted":@(flight.impacted),
@@ -680,12 +685,12 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
 }
 - (void)startSurface:(id)sender {
     restartBody=-1;restartScenario=resource(@"Scenarios/Cape Canaveral native.scn");[self resetFlight:nil];
-    yaw=-.55;pitch=.22;distance=43;[self setViewMode:0];
+    externalCamera.setMode(ExternalCameraMode::OrbitalChase,flight,flight.reference);externalCamera.yaw=-.55;externalCamera.pitch=.22;externalCamera.distance=43;[self setViewMode:0];
 }
 - (void)startOrbit:(id)sender {restartBody=-1;restartScenario=resource(@"Scenarios/DG Mk4 in orbit.scn");[self resetFlight:nil];}
 - (void)startHoverPractice:(id)sender {
     restartBody=-1;restartScenario=resource(@"Scenarios/Cape Canaveral hover.scn");[self resetFlight:nil];
-    yaw=-.55;pitch=.22;distance=43;[self setViewMode:0];status=@"Hover practice · climbing to 100 m · X disengages hold and cuts engines";
+    externalCamera.setMode(ExternalCameraMode::OrbitalChase,flight,flight.reference);externalCamera.yaw=-.55;externalCamera.pitch=.22;externalCamera.distance=43;[self setViewMode:0];status=@"Hover practice · climbing to 100 m · X disengages hold and cuts engines";
 }
 - (void)toggleHoverHold:(id)sender {
     auto &h=flight.glider.hoverControl;
@@ -761,6 +766,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         case 96:[self toggleHoverAttitude:nil];break;
         case 97:[self holdCurrentAltitude:nil];break;
         case 98:[self holdZeroVerticalSpeed:nil];break;
+        case 100:[self cycleExternalCamera:nil];break;
         case 99:[self cycleWeather:nil];break;
         case 118:[self showNavigation:nil];break;
         case 122:[self toggleHelp:nil];break;
@@ -768,7 +774,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     }
 }
 - (void)startBodyOrbit:(NSMenuItem *)sender {
-    restartBody=sender.tag;[self resetFlight:nil];yaw=-.55;pitch=flight.centralBody().solid?.32:1.35;distance=43;[self setViewMode:0];self.hud.needsDisplay=YES;
+    restartBody=sender.tag;[self resetFlight:nil];externalCamera.setMode(ExternalCameraMode::OrbitalChase,flight,flight.reference);externalCamera.yaw=-.55;externalCamera.pitch=flight.centralBody().solid?.32:1.35;externalCamera.distance=43;[self setViewMode:0];self.hud.needsDisplay=YES;
 }
 - (void)setViewMode:(int)mode {
     cockpit=mode!=0;panelView=mode==2;self.panel2D.hidden=!panelView;[self clearInput];
@@ -786,9 +792,29 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
 - (void)chooseHudMode:(NSMenuItem *)sender {flight.hud.select((int)sender.tag);self.hud.needsDisplay=YES;self.panel2D.needsDisplay=YES;[self.window makeFirstResponder:self];}
 - (void)cycleHudColour:(id)sender {flight.hud.cycleColour();self.hud.needsDisplay=YES;}
 - (void)adjustHudBrightness:(NSMenuItem *)sender {flight.hud.adjustBrightness(sender.tag*.1);self.hud.needsDisplay=YES;}
+- (void)applyExternalCamera:(ExternalCameraMode)mode reference:(BodyId)reference {
+    if(!externalCamera.setMode(mode,flight,reference)){status=@"This camera mode requires a solid reference body";self.hud.needsDisplay=YES;return;}
+    [self setViewMode:0];
+    if(mode==ExternalCameraMode::TargetTo||mode==ExternalCameraMode::TargetFrom)status=[NSString stringWithFormat:@"Camera: %s %s",externalCameraModeName(mode),body(reference).name];
+    else if(mode==ExternalCameraMode::GroundObserver)status=@"Ground observer · drag to move the site · scroll to zoom";
+    else status=[NSString stringWithFormat:@"Camera: %s",externalCameraModeName(mode)];
+    self.hud.needsDisplay=YES;[self.window makeFirstResponder:self];
+}
+- (void)chooseExternalCamera:(NSMenuItem *)sender {[self applyExternalCamera:(ExternalCameraMode)sender.tag reference:flight.reference];}
+- (void)chooseCameraReference:(NSMenuItem *)sender {
+    bool to=sender.tag<200;int index=(int)sender.tag-(to?100:200);
+    if(index>=0&&index<(int)BodyCount)[self applyExternalCamera:to?ExternalCameraMode::TargetTo:ExternalCameraMode::TargetFrom reference:(BodyId)index];
+}
+- (void)cycleExternalCamera:(id)sender {
+    auto mode=externalCamera.mode;
+    auto next=mode==ExternalCameraMode::TargetRelative?ExternalCameraMode::AbsoluteDirection:mode==ExternalCameraMode::AbsoluteDirection?ExternalCameraMode::GlobalFrame:ExternalCameraMode::TargetRelative;
+    [self applyExternalCamera:next reference:flight.reference];
+}
 - (BOOL)validateMenuItem:(NSMenuItem *)item {
     if(item.action==@selector(chooseNavProgram:)){item.state=flight.assistActive(navButtonMode((int)item.tag))?NSControlStateValueOn:NSControlStateValueOff;return YES;}
     if(item.action==@selector(chooseHudMode:)){item.state=flight.hud.mode==item.tag?NSControlStateValueOn:NSControlStateValueOff;return YES;}
+    if(item.action==@selector(chooseExternalCamera:)){item.state=(NSInteger)externalCamera.mode==item.tag?NSControlStateValueOn:NSControlStateValueOff;return item.tag!=(NSInteger)ExternalCameraMode::GroundObserver||flight.centralBody().solid;}
+    if(item.action==@selector(chooseCameraReference:)){bool to=item.tag<200;int index=(int)item.tag-(to?100:200);item.state=externalCamera.mode==(to?ExternalCameraMode::TargetTo:ExternalCameraMode::TargetFrom)&&(int)externalCamera.target==index?NSControlStateValueOn:NSControlStateValueOff;return YES;}
     if(item.action==@selector(toggleTransXMFD:)){item.state=transxMfd[std::clamp((int)item.tag,0,1)]?NSControlStateValueOn:NSControlStateValueOff;return YES;}
     if(item.action==@selector(setWeather:))return flight.reference==BodyId::Earth;
     return YES;
@@ -858,12 +884,12 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         return;
     }
     if(cockpit) { cockpitYaw=std::clamp(cockpitYaw+deltaX*.006,-2.5,2.5); cockpitPitch=std::clamp(cockpitPitch-deltaY*.006,-1.1,1.1); }
-    else { yaw+=deltaX*.009; pitch=std::clamp(pitch+deltaY*.009,-1.35,1.35); }
+    else externalCamera.drag(deltaX,deltaY);
 }
 - (void)scrollWheel:(NSEvent *)event {
     if(smokeFrames)return;
     if(cockpit)cockpitCamera.zoom(event.scrollingDeltaY);
-    else {OrbitCamera camera;camera.distance=distance;camera.zoom(event.scrollingDeltaY);distance=camera.distance;}
+    else externalCamera.zoom(event.scrollingDeltaY);
 }
 @end
 #include "GliderPanel.inc"
@@ -907,6 +933,12 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         NSMenuItem *demo=[fm addItemWithTitle:@"Mechanism Demonstration" action:@selector(demonstrateGlider:) keyEquivalent:@""];demo.target=self.view;
         NSMenuItem *reset=[fm addItemWithTitle:@"Restart Flight" action:@selector(resetFlight:) keyEquivalent:@""]; reset.target=self.view;
         NSMenuItem *help=[fm addItemWithTitle:@"Flight Controls" action:@selector(toggleHelp:) keyEquivalent:@"?"]; help.target=self.view;
+        NSMenuItem *cameraItem=[NSMenuItem new];cameraItem.title=@"Camera";[main addItem:cameraItem];NSMenu *cameraMenu=[NSMenu new];cameraItem.submenu=cameraMenu;
+        NSArray<NSString *> *cameraNames=@[@"Orbital Chase",@"Target-relative (F8)",@"Absolute Direction (F8)",@"Global Frame (F8)"];
+        for(int i=0;i<4;++i){NSMenuItem *item=[cameraMenu addItemWithTitle:cameraNames[i] action:@selector(chooseExternalCamera:) keyEquivalent:@""];item.target=self.view;item.tag=i;}
+        for(int to:{1,0}){NSMenuItem *parent=[cameraMenu addItemWithTitle:to?@"Target to…":@"Target from…" action:nil keyEquivalent:@""];NSMenu *refs=[NSMenu new];parent.submenu=refs;
+            for(const auto &b:bodies()){NSMenuItem *item=[refs addItemWithTitle:[NSString stringWithUTF8String:b.name] action:@selector(chooseCameraReference:) keyEquivalent:@""];item.target=self.view;item.tag=(to?100:200)+(NSInteger)b.id;}}
+        NSMenuItem *ground=[cameraMenu addItemWithTitle:@"Ground Observer" action:@selector(chooseExternalCamera:) keyEquivalent:@""];ground.target=self.view;ground.tag=(NSInteger)ExternalCameraMode::GroundObserver;
         NSMenuItem *navItem=[NSMenuItem new];navItem.title=@"Navigation";[main addItem:navItem];NSMenu *nav=[NSMenu new];navItem.submenu=nav;
         NSMenuItem *programs=[nav addItemWithTitle:@"RCS Programs" action:nil keyEquivalent:@""];NSMenu *programMenu=[NSMenu new];programs.submenu=programMenu;
         NSArray<NSString *> *programNames=@[@"Kill Rotation (K)",@"Retrograde (O)",@"Prograde (P)",@"Anti-normal (')",@"Normal (;)",@"Horizon Level (Shift-L)"];

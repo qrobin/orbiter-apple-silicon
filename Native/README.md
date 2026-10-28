@@ -106,6 +106,7 @@ The right cockpit MFD displays hover state while hover controls are enabled. The
 | RCS | Six-axis translation and three-axis rotation, original torque magnitudes and normalized moments of inertia, fuel-limited jets, off/rotation/translation modes |
 | Attitude assists | Original six RCS programs, finite torque and fuel use at normal speed; prograde and retrograde put the planet on the left and right respectively. Nav programs can operate with the manual RCS dial off. |
 | HUD | Orbit, surface and docking selection, brightness and four colours from cockpit controls or the Navigation menu; docking displays no target until docking targets are supported |
+| External camera | Orbiter's target-relative, absolute-direction, global-frame, target-to/from-body and ground-observer views, plus the native orbital chase view |
 | Effects and lights | Throttle-linked main/retro/hover exhaust, RCS jets, navigation lights, flashing red beacons, white strobes and docking-light marker |
 | Atmosphere/aerodynamics | Original Earth 2006 atmosphere equations, original DG vertical/horizontal lift tables, induced/wave drag; a reduced native force/moment coupling below 120 km |
 | State persistence | Mechanism positions and motion targets, main/hover/retro settings, gimbals/balance, trim, RCS mode, pressures/valves, temperatures, pump, lights, attitude and angular rates |
@@ -122,6 +123,7 @@ The native animation registry contains **63 components extracted from upstream s
 | F5 | Toggle automatic hover attitude |
 | F6 | Toggle altitude hold at current height |
 | F7 | Toggle zero vertical speed hold |
+| F8 | Cycle target-relative, absolute-direction and global-frame external cameras |
 | [ / ] | Decrease / increase hover throttle |
 | , / . | Hold left / right wheel brake; hold both to stop |
 | Shift-W | Toggle parking brake |
@@ -156,7 +158,9 @@ The native animation registry contains **63 components extracted from upstream s
 | ⌘O / ⌘S | Open / save scenario |
 | ⌘Q | Quit |
 
-Mechanisms follow simulation time and stop while paused. Manual maneuvers, engine use, angular motion and atmospheric flight return acceleration to 1×. At high time acceleration an unpowered prograde/retrograde assist uses a kinematic alignment path. Opening the top hatch or opening both airlocks can depressurize the cabin; closing doors and opening the supply valves restores pressure. A warning appears when pressure is low or retro thrust is inhibited.
+Use the **Camera** menu to select an external mode. Target-relative follows the ship's orientation; absolute direction holds the camera's world direction while following the ship's roll; global frame holds both direction and roll. The target-to/from submenus choose a Solar System body and lock the camera along that line. Ground observer starts on the current solid body's surface, tracks the ship, moves across the surface when dragged, and zooms its field of view when scrolled. **V** still cycles the three main views, and the selected external mode is retained when returning to it.
+
+Mechanisms follow simulation time and stop while paused. Manual maneuvers, engine use, angular motion and atmospheric flight return acceleration to 1×. Attitude programs pause while coasting at higher acceleration; they resume at normal speed without instantly changing the vessel's attitude. Opening the top hatch or opening both airlocks can depressurize the cabin; closing doors and opening the supply valves restores pressure. A warning appears when pressure is low or retro thrust is inhibited.
 
 The native panel is a separate macOS window. Click the flight window to return keyboard control to the spacecraft after using panel controls.
 
