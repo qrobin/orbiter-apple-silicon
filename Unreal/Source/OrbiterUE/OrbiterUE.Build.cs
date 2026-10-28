@@ -5,7 +5,8 @@ public class OrbiterUE : ModuleRules {
         PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
         bUseUnity = false;
         bEnableExceptions = true;
-        PublicDependencyModuleNames.AddRange(new string[] {"Core", "CoreUObject", "Engine", "InputCore", "ProceduralMeshComponent", "RenderCore", "RHI", "ImageWrapper", "Niagara"});
+        PublicDependencyModuleNames.AddRange(new string[] {"Core", "CoreUObject", "Engine", "InputCore", "ProceduralMeshComponent", "RenderCore", "RHI", "ImageWrapper", "Niagara", "ApplicationCore", "Slate", "SlateCore"});
+        PublicFrameworks.Add("Cocoa");
         string Root = Path.GetFullPath(Path.Combine(ModuleDirectory, "../../.."));
         PrivateIncludePaths.Add(Path.Combine(Root, "Native"));
         PrivateIncludePaths.Add(Path.Combine(Root, "Src/Orbiter"));

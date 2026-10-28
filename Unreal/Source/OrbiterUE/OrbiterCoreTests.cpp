@@ -2,6 +2,10 @@
 #if WITH_DEV_AUTOMATION_TESTS
 #include "Misc/AutomationTest.h"
 #include "Misc/Paths.h"
+#include "OrbiterFrame.h"
+THIRD_PARTY_INCLUDES_START
+#include "Exhaust.h"
+THIRD_PARTY_INCLUDES_END
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FOrbiterCoreBridgeTest,"Orbiter.NativeBridge.FlightAndHover",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
 bool FOrbiterCoreBridgeTest::RunTest(const FString &) {
     const FString Data=FPaths::ProjectContentDir()/TEXT("OrbiterData");
@@ -20,6 +24,25 @@ bool FOrbiterCoreBridgeTest::RunTest(const FString &) {
         Flight.cutEngines();
         TestFalse(TEXT("Cutoff cancels hold"),Flight.glider.hoverControl.holdActive);
     }catch(const std::exception &E){AddError(UTF8_TO_TCHAR(E.what()));}
+    return !HasAnyErrors();
+}
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FOrbiterExhaustFrameTest,"Orbiter.NativeBridge.NozzleFrame",EAutomationTestFlags::EditorContext|EAutomationTestFlags::EngineFilter)
+bool FOrbiterExhaustFrameTest::RunTest(const FString &) {
+    native::Flight Flight;Flight.glider.mainLevel=.8;
+    for(const Vector &Forward:{Vector(1,2,3),Vector(-3,1,.5),Vector(0,-1,1)}) {
+        Flight.align(Forward);
+        const FVector SpawnOffset(150,-75,100);
+        const FTransform RenderFrame(OrbiterFrame::Rotation(Flight),SpawnOffset);
+        for(const auto &Nozzle:native::gliderExhaust(Flight)) {
+            const auto &P=Nozzle.position;
+            const FVector Expected=OrbiterFrame::Point(Flight.right*P.x+Flight.up*P.y+Flight.forward*P.z)*100+SpawnOffset;
+            const FVector Actual=RenderFrame.TransformPosition(OrbiterFrame::Point(P)*100);
+            TestTrue(TEXT("Nozzle mouths follow the visible ship, including map spawn offsets"),Actual.Equals(Expected,1e-5));
+            const auto &D=Nozzle.direction;
+            const FVector ExpectedDirection=OrbiterFrame::Point(Flight.right*D.x+Flight.up*D.y+Flight.forward*D.z);
+            TestTrue(TEXT("Jet axes follow the visible ship attitude"),RenderFrame.TransformVectorNoScale(OrbiterFrame::Point(D)).Equals(ExpectedDirection,1e-6));
+        }
+    }
     return !HasAnyErrors();
 }
 #endif

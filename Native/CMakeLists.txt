@@ -7,7 +7,7 @@ endif()
 set(CORE ${PROJECT_SOURCE_DIR}/Src/Orbiter)
 add_library(OrbiterFlightCore STATIC
     ${CORE}/Vecmat.cpp ${CORE}/Astro.cpp ${CORE}/Element.cpp ${CORE}/TimeData.cpp
-    Flight.cpp Mesh.cpp Glider.cpp Aerodynamics.cpp Cockpit.cpp Surface.cpp Base.cpp Hover.cpp Exhaust.cpp)
+    Flight.cpp Mesh.cpp Glider.cpp Aerodynamics.cpp Cockpit.cpp Surface.cpp Base.cpp Hover.cpp Exhaust.cpp Camera.cpp)
 target_include_directories(OrbiterFlightCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${CORE})
 target_compile_definitions(OrbiterFlightCore PUBLIC ORBITER_NATIVE=1)
 target_compile_options(OrbiterFlightCore PRIVATE -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable)
@@ -55,4 +55,9 @@ add_test(NAME Native.Hover COMMAND HoverTests)
 
 add_executable(ExhaustTests Tests/ExhaustTests.cpp)
 target_link_libraries(ExhaustTests PRIVATE OrbiterFlightCore)
+target_compile_definitions(ExhaustTests PRIVATE ORBITER_TEST_DATA="${PROJECT_SOURCE_DIR}")
 add_test(NAME Native.Exhaust COMMAND ExhaustTests)
+
+add_executable(CameraTests Tests/CameraTests.cpp)
+target_link_libraries(CameraTests PRIVATE OrbiterFlightCore)
+add_test(NAME Native.Camera COMMAND CameraTests)

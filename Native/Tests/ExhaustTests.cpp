@@ -1,4 +1,6 @@
 #include "Exhaust.h"
+#include "Mesh.h"
+#include <limits>
 #include <iostream>
 #include <stdexcept>
 using namespace native;
@@ -8,6 +10,14 @@ int main(){try {
     Flight f;check(gliderExhaust(f).empty(),"No jets at idle");
     f.glider.mainLevel=.7;f.glider.mainBalance=.3;f.glider.gimbalPitch=.8;
     auto e=gliderExhaust(f);check(e.size()==2,"Two main engines");check(fabs(e[0].level-.49)<1e-10,"Main engine balance");check(e[0].direction.y<0,"Exhaust opposes gimbal thrust");
+    const auto mesh=loadMesh(std::filesystem::path(ORBITER_TEST_DATA)/"Src/Vessel/DeltaGlider/Meshes/deltaglider_ns.msh");
+    for(const auto &nozzle:e){
+        double lip=std::numeric_limits<double>::infinity();
+        for(const auto &group:mesh.groups)for(const auto &v:group.vertices)
+            if(fabs(v.x-nozzle.position.x)<.8&&fabs(v.y)<.8&&v.z<-7.6)lip=std::min(lip,double(v.z));
+        check(std::isfinite(lip),"Main nozzle rim exists in original mesh");
+        check(fabs(nozzle.position.z-lip)<.002,"Visual exhaust starts at original nozzle lip, not interior thrust point");
+    }
     f.cutEngines();f.glider.hoverControl.levels={.2,.4,.8};e=gliderExhaust(f);check(e.size()==3,"Three independent hover engines");check(e[2].level==.8,"Actual hover mixer output");
     f.cutEngines();
     for(int axis=0;axis<3;++axis)for(double sign:{-1.,1.}) {

@@ -11,6 +11,14 @@ def connect(source, output, destination, input_name):
 def property_link(source, output, property_name):
     if not lib.connect_material_property(source, output, property_name):
         raise RuntimeError('Material property connection failed: %s -> %s' % (source.get_name(), property_name))
+# Upgrade only these generated materials; large imported textures remain cached.
+generated_versions = {'M_Orbiter': '2', 'M_Earth': '2', 'M_Exhaust': '3', 'M_Flame': '1'}
+for name, version in generated_versions.items():
+    asset_path = '/Game/Materials/' + name
+    previous = unreal.load_asset(asset_path)
+    if previous and unreal.EditorAssetLibrary.get_metadata_tag(previous, 'OrbiterGeneratorVersion') != version:
+        if not unreal.EditorAssetLibrary.delete_asset(asset_path):
+            raise RuntimeError('Cannot upgrade generated material ' + asset_path)
 path = '/Game/Materials/M_Orbiter'
 material = unreal.load_asset(path)
 if material is None:
@@ -93,7 +101,7 @@ if unreal.load_asset('/Game/Materials/M_Exhaust') is None:
     connect(falloff, '', opacity, 'A')
     connect(color, 'A', opacity, 'B')
     depth = lib.create_material_expression(m, unreal.MaterialExpressionDepthFade, 500, 0)
-    depth.set_editor_property('fade_distance_default', 100)
+    depth.set_editor_property('fade_distance_default', 6)
     connect(opacity, '', depth, 'Opacity')
     property_link(depth, '', unreal.MaterialProperty.MP_OPACITY)
     emission = lib.create_material_expression(m, unreal.MaterialExpressionMultiply, 100, 300)
@@ -102,3 +110,24 @@ if unreal.load_asset('/Game/Materials/M_Exhaust') is None:
     property_link(emission, '', unreal.MaterialProperty.MP_EMISSIVE_COLOR)
     lib.recompile_material(m)
     unreal.EditorAssetLibrary.save_loaded_asset(m)
+
+if unreal.load_asset('/Game/Materials/M_Flame') is None:
+    m = assets.create_asset('M_Flame', '/Game/Materials', unreal.Material, unreal.MaterialFactoryNew())
+    m.set_editor_property('blend_mode', unreal.BlendMode.BLEND_ADDITIVE)
+    m.set_editor_property('shading_model', unreal.MaterialShadingModel.MSM_UNLIT)
+    m.set_editor_property('two_sided', True)
+    color = lib.create_material_expression(m, unreal.MaterialExpressionVertexColor, -400, 0)
+    emission = lib.create_material_expression(m, unreal.MaterialExpressionMultiply, -150, 0)
+    emission.set_editor_property('const_b', 120000)
+    connect(color, '', emission, 'A')
+    property_link(emission, '', unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    property_link(color, 'A', unreal.MaterialProperty.MP_OPACITY)
+    lib.recompile_material(m)
+    unreal.EditorAssetLibrary.save_loaded_asset(m)
+
+for name, version in generated_versions.items():
+    generated = unreal.load_asset('/Game/Materials/' + name)
+    if generated is None:
+        raise RuntimeError('Generated material missing: ' + name)
+    unreal.EditorAssetLibrary.set_metadata_tag(generated, 'OrbiterGeneratorVersion', version)
+    unreal.EditorAssetLibrary.save_loaded_asset(generated, only_if_is_dirty=False)

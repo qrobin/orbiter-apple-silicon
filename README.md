@@ -47,7 +47,7 @@ The native target currently supports one focused standard `DeltaGlider` at Earth
 
 ## Validation and CI
 
-The flight, glider, surface, hover and exhaust CTest suites pass locally in Release and with AddressSanitizer/UndefinedBehaviorSanitizer. They cover orbital propagation, fuel and propulsion, mechanism staging, cockpit/mesh geometry, scenario round trips ground-contact behavior and closed-loop hover recovery/target tracking. These checks do not establish full equivalence with the original simulator.
+The flight, glider, surface, hover, exhaust and camera CTest suites pass locally in Release and with AddressSanitizer/UndefinedBehaviorSanitizer. They cover orbital propagation, fuel and propulsion, mechanism staging, cockpit/mesh geometry, scenario round trips ground-contact behavior and closed-loop hover recovery/target tracking. These checks do not establish full equivalence with the original simulator.
 
 The [Apple Silicon workflow](.github/workflows/native-macos.yml) builds the arm64 app, runs all native suites, verifies the executable architecture and uploads a ZIP artifact. The imported Windows/Linux maintenance workflows are available as manual workflows.
 

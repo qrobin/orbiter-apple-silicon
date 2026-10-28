@@ -1,4 +1,5 @@
-// Nozzle locations from Src/Vessel/DeltaGlider/DeltaGlider.cpp (MIT).
+// Thruster configuration from Src/Vessel/DeltaGlider/DeltaGlider.cpp (MIT).
+// Main visual exits are measured from the original deltaglider_ns.msh nozzle lips.
 #include "Exhaust.h"
 #include "Aerodynamics.h"
 #include <algorithm>
@@ -8,9 +9,10 @@ std::vector<ExhaustEmitter> gliderExhaust(const Flight &f) {
     auto emit=[&](Vector p,Vector d,double level,double radius,ExhaustKind kind){
         level=std::clamp(level,0.,1.);if(level>1e-6)out.push_back({p,d.unit(),level,radius,kind});
     };
+    // Force is applied at z=-7.7; the exterior mesh nozzle lips end at z=-8.043.
     Vector main(-g.gimbalYaw/7.7,-tan(5*RAD)*g.gimbalPitch,-1);
-    emit({-1,0,-7.7},main,g.mainLevel*std::clamp(1-g.mainBalance,0.,1.),.55,ExhaustKind::Main);
-    emit({1,0,-7.7},main,g.mainLevel*std::clamp(1+g.mainBalance,0.,1.),.55,ExhaustKind::Main);
+    emit({-1,0,-8.043},main,g.mainLevel*std::clamp(1-g.mainBalance,0.,1.),.55,ExhaustKind::Main);
+    emit({1,0,-8.043},main,g.mainLevel*std::clamp(1+g.mainBalance,0.,1.),.55,ExhaustKind::Main);
     for(double x:{-3.,3.})emit({x,-.236,5.6},{0,-.04210548,.99911317},g.retroLevel,.22,ExhaustKind::Retro);
     const auto &h=g.hoverControl.levels;
     emit({0,-1.5,3},{0,-1,0},h[0],.45,ExhaustKind::Hover);

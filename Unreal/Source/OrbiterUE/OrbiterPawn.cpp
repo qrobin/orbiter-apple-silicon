@@ -1,6 +1,11 @@
 #include "OrbiterPawn.h"
 #include "OrbiterWorld.h"
 #include "OrbiterExhaust.h"
+#include "OrbiterFrame.h"
+#include "OrbiterMouseInput.h"
+#include "Engine/GameViewportClient.h"
+#include "Widgets/SWindow.h"
+#include "GenericPlatform/GenericWindow.h"
 #if WITH_EDITOR
 #include "AssetCompilingManager.h"
 #include "ShaderCompiler.h"
@@ -27,7 +32,11 @@
 #include "UnrealClient.h"
 #include "HAL/PlatformMisc.h"
 #include "DynamicRHI.h"
-struct FOrbiterSimulation { native::Flight Flight; native::Mesh Mesh; FString Data; };
+#include "DynamicResolutionState.h"
+THIRD_PARTY_INCLUDES_START
+#include "Camera.h"
+THIRD_PARTY_INCLUDES_END
+struct FOrbiterSimulation { native::OrbitCamera Orbit; native::Flight Flight; native::Mesh Mesh; FString Data; };
 void FOrbiterSimulationDeleter::operator()(FOrbiterSimulation *Value) const {delete Value;}
 static FVector U(const Vector &V) {return FVector(V.z,V.x,V.y);}
 static FQuat Basis(const FVector &X,const FVector &Y,const FVector &Z) {
@@ -53,6 +62,9 @@ void AOrbiterPawn::LoadFlight(bool Surface) {
 }
 void AOrbiterPawn::BeginPlay() {
     Super::BeginPlay();
+    UE_LOG(LogTemp,Display,TEXT("ORBITER_START_POSITION %s"),*GetActorLocation().ToString());
+    // The simulation uses a ship-centred render frame; an Entry-map PlayerStart must not offset it.
+    SetActorLocation(FVector::ZeroVector);
     FParse::Value(FCommandLine::Get(),TEXT("OrbiterCameraYaw="),CameraYaw);
     FParse::Value(FCommandLine::Get(),TEXT("OrbiterCameraPitch="),CameraPitch);
     FParse::Value(FCommandLine::Get(),TEXT("OrbiterFrames="),SmokeFrames);
@@ -68,6 +80,7 @@ void AOrbiterPawn::BeginPlay() {
             Sim->Flight.align(Sim->Flight.velocity);
             Sim->Flight.glider.part(native::Part::Gear).position=Sim->Flight.glider.part(native::Part::Gear).target=0;
         }
+        Sim->Orbit.yaw=CameraYaw*RAD;Sim->Orbit.pitch=CameraPitch*RAD;Sim->Orbit.distance=CameraDistance/100;
         Sim->Mesh=native::loadMesh(TCHAR_TO_UTF8(*(Sim->Data/TEXT("Meshes/deltaglider_ns.msh"))));BuildShip();
         Exhaust=GetWorld()->SpawnActor<AOrbiterExhaust>();
         FParse::Value(FCommandLine::Get(),TEXT("OrbiterThrust="),Sim->Flight.throttle);
@@ -75,6 +88,7 @@ void AOrbiterPawn::BeginPlay() {
         Earth=GetWorld()->SpawnActor<AOrbiterWorld>();
         int32 Weather=1;FParse::Value(FCommandLine::Get(),TEXT("OrbiterWeather="),Weather);Earth->SetWeather(Weather);
         if(auto *PC=Cast<APlayerController>(GetController()))PC->bShowMouseCursor=true;
+        if(!SmokeFrames)MouseInput=MakeShared<FOrbiterMouseInput>();
         UpdateVisuals();
 #if WITH_EDITOR
         FAssetCompilingManager::Get().FinishAllCompilation();
@@ -104,12 +118,14 @@ void AOrbiterPawn::BuildShip() {
 }
 void AOrbiterPawn::UpdateVisuals() {
     if(!Sim||!Error.IsEmpty())return;auto &F=Sim->Flight;
-    SetActorRotation(Basis(U(F.forward),U(F.right),U(F.up)));
+    SetActorRotation(OrbiterFrame::Rotation(F));
     auto Transforms=F.glider.transforms(ShipGroups.Num());
     for(int32 I=0;I<ShipGroups.Num();++I) {auto &T=Transforms[I];ShipGroups[I]->SetRelativeTransform(FTransform(Basis(U(mul(T.rotation,Vector(0,0,1))),U(mul(T.rotation,Vector(1,0,0))),U(mul(T.rotation,Vector(0,1,0)))),U(T.translation)*100));}
-    FVector Offset=FRotator(-CameraPitch,CameraYaw,0).Vector()*-CameraDistance;Camera->SetRelativeLocation(Offset);Camera->SetRelativeRotation((-Offset).Rotation());
+    const FVector Offset=U(Sim->Orbit.offset(F))*100;
+    Camera->SetWorldLocation(GetActorLocation()+Offset);
+    Camera->SetWorldRotation(FRotationMatrix::MakeFromXZ(-Offset,U(F.position.unit())).Rotator());
     if(Earth)Earth->Update(F);
-    if(Exhaust)Exhaust->Update(F,Camera->GetComponentLocation());
+    if(Exhaust)Exhaust->Update(F,Camera->GetComponentLocation(),GetActorTransform());
 }
 void AOrbiterPawn::Tick(float DT) {
     Super::Tick(DT);if(!Sim||!Error.IsEmpty())return;auto *PC=Cast<APlayerController>(GetController());if(!PC)return;
@@ -144,9 +160,14 @@ void AOrbiterPawn::Tick(float DT) {
         Input.leftBrake=PC->IsInputKeyDown(EKeys::Comma);Input.rightBrake=PC->IsInputKeyDown(EKeys::Period);
         }
         F.advance(DT,Input);
-        if(PC->IsInputKeyDown(EKeys::LeftMouseButton)){float X,Y;PC->GetInputMouseDelta(X,Y);CameraYaw+=X*.2;CameraPitch=FMath::Clamp(CameraPitch-Y*.2f,-75.f,75.f);}
-        if(PC->WasInputKeyJustPressed(EKeys::MouseScrollUp))CameraDistance=FMath::Max(1400.f,CameraDistance*.9f);
-        if(PC->WasInputKeyJustPressed(EKeys::MouseScrollDown))CameraDistance=FMath::Min(100000.f,CameraDistance*1.1f);
+        if(MouseInput){
+            if(auto *Viewport=GetWorld()->GetGameViewport())if(auto Window=Viewport->GetWindow())
+                if(auto NativeWindow=Window->GetNativeWindow())MouseInput->SetWindow(NativeWindow->GetOSWindowHandle());
+            double X,Y,Scroll;MouseInput->Consume(X,Y,Scroll);
+            Sim->Orbit.drag(X,Y);Sim->Orbit.zoom(Scroll);
+            if((X||Y||Scroll)&&FParse::Param(FCommandLine::Get(),TEXT("OrbiterInputAudit")))
+                UE_LOG(LogTemp,Display,TEXT("ORBITER_CAMERA dx=%.4f dy=%.4f scroll=%.4f yaw=%.4f pitch=%.4f distance=%.3f"),X,Y,Scroll,Sim->Orbit.yaw*DEG,Sim->Orbit.pitch*DEG,Sim->Orbit.distance);
+        }
         UpdateVisuals();
         if(SmokeFrames>0) {
             ++Frames;
@@ -154,12 +175,14 @@ void AOrbiterPawn::Tick(float DT) {
             if(Frames==SmokeFrames&&!CapturePath.IsEmpty())FScreenshotRequest::RequestScreenshot(CapturePath,false,false);
             if(Frames==SmokeFrames+10) {
                 double Lat,Lon;native::earthCoordinates(F.position,F.mjd,F.elapsed,Lat,Lon);
-                UE_LOG(LogTemp,Display,TEXT("ORBITER_SMOKE_OK altitude=%.3f speed=%.3f lat=%.3f lon=%.3f particles=%d fps=%.1f gpu_ms=%.2f"),F.altitude(),F.velocity.length(),Lat*DEG,Lon*DEG,Exhaust?Exhaust->ParticleCount():0,(Frames-120)/(FPlatformTime::Seconds()-SampleStart),FPlatformTime::ToMilliseconds(RHIGetGPUFrameCycles()));
+                FDynamicResolutionStateInfos Resolution;GEngine->GetDynamicResolutionCurrentStateInfos(Resolution);
+                UE_LOG(LogTemp,Display,TEXT("ORBITER_SMOKE_OK altitude=%.3f speed=%.3f lat=%.3f lon=%.3f particles=%d fps=%.1f gpu_ms=%.2f render_pct=%.1f"),F.altitude(),F.velocity.length(),Lat*DEG,Lon*DEG,Exhaust?Exhaust->ParticleCount():0,(Frames-120)/(FPlatformTime::Seconds()-SampleStart),FPlatformTime::ToMilliseconds(RHIGetGPUFrameCycles()),Resolution.ResolutionFractionApproximations[GDynamicPrimaryResolutionFraction]*100);
                 FPlatformMisc::RequestExit(false);
             }
         }
     }catch(const std::exception &E){Error=UTF8_TO_TCHAR(E.what());}
 }
+void AOrbiterPawn::EndPlay(const EEndPlayReason::Type Reason){MouseInput.Reset();Super::EndPlay(Reason);}
 FString AOrbiterPawn::Readout() const {
     if(!Error.IsEmpty())return TEXT("Orbiter could not load: ")+Error;if(!Sim)return TEXT("Loading Orbiter...");auto &F=Sim->Flight;
     return FString::Printf(TEXT("Orbiter · Unreal Engine 5.8 · native arm64\nWeather %s (W) · visual preset\nDelta-glider  |  Alt %.1f km  |  Speed %.1f m/s\nMain %.0f%%  Hover %.0f%%  Fuel %.0f kg  |  %s\nRCS %s (M) · %.1f kg · K kill rotation · T/Y time %.0fx\n\n+/- main thrust   [/] hover   X cutoff   Arrows/Q/E attitude\nG gear   C nose   F radiator   F6/F7 hover hold   Space pause\nDrag to orbit camera · Scroll to zoom · R restart"),Earth?*Earth->WeatherName():TEXT("Loading"),F.altitude()/1000,F.velocity.length(),F.throttle*100,F.glider.hover*100,F.fuel,F.paused?TEXT("PAUSED"):TEXT("FLIGHT"),F.glider.rcsMode==0?TEXT("OFF"):F.glider.rcsMode==1?TEXT("ROTATION"):TEXT("TRANSLATION"),F.rcs,F.warp);

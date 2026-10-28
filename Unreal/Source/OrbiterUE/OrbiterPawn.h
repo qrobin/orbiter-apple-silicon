@@ -10,6 +10,7 @@ class UMaterialInterface;
 class UTexture2D;
 class AOrbiterWorld;
 class AOrbiterExhaust;
+class FOrbiterMouseInput;
 struct FOrbiterSimulation;
 struct FOrbiterSimulationDeleter { void operator()(FOrbiterSimulation *Value) const; };
 UCLASS()
@@ -20,6 +21,7 @@ public:
     virtual ~AOrbiterPawn() override;
     virtual void BeginPlay() override;
     virtual void Tick(float DeltaSeconds) override;
+    virtual void EndPlay(const EEndPlayReason::Type Reason) override;
     FString Readout() const;
 private:
     TUniquePtr<FOrbiterSimulation,FOrbiterSimulationDeleter> Sim;
@@ -30,7 +32,8 @@ private:
     UPROPERTY() TObjectPtr<AOrbiterWorld> Earth;
     UPROPERTY() TObjectPtr<AOrbiterExhaust> Exhaust;
     bool RcsDemo=false;
-    float CameraYaw=-25,CameraPitch=17,CameraDistance=4300;
+    TSharedPtr<FOrbiterMouseInput> MouseInput;
+    float CameraYaw=25,CameraPitch=17,CameraDistance=4300;
     FString Error,CapturePath;
     double SampleStart=0;
     int32 SmokeFrames=0,Frames=0;
