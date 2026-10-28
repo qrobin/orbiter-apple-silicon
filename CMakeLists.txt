@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.19)
 
 # The native macOS target deliberately avoids the Windows/DirectX build graph.
 if(APPLE)
-    project(OrbiterNative VERSION 0.3.0 LANGUAGES C CXX OBJCXX)
+    project(OrbiterNative VERSION 0.4.0 LANGUAGES C CXX OBJCXX)
     set(CMAKE_CXX_STANDARD 17)
     set(CMAKE_CXX_STANDARD_REQUIRED ON)
     enable_testing()

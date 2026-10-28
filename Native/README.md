@@ -1,6 +1,6 @@
-# Orbiter Native 0.3 — surface flight
+# Orbiter Native 0.4 — hover controls
 
-A partial native Apple Silicon port of the supplied Orbiter source. Version 0.3 connects ground controls, surface instruments and a subset of the original Cape Canaveral base to the native Delta-glider. This remains an experimental native flight target, **not a complete port of Orbiter or every Delta-glider subsystem**.
+A partial native Apple Silicon port of the supplied Orbiter source. Version 0.4 adds hover attitude stabilization, altitude/vertical-speed hold and the original cockpit hover controls to the native Delta-glider. This remains an experimental native flight target, **not a complete port of Orbiter or every Delta-glider subsystem**.
 
 ## Try it
 
@@ -8,13 +8,29 @@ Open `Orbiter Native.app`. Press **M** for the native systems panel, or use **Fl
 
 Choose **Flight → Mechanism Demonstration** to watch gear, nose, retro covers, airbrakes, radiator and escape ladder deploy with the original staged animation timing at 10× simulation time. The ladder waits for the nose cone to finish opening. Press **R** to return to the normal orbital scenario.
 
-Press **V** to enter the original 3D cockpit. Drag to look around. Twenty-five original click regions operate supported switches, gear/nose/airbrake levers, main and hover throttles, RCS selector, trim and gimbal controls. Sixteen switch handles rotate about their original pivots; the original main/hover throttle, gear and nose lever animations are connected. Click-and-drag the main or hover throttle to adjust it. **M** provides larger accessible controls for the same systems.
+Press **V** to enter the original 3D cockpit. Drag to look around. Thirty-two original click regions (30 quadrilaterals and two spherical buttons) operate supported switches, gear/nose/airbrake levers, main and hover throttles, RCS selector, trim and gimbal controls. Sixteen switch handles rotate about their original pivots; the original main/hover throttle, gear and nose lever animations are connected. The original hover dial, spring switches, hold/mode buttons, balance pointers and small numeric hover readout are also connected. Click-and-drag the main or hover throttle to adjust it. **M** provides larger accessible controls for the same systems.
 
 The cockpit has live native surface/orbit and propulsion displays on the original MFD meshes. These are new native displays, not the full Orbiter MFD implementation. Original analog instruments and other cockpit buttons are not all connected.
 
-Choose **Flight → Cape Canaveral — Surface Flight** to start parked at the original scenario location with low fuel, gear deployed, RCS off and parking brake set. **Shift-W** releases the parking brake; hold **,** and **.** for left/right wheel brakes. Use **[ / ]** to lower/raise hover throttle. **M** has the equivalent parking-brake switch and hover slider. Around 95% hover thrust lifts this light configuration; keep the gear down while learning. Hover attitude/altitude autopilots are still unported, so sustained hovering requires manual attitude control (enable RCS in the panel).
+Choose **Flight → Cape Canaveral — Surface Flight** to start parked at the original scenario location with low fuel, gear deployed, RCS off and parking brake set. **Shift-W** releases the parking brake; hold **,** and **.** for left/right wheel brakes. Use **[ / ]** to lower/raise hover throttle. **M** has the equivalent parking-brake switch and hover slider. Around 95% hover thrust lifts this light configuration; keep the gear down while learning. Automatic hover attitude is enabled in this starting scenario. Use **M** to select Off / Auto / Manual attitude modes and altitude / vertical speed hold.
 
 The HUD and left cockpit display automatically show surface altitude, ground-relative speed, vertical speed, heading, pitch and bank below 120 km. The external orbit diagram becomes a surface attitude indicator. Select **Flight → Earth Orbit** to return to the orbital starting scenario. **R** restarts the scenario most recently selected or opened.
+
+## Hover practice
+
+Choose **Flight → Cape Canaveral — Hover Practice** for a low-fuel launch that automatically climbs to 100 m and holds altitude. It uses the same engine forces and propellant budget as manual flight; it is not a scripted animation. The controllers do not hold horizontal position or heading, so some drift is expected.
+
+- **F5** toggles automatic hover attitude. In Auto mode, pitch/roll keys request up to 10° tilt; releasing them requests level flight. RCS translation mode keeps those keys assigned to translation instead. Manual mode holds the pitch/bank targets set in the systems panel or original cockpit switches.
+- **F6** engages altitude hold at the current altitude, or disengages an existing altitude hold. **F7** similarly toggles zero vertical speed hold. The Flight menu provides the same actions. On Mac keyboards, function keys may require Fn.
+- **M** exposes numeric altitude/vertical-speed targets, manual attitude targets, capture/reset buttons, engagement state, and actual front/rear-left/rear-right engine levels. Press Return to commit an edited numeric target.
+- The original hover dial selects Off / Auto / Manual. Its pitch/bank switches adjust manual attitude targets; the horizontal hold-target switch adjusts the selected hold target. The mode buttons select altitude or vertical speed, the round hold button engages/disengages, and the small reset button captures current altitude or requests zero vertical speed.
+- **[ / ]**, the hover slider and the cockpit hover lever disengage automatic hold when used. **X** cancels hold and cuts all engines immediately. Disengaging hold alone retains the current throttle.
+
+Engaging hold enables Auto attitude if attitude control was off. Hold is available below 120 km with main propellant remaining; altitude targets are 0–120,000 m and interactive vertical-speed targets are −20 to +20 m/s. The original ±30° pitch/bank envelope is retained. Outside that envelope, differential stabilization is suspended and a warning is shown; manual recovery is required. Full thrust or insufficient thrust-to-weight can prevent a target from being reached. Fuel exhaustion disengages hold. Ground contact still uses the experimental spherical-surface model.
+
+The native attitude mixer and vertical controllers adapt the original `HoverSubsys.cpp` and `Vessel::HoverHoldAltitude` algorithms, including the original gains, weighted thrust balancing, 20 m/s altitude-loop speed limit and throttle slew limit. Torque signs are adapted to the native coordinate convention. Derivative feedback is reset when engaging/loading and uses the actual preceding physics step duration. These adaptations are tested in the reduced native flight model; they do not establish full original flight-model equivalence.
+
+The right cockpit MFD displays hover state while hover controls are enabled. The original small hover target display uses its original digit atlas and mode/engagement graphics; the two original balance pointers show commanded and actual pitch/bank.
 
 ## Implemented systems
 
@@ -28,7 +44,8 @@ The HUD and left cockpit display automatically show surface altitude, ground-rel
 | Airbrake and flight surfaces | Original flap/rudder airbrake transforms, half/full deployment, elevator, trim, rudder and aileron deflection |
 | Main engines | Original two 200 kN easy-model engines, independent L/R balance, 5° pitch gimbal and original yaw range; off-axis forces create torque |
 | Retro engines | Original two 34 kN engines with original slightly tilted thrust vectors and mounting points |
-| Hover engines | Original three-engine thrust distribution and fore/aft balance; real force, torque and propellant use |
+| Hover engines | Three independent engine levels, original thrust distribution and manual fore/aft balance; real force, torque and propellant use |
+| Hover controls | Automatic/manual attitude targets; altitude and vertical-speed hold; limits, manual override, original cockpit controls/readouts and scenario persistence |
 | RCS | Six-axis translation and three-axis rotation, original torque magnitudes and normalized moments of inertia, fuel-limited jets, off/rotation/translation modes |
 | Attitude assists | Finite-torque prograde, retrograde and kill-rotation control at normal speed; RCS supply and mode affect operation |
 | Effects and lights | Throttle-linked main/retro/hover exhaust, RCS jets, navigation lights, flashing red beacons, white strobes and docking-light marker |
@@ -42,6 +59,9 @@ The native animation registry contains **63 components extracted from upstream s
 | Control | Action |
 | --- | --- |
 | M | Open glider systems panel |
+| F5 | Toggle automatic hover attitude |
+| F6 | Toggle altitude hold at current height |
+| F7 | Toggle zero vertical speed hold |
 | [ / ] | Decrease / increase hover throttle |
 | , / . | Hold left / right wheel brake; hold both to stop |
 | Shift-W | Toggle parking brake |
@@ -84,7 +104,7 @@ Requires Apple Silicon, macOS 13+, Xcode command-line tools and CMake 3.19+. The
 ./Native/build.sh --run
 ```
 
-Result: `build/macos-arm64/Native/Orbiter Native.app`. Set `ORBITER_NATIVE_BUILD_DIR` for another directory. The build runs the native flight, glider and surface test suites and applies a local ad-hoc signature. Public notarization is not provided.
+Result: `build/macos-arm64/Native/Orbiter Native.app`. Set `ORBITER_NATIVE_BUILD_DIR` for another directory. The build runs the native flight, glider, surface and hover test suites and applies a local ad-hoc signature. Public notarization is not provided.
 
 For a bounded rendering run:
 
@@ -94,7 +114,7 @@ For a bounded rendering run:
   --capture /absolute/path/frame.png --report /absolute/path/performance.json
 ```
 
-Use `--surface` for the bundled Cape start, `--cockpit` for the 3D cockpit, `--scenario /absolute/path/file.scn` for a supported scenario. `--glider-demo` starts with selected mechanisms deployed for a repeatable render capture; the menu demonstration runs their actual transitions. Bounded frame runs ignore manual keyboard/camera input.
+Use `--hover-demo` for a repeatable hover capture (the practice flight advances 60 simulation seconds before rendering), `--surface` for the bundled parked Cape start, `--cockpit` for the 3D cockpit, `--scenario /absolute/path/file.scn` for a supported scenario. `--glider-demo` starts with selected mechanisms deployed for a repeatable render capture; the menu demonstration runs their actual transitions. Bounded frame runs ignore manual keyboard/camera input.
 
 Animation and cockpit geometry data can be regenerated from the included upstream sources with:
 
@@ -124,7 +144,7 @@ Pressure uses a continuous solution to the original cabin/airlock volume and con
 Still incomplete:
 
 - Full native vessel/body engine, moving solar-system bodies, SPICE modules, perturbations, terrain, complete bases and validated atmospheric flight-model equivalence. Ground contact currently uses an experimental spherical-surface model; hard impacts stop the flight.
-- Full DG damage/failure model, complete coolant circuit, hover altitude/attitude hold and atmospheric autopilots, original analog instruments, all cockpit buttons and complete MFD modes.
+- Full DG damage/failure model, complete coolant circuit, atmospheric ascent/landing autopilots, original analog instruments, all cockpit buttons and complete MFD modes.
 - Docking/undocking mechanics, other ships and stations. The animated nose exposes the port, but docking requires the unported multi-vessel infrastructure.
 - DG-S scramjet systems (a separate variant), original sound, Lua scripting and Windows DLL plug-ins.
 

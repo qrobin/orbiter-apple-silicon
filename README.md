@@ -25,7 +25,8 @@ See the [native guide](Native/README.md) for all controls, supported scenarios, 
 ## Current implementation
 
 - Earth-orbit flight with original Kepler propagation, maneuvering, RCS, finite-torque attitude assists, fuel use and native scenario persistence.
-- Original Delta-glider exterior and cockpit meshes, 63 original animation components, staged deployment, 25 cockpit click regions and 16 animated cockpit switches.
+- Original Delta-glider exterior and cockpit meshes, 63 original animation components, staged deployment, 32 cockpit click regions, animated switches and the original hover controls/readouts.
+- Hover attitude stabilization, altitude and vertical-speed hold adapted from the original controllers, with physical engine mixing, fuel use, limits, emergency cutoff and live cockpit readouts.
 - Main, retro and hover propulsion; gimbals and balance; landing gear, nose, ladder, airlocks, hatch, radiator, airbrake, control surfaces and lights.
 - A partial Cape Canaveral base with 10 original landing pads, 123 block buildings, two native runway surfaces at their original coordinates, and original tarmac geometry/textures. Local ground cover is approximate; custom base objects, lights and building collisions remain unported.
 - Live native surface/orbit/propulsion displays, cabin and airlock pressure, a reduced thermal model, and original atmosphere/airfoil data with reduced native aerodynamic coupling.
@@ -35,9 +36,9 @@ The native target currently supports one focused standard `DeltaGlider` at Earth
 
 ## Validation and CI
 
-The flight, glider and surface CTest suites pass locally in Release and with AddressSanitizer/UndefinedBehaviorSanitizer. They cover orbital propagation, fuel and propulsion, mechanism staging, cockpit/mesh geometry, scenario round trips and ground-contact behavior. These checks do not establish full equivalence with the original simulator.
+The flight, glider, surface and hover CTest suites pass locally in Release and with AddressSanitizer/UndefinedBehaviorSanitizer. They cover orbital propagation, fuel and propulsion, mechanism staging, cockpit/mesh geometry, scenario round trips ground-contact behavior and closed-loop hover recovery/target tracking. These checks do not establish full equivalence with the original simulator.
 
-The [Apple Silicon workflow](.github/workflows/native-macos.yml) builds the arm64 app, runs all three suites, verifies the executable architecture and uploads a ZIP artifact. The imported Windows/Linux maintenance workflows are available as manual workflows.
+The [Apple Silicon workflow](.github/workflows/native-macos.yml) builds the arm64 app, runs all four suites, verifies the executable architecture and uploads a ZIP artifact. The imported Windows/Linux maintenance workflows are available as manual workflows.
 
 ## Source and licensing
 

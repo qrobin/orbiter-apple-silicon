@@ -11,3 +11,5 @@ The glider systems panel uses native macOS controls in a scrollable utility wind
 In the virtual cockpit, suppress external instrument panels and use live native textures on the original MFD displays. Keep cockpit labeling in its original orientation. Switches and levers use original pivots and vertex ranges.
 
 Below 120 km, the lower-left readouts and left cockpit display show surface flight data. The optional center diagram becomes a surface attitude instrument. Dark header and footer strips keep labels readable against daytime terrain. The systems panel exposes the parking brake near the top, alongside the keyboard controls for brakes and hover thrust.
+
+Hover controls appear above mechanisms in the systems panel. Show automatic/manual attitude selection, bounded targets with explicit units, engagement state and actual three-engine levels together. Respect active numeric-field editing during refresh. The cockpit uses its original hover dial/switch/button pivots and readout atlas, with the native right display showing target and actual hover state.
