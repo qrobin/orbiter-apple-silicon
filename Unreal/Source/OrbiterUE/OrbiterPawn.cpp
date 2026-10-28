@@ -1,4 +1,5 @@
 #include "OrbiterPawn.h"
+#include "OrbiterWorld.h"
 #include "Camera/CameraComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -30,6 +31,11 @@ AOrbiterPawn::AOrbiterPawn() {
     PrimaryActorTick.bCanEverTick=true;
     RootComponent=CreateDefaultSubobject<USceneComponent>(TEXT("SimulationFrame"));
     Camera=CreateDefaultSubobject<UCameraComponent>(TEXT("FlightCamera"));Camera->SetupAttachment(RootComponent);Camera->SetFieldOfView(65);
+    auto &P=Camera->PostProcessSettings;
+    P.bOverride_AutoExposureMethod=true;P.AutoExposureMethod=AEM_Manual;
+    P.bOverride_AutoExposureApplyPhysicalCameraExposure=true;P.AutoExposureApplyPhysicalCameraExposure=true;
+    P.bOverride_CameraISO=true;P.CameraISO=100;P.bOverride_CameraShutterSpeed=true;P.CameraShutterSpeed=125;
+    P.bOverride_DepthOfFieldFstop=true;P.DepthOfFieldFstop=16;P.bOverride_AutoExposureBias=true;P.AutoExposureBias=0;
     AutoPossessPlayer=EAutoReceiveInput::Player0;
 }
 AOrbiterPawn::~AOrbiterPawn()=default;
@@ -45,12 +51,8 @@ void AOrbiterPawn::BeginPlay() {
         Sim.Reset(new FOrbiterSimulation);Sim->Data=FPaths::ConvertRelativePathToFull(FPaths::ProjectContentDir()/TEXT("OrbiterData"));
         LoadFlight(FParse::Param(FCommandLine::Get(),TEXT("surface")));
         Sim->Mesh=native::loadMesh(TCHAR_TO_UTF8(*(Sim->Data/TEXT("Meshes/deltaglider_ns.msh"))));BuildShip();
-        Earth=GetWorld()->SpawnActor<AActor>();auto *Sphere=NewObject<UStaticMeshComponent>(Earth,TEXT("EarthSphere"));Earth->SetRootComponent(Sphere);Sphere->RegisterComponent();
-        Sphere->SetStaticMesh(LoadObject<UStaticMesh>(nullptr,TEXT("/Engine/BasicShapes/Sphere.Sphere")));Sphere->SetWorldScale3D(FVector(native::EarthRadius*2));Sphere->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-        if(auto *Base=LoadObject<UMaterialInterface>(nullptr,TEXT("/Game/Materials/M_Orbiter.M_Orbiter"))) {auto *M=UMaterialInstanceDynamic::Create(Base,this);M->SetVectorParameterValue(TEXT("Tint"),FLinearColor(.02,.12,.26));Sphere->SetMaterial(0,M);Materials.Add(M);}
-        auto *AtmosphereActor=GetWorld()->SpawnActor<AActor>();auto *Atmosphere=NewObject<USkyAtmosphereComponent>(AtmosphereActor);AtmosphereActor->SetRootComponent(Atmosphere);Atmosphere->TransformMode=ESkyAtmosphereTransformMode::PlanetCenterAtComponentTransform;Atmosphere->SetBottomRadius(native::EarthRadius/1000);Atmosphere->RegisterComponent();
-        auto *Light=GetWorld()->SpawnActor<ADirectionalLight>();Light->GetLightComponent()->SetIntensity(100000);Light->GetComponent()->SetAtmosphereSunLight(true);
-        Light->SetActorRotation((-U(Vector(.32,.84,-.44).unit())).Rotation());
+        Earth=GetWorld()->SpawnActor<AOrbiterWorld>();
+        int32 Weather=1;FParse::Value(FCommandLine::Get(),TEXT("OrbiterWeather="),Weather);Earth->SetWeather(Weather);
         if(auto *PC=Cast<APlayerController>(GetController()))PC->bShowMouseCursor=true;
         UpdateVisuals();
     }catch(const std::exception &E){Error=UTF8_TO_TCHAR(E.what());UE_LOG(LogTemp,Error,TEXT("Orbiter: %s"),*Error);}
@@ -80,9 +82,7 @@ void AOrbiterPawn::UpdateVisuals() {
     auto Transforms=F.glider.transforms(ShipGroups.Num());
     for(int32 I=0;I<ShipGroups.Num();++I) {auto &T=Transforms[I];ShipGroups[I]->SetRelativeTransform(FTransform(Basis(U(mul(T.rotation,Vector(0,0,1))),U(mul(T.rotation,Vector(1,0,0))),U(mul(T.rotation,Vector(0,1,0)))),U(T.translation)*100));}
     FVector Offset=FRotator(-CameraPitch,CameraYaw,0).Vector()*-CameraDistance;Camera->SetRelativeLocation(Offset);Camera->SetRelativeRotation((-Offset).Rotation());
-    if(Earth)Earth->SetActorLocation(-U(F.position)*100);
-    // Atmospheric center follows the same camera-relative frame as the planet.
-    for(TActorIterator<AActor> I(GetWorld());I;++I)if(auto *A=I->FindComponentByClass<USkyAtmosphereComponent>())A->SetWorldLocation(-U(F.position)*100);
+    if(Earth)Earth->Update(F);
 }
 void AOrbiterPawn::Tick(float DT) {
     Super::Tick(DT);if(!Sim||!Error.IsEmpty())return;auto *PC=Cast<APlayerController>(GetController());if(!PC)return;
@@ -90,6 +90,7 @@ void AOrbiterPawn::Tick(float DT) {
         auto &F=Sim->Flight;
         native::Input Input;
         if(!SmokeFrames) {
+        if(PC->WasInputKeyJustPressed(EKeys::W)&&Earth)Earth->SetWeather((Earth->Weather()+1)%4);
         if(PC->WasInputKeyJustPressed(EKeys::SpaceBar))F.paused=!F.paused;
         if(PC->WasInputKeyJustPressed(EKeys::R))LoadFlight(FParse::Param(FCommandLine::Get(),TEXT("surface")));
         if(PC->WasInputKeyJustPressed(EKeys::X))F.cutEngines();
@@ -119,7 +120,7 @@ void AOrbiterPawn::Tick(float DT) {
 }
 FString AOrbiterPawn::Readout() const {
     if(!Error.IsEmpty())return TEXT("Orbiter could not load: ")+Error;if(!Sim)return TEXT("Loading Orbiter...");auto &F=Sim->Flight;
-    return FString::Printf(TEXT("Orbiter · Unreal Engine 5.8 · native arm64\nDelta-glider  |  Alt %.1f km  |  Speed %.1f m/s\nMain %.0f%%  Hover %.0f%%  Fuel %.0f kg  |  %s\n\n+/- main thrust   [/] hover   X cutoff   Arrows/Q/E attitude\nG gear   C nose   F radiator   F6/F7 hover hold   Space pause\nDrag to orbit camera · Scroll to zoom · R restart"),F.altitude()/1000,F.velocity.length(),F.throttle*100,F.glider.hover*100,F.fuel,F.paused?TEXT("PAUSED"):TEXT("FLIGHT"));
+    return FString::Printf(TEXT("Orbiter · Unreal Engine 5.8 · native arm64\nWeather %s (W) · visual preset\nDelta-glider  |  Alt %.1f km  |  Speed %.1f m/s\nMain %.0f%%  Hover %.0f%%  Fuel %.0f kg  |  %s\n\n+/- main thrust   [/] hover   X cutoff   Arrows/Q/E attitude\nG gear   C nose   F radiator   F6/F7 hover hold   Space pause\nDrag to orbit camera · Scroll to zoom · R restart"),Earth?*Earth->WeatherName():TEXT("Loading"),F.altitude()/1000,F.velocity.length(),F.throttle*100,F.glider.hover*100,F.fuel,F.paused?TEXT("PAUSED"):TEXT("FLIGHT"));
 }
 void AOrbiterHUD::DrawHUD() {Super::DrawHUD();if(auto *P=Cast<AOrbiterPawn>(GetOwningPawn()))DrawText(P->Readout(),FLinearColor(.75,1,.8),24,24,GEngine->GetSmallFont(),1.3f,false);}
 AOrbiterGameMode::AOrbiterGameMode(){DefaultPawnClass=AOrbiterPawn::StaticClass();HUDClass=AOrbiterHUD::StaticClass();}

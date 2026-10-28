@@ -31,3 +31,31 @@ if cloud:
     output.mkdir(parents=True, exist_ok=True)
     (output / 'cloud_parameters.json').write_text(json.dumps(parameters, indent=2))
 unreal.log('ORBITER_ASSETS_READY')
+
+# Scientific source imagery stays versioned; Unreal import products are rebuilt.
+earth = unreal.load_asset('/Game/Textures/T_Earth_Day')
+if earth is None:
+    task = unreal.AssetImportTask()
+    task.filename = str(Path(__file__).resolve().parents[1] / 'SourceAssets' / 'Earth-May-8K.jpg')
+    task.destination_path = '/Game/Textures'
+    task.destination_name = 'T_Earth_Day'
+    task.automated = True
+    task.save = True
+    assets.import_asset_tasks([task])
+    earth = unreal.load_asset('/Game/Textures/T_Earth_Day')
+    if earth is None:
+        raise RuntimeError('NASA Earth texture import failed')
+    earth.set_editor_property('max_texture_size', 8192)
+    earth.set_editor_property('srgb', True)
+    earth.set_editor_property('address_y', unreal.TextureAddress.TA_CLAMP)
+    unreal.EditorAssetLibrary.save_loaded_asset(earth)
+if unreal.load_asset('/Game/Materials/M_Earth') is None:
+    m = assets.create_asset('M_Earth', '/Game/Materials', unreal.Material, unreal.MaterialFactoryNew())
+    sample = lib.create_material_expression(m, unreal.MaterialExpressionTextureSample, -500, 0)
+    sample.set_editor_property('texture', earth)
+    lib.connect_material_property(sample, 'RGB', unreal.MaterialProperty.MP_BASE_COLOR)
+    rough = lib.create_material_expression(m, unreal.MaterialExpressionConstant, -200, 150)
+    rough.set_editor_property('r', .75)
+    lib.connect_material_property(rough, '', unreal.MaterialProperty.MP_ROUGHNESS)
+    lib.recompile_material(m)
+    unreal.EditorAssetLibrary.save_loaded_asset(m)

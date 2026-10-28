@@ -31,3 +31,11 @@ Controls in this initial frontend: arrows/Q/E attitude, +/- main thrust, bracket
 Simulation position, velocity and time stay in the native library's double precision ecliptic frame, in metres and seconds. Rendering places the spacecraft near the origin and translates Earth by the opposite simulation position. Native `(right, up, forward)` maps to Unreal `(forward, right, up)` and metres map to centimetres. Animations come from the same original Delta-glider transforms as the Metal frontend.
 
 A bounded render check accepts `-OrbiterFrames=240 -OrbiterCapture=/absolute/path/preview.png`. Input does not affect the simulation during that check. A successful run prints `ORBITER_SMOKE_OK`; the screenshot must also be inspected.
+
+## Earth and visual weather
+
+The globe uses the versioned 8K NASA Blue Marble monthly composite, with mipmaps and an 8192-pixel World texture limit. See `SourceAssets/CREDITS.md` for provenance and resolution limits. The globe rotates with the same sidereal time and axial tilt as the ground simulation.
+
+Unreal Sky Atmosphere and volumetric clouds provide the atmospheric limb, cloud lighting and cloud shadows. W cycles clear, scattered, overcast and storm visual presets. These are synthetic weather presets, not live weather or a meteorological simulation. The camera uses physical daylight exposure (ISO 100, f/16, 1/125 s) with a 110,000 lux sun.
+
+Validation: the arm64 editor module builds; the native bridge automation test passed; a 1600 × 1000 Metal render check completed with the original glider, a curved atmospheric horizon and visible volumetric clouds. Performance has not yet been measured for the finished effects.

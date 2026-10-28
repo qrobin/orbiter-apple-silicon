@@ -8,6 +8,7 @@ class UProceduralMeshComponent;
 class UCameraComponent;
 class UMaterialInterface;
 class UTexture2D;
+class AOrbiterWorld;
 struct FOrbiterSimulation;
 struct FOrbiterSimulationDeleter { void operator()(FOrbiterSimulation *Value) const; };
 UCLASS()
@@ -25,7 +26,7 @@ private:
     UPROPERTY() TArray<TObjectPtr<UProceduralMeshComponent>> ShipGroups;
     UPROPERTY() TArray<TObjectPtr<UTexture2D>> Textures;
     UPROPERTY() TArray<TObjectPtr<UMaterialInterface>> Materials;
-    UPROPERTY() TObjectPtr<AActor> Earth;
+    UPROPERTY() TObjectPtr<AOrbiterWorld> Earth;
     float CameraYaw=-25,CameraPitch=17,CameraDistance=4300;
     FString Error,CapturePath;
     int32 SmokeFrames=0,Frames=0;
