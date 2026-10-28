@@ -2,7 +2,7 @@
 
 # Orbiter for Apple Silicon
 
-An experimental native macOS port of [Orbiter Space Flight Simulator](https://github.com/orbitersim/orbiter), starting with a playable single-spacecraft Delta-glider flight. Two frontends share the **arm64 flight library**: the Cocoa/Metal native app and an experimental **Unreal Engine 5.8** visual frontend. Unreal is the active rendering path for the new Earth, atmosphere, weather and exhaust work.
+An experimental native macOS port of [Orbiter Space Flight Simulator](https://github.com/orbitersim/orbiter), starting with a playable single-spacecraft Delta-glider flight. The application uses Cocoa and Metal with an arm64 flight library.
 
 This is an early port. It reuses Orbiter's orbital mathematics and original spacecraft assets while replacing Windows-dependent application and rendering code. The full original simulator, vessel engine and add-on ecosystem are still being ported.
 
@@ -21,17 +21,6 @@ The script builds `build/macos-arm64/Native/Orbiter Native.app`, runs the native
 Start with **M** for the glider systems panel, **V** for the original 3D cockpit, **+ / −** for main throttle, **X** to cut engines, **Space** to pause, and **T / Y** to change time acceleration. **F1** shows the controls. The **Flight** menu includes a mechanism demonstration.
 
 See the [native guide](Native/README.md) for all controls, supported scenarios, capture options and implementation details.
-
-## Unreal visual frontend
-
-Requires installed Unreal Engine 5.8, Xcode with its Metal compiler toolchain, and CMake. The editor client and standalone game target both build for arm64.
-
-```sh
-./Unreal/build.sh --test
-./Unreal/run.sh
-```
-
-The frontend includes the original animated glider, an 8K NASA Earth map, atmospheric scattering, volumetric cloud/weather presets, main/retro/hover/RCS particles, all RCS axes and the existing flight/hover controllers. **M** cycles RCS mode, **K** toggles kill rotation and **W** cycles visual weather. See the [Unreal guide](Unreal/README.md) for controls, asset rebuilding and the current boundary. The native cockpit UI and detailed surface scenery have not yet migrated; the Metal app remains available for those features.
 
 ## Native Metal implementation
 
@@ -55,4 +44,4 @@ The [Apple Silicon workflow](.github/workflows/native-macos.yml) builds the arm6
 
 The `Native/` directory contains the macOS application, Metal shaders, native flight layer and tests. The original source and assets remain in the repository, with small portability changes to the reused core. See the [upstream README](README.upstream.md) and [Windows build guide](COMPILE.md) for the original platform.
 
-Orbiter is licensed under [MIT](LICENSE). The included D3D9Client retains its [LGPL license](OVP/D3D9Client/LGPL.txt) and is not part of the native Metal target. Original source notices are retained. NASA Earth imagery is credited in [Native/Assets/CREDITS.txt](Native/Assets/CREDITS.txt) and [the Unreal source-asset credits](Unreal/SourceAssets/CREDITS.md).
+Orbiter is licensed under [MIT](LICENSE). The included D3D9Client retains its [LGPL license](OVP/D3D9Client/LGPL.txt) and is not part of the native Metal target. Original source notices are retained. NASA Earth imagery is credited in [Native/Assets/CREDITS.txt](Native/Assets/CREDITS.txt).
