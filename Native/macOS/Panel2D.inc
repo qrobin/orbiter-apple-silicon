@@ -56,6 +56,11 @@
     NSString *heading=[NSString stringWithFormat:@"%03.0f°",Deg(v->flight.heading())];
     [heading drawAtPoint:NSMakePoint(616,450) withAttributes:@{NSFontAttributeName:[NSFont monospacedDigitSystemFontOfSize:15 weight:NSFontWeightMedium],NSForegroundColorAttributeName:[NSColor colorWithRed:.6 green:1 blue:.65 alpha:1]}];
     [background drawInRect:NSMakeRect(0,0,1280,572) fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:1 respectFlipped:YES hints:nil];
+    // The panel texture is static; overlay the original nav and HUD indicators.
+    [[NSColor colorWithRed:.40 green:1 blue:.48 alpha:1] setFill];
+    const int navCol[]={0,1,1,2,2,3},navRow[]={1,1,0,1,0,1};
+    for(int i=0;i<6;++i)if(v->flight.assistActive(navButtonMode(i)))NSRectFill(NSMakeRect(1124+navCol[i]*37+5,62+navRow[i]*24+19,27,2));
+    NSRectFill(NSMakeRect(15+v->flight.hud.mode*29+3,30,14,2));
     for(int d=0;d<2;++d){
         [displays[d] drawInRect:NSMakeRect(d?778:216,63,288,288) fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:1 respectFlipped:YES hints:nil];
         if(v->transxMfd[d]){
@@ -86,6 +91,8 @@
 - (void)mouseDown:(NSEvent *)event {
     FlightView *v=self.flightView;if(!v)return;[self.window makeFirstResponder:v];
     NSPoint p=[self panelPoint:event];auto hit=pickPanel2D(p.x,p.y);activeAction=hit.action;
+    if(activeAction>=400&&activeAction<406){[v selectNavButton:activeAction-400];self.needsDisplay=YES;return;}
+    if(activeAction>=500&&activeAction<=503){int button=activeAction-500;if(button==0)v->flight.hud.adjustBrightness(hit.v<8?.04:-.04);else v->flight.hud.select(button);v.hud.needsDisplay=YES;self.needsDisplay=YES;return;}
     if(activeAction>=100&&activeAction<124){int id=activeAction-100;[v operateTransXButton:id%12 display:id/12];return;}
     if(activeAction>=200&&activeAction<202){int d=activeAction-200;
         if(!v->transxSession||!v->transxMfd[d])activeAction=-1;else if(event.clickCount>=2){[v resetTransXGraph:d];activeAction=-1;}return;

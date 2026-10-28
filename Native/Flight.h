@@ -2,6 +2,7 @@
 #include "Element.h"
 #include "Body.h"
 #include "Glider.h"
+#include "Hud.h"
 #include <string>
 #include <filesystem>
 namespace native {
@@ -10,10 +11,13 @@ constexpr double RcsCapacity = 600.0;
 constexpr double EmptyMass = 11000.0;
 constexpr double ExhaustVelocity = 40000.0;
 struct Input { double pitch=0, yaw=0, roll=0, translate=0, lateral=0, vertical=0, leftBrake=0, rightBrake=0; };
-enum class Assist { Free, Prograde, Retrograde, KillRotation, Maneuver };
+enum class Assist { Free, Prograde, Retrograde, Normal, AntiNormal, HorizonLevel, KillRotation, Maneuver };
+// Physical button order in the original VC: KILL-R, RET-G, PRO-G, NML−, NML+, HRLVL.
+Assist navButtonMode(int button);
 class Flight {
 public:
     Glider glider;
+    Hud hud;
     BodyId reference=BodyId::Earth;
     bool automaticReferenceChanges=false;
     const CelestialBody &centralBody()const{return body(reference);}
@@ -29,6 +33,7 @@ public:
     int wheelContacts=0;
     double groundSpeed=0,contactLoad=0;
     Assist assist=Assist::Free;
+    bool killRotationWithLevel=false;
     Vector maneuverDirection{0,0,1};
     std::string name="GL-01";
     Flight();
@@ -38,6 +43,9 @@ public:
     bool setHoverHold(int mode,double target);
     void setHoverThrottle(double level);
     void cutEngines();
+    void toggleAssist(Assist mode);
+    void clearAssist();
+    bool assistActive(Assist mode) const;
     Elements orbit() const;
     void placeOnEarth(double latitude,double longitude,double heading,double clearance=2.53);
     double pitch() const;

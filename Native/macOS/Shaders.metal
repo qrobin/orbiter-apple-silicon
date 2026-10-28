@@ -29,6 +29,7 @@ vertex Raster meshVertex(uint id [[vertex_id]],const device Vertex *vertices [[b
 fragment float4 meshFragment(Raster in [[stage_in]],constant Frame &f [[buffer(1)]],
                              constant Object &o [[buffer(2)]],texture2d<float> tex [[texture(0)]],texture2d<float> shadows [[texture(1)]]) {
     constexpr sampler s(filter::linear,mip_filter::linear,address::repeat, max_anisotropy(8));
+    if(o.options.x>3.5) { float4 label=tex.sample(s,in.uv); if(label.a<.03) discard_fragment(); return label; }
     if(o.options.x>2.5) return float4(tex.sample(s,in.uv).rgb,1);
     if(o.options.x>.5) {
         float alpha=o.options.x>1.5?pow(max(0.0f,1-length(in.uv)),2.0f):pow(max(0.0f,1-abs(in.uv.x)),1.5f)*pow(max(0.0f,1-in.uv.y),.65f);

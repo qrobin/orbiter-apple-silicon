@@ -96,9 +96,9 @@
 }
 - (void)align:(id)sender {
     FlightView *v=flightView;VECTOR3 direction;if(!v->transxSession->maneuverDirection(display,direction))return;
-    v->flight.maneuverDirection={direction.x,direction.y,direction.z};v->flight.assist=Assist::Maneuver;v->flight.glider.rcsMode=1;v->flight.warp=1;v->transxAlignDisplay=display;[self returnToFlight:nil];
+    v->flight.clearAssist();v->flight.maneuverDirection={direction.x,direction.y,direction.z};v->flight.assist=Assist::Maneuver;v->flight.glider.rcsMode=1;v->flight.warp=1;v->transxAlignDisplay=display;[self returnToFlight:nil];
 }
-- (void)release:(id)sender {if(flightView->flight.assist==Assist::Maneuver)flightView->flight.assist=Assist::Free;flightView->transxAlignDisplay=-1;[self refresh];}
+- (void)release:(id)sender {if(flightView->flight.assist==Assist::Maneuver)flightView->flight.clearAssist();flightView->transxAlignDisplay=-1;[self refresh];}
 - (void)resetGraph:(id)sender {[flightView resetTransXGraph:display];}
 - (void)returnToFlight:(id)sender {[flightView clearInput];[flightView.window makeKeyAndOrderFront:nil];[flightView.window makeFirstResponder:flightView];}
 @end

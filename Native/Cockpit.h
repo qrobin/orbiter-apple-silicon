@@ -22,4 +22,6 @@ bool visibleCockpitGroup(size_t group);
 CockpitHit pickCockpit(const Vector &origin,const Vector &direction);
 // Original main 2D panel coordinates (1280 x 572); actions 100/200 are MFDs.
 CockpitHit pickPanel2D(double x,double y);
+int cockpitNavButton(double u,double v);
+int panelNavButton(double x,double y);
 }

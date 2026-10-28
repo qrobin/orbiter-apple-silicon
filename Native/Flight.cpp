@@ -12,6 +12,10 @@
 TimeData td;
 char DBG_MSG[256] = {};
 namespace native {
+Assist navButtonMode(int button) {
+    static const Assist modes[]={Assist::KillRotation,Assist::Retrograde,Assist::Prograde,Assist::AntiNormal,Assist::Normal,Assist::HorizonLevel};
+    return button>=0&&button<6?modes[button]:Assist::Free;
+}
 static Vector rotate(const Vector &v,const Vector &axis,double angle) {
     return v*cos(angle)+crossp(axis,v)*sin(angle)+axis*(dotp(axis,v)*(1-cos(angle)));
 }
@@ -37,7 +41,7 @@ void Flight::placeOnBody(double latitude,double longitude,double headingAngle,do
     velocity=crossp(centralBody().spin(),position);
     angularVelocity={dotp(centralBody().spin(),right),dotp(centralBody().spin(),up),dotp(centralBody().spin(),forward)};
     glider.part(Part::Gear).position=glider.part(Part::Gear).target=1;
-    groundContact=true;wheelContacts=3;paused=false;impacted=false;assist=Assist::Free;
+    groundContact=true;wheelContacts=3;paused=false;impacted=false;clearAssist();
 }
 double Flight::pitch() const { return asin(std::clamp(dotp(forward,position.unit()),-1.,1.)); }
 double Flight::bank() const { auto n=position.unit();return atan2(-dotp(right,n),dotp(up,n)); }
@@ -51,7 +55,7 @@ bool Flight::setHoverHold(int mode,double target) {
        (mode!=1&&mode!=2)||(mode==1&&(target<0||target>120000))||(mode==2&&fabs(target)>20))return false;
     auto &h=glider.hoverControl;h.holdMode=mode;
     if(mode==1)h.altitudeTarget=target;else h.verticalSpeedTarget=target;
-    h.holdActive=true;h.resetFeedback();assist=Assist::Free;
+    h.holdActive=true;h.resetFeedback();clearAssist();
     if(!h.attitudeMode)h.attitudeMode=1;
     return true;
 }
@@ -61,6 +65,17 @@ void Flight::setHoverThrottle(double level) {
 void Flight::cutEngines() {
     throttle=glider.hover=glider.retro=0;glider.mainLevel=glider.hoverLevel=glider.retroLevel=0;
     glider.hoverControl.holdActive=false;glider.hoverControl.resetFeedback();glider.hoverControl.levels.fill(0);
+}
+void Flight::clearAssist() {assist=Assist::Free;killRotationWithLevel=false;}
+bool Flight::assistActive(Assist mode) const {
+    return mode!=Assist::Free&&(assist==mode||(mode==Assist::KillRotation&&assist==Assist::HorizonLevel&&killRotationWithLevel));
+}
+void Flight::toggleAssist(Assist mode) {
+    if(mode==Assist::Free){clearAssist();return;}
+    // The original nav computer permits KILL-R to coexist with HRLVL.
+    if(mode==Assist::KillRotation&&assist==Assist::HorizonLevel){killRotationWithLevel=!killRotationWithLevel;if(killRotationWithLevel)warp=1;return;}
+    if(assist==mode){clearAssist();return;}
+    assist=mode;killRotationWithLevel=false;warp=1;
 }
 void Flight::load(const std::filesystem::path &path) {
     std::ifstream file(path); if(!file) throw std::runtime_error("Cannot open scenario.");
@@ -96,6 +111,9 @@ void Flight::load(const std::filesystem::path &path) {
         if(key=="HEADING") s>>headingAngle;
         if(key=="ALT") s>>clearance;
         if(key=="RCSMODE") s>>candidate.glider.rcsMode;
+        if(key=="HUDMode") s>>candidate.hud.mode;
+        if(key=="HUDBrightness") s>>candidate.hud.brightness;
+        if(key=="HUDColour") s>>candidate.hud.colour;
         if(key=="DGMAIN") s>>candidate.throttle;
         if(key=="RPOS") gotPos=bool(s>>candidate.position.x>>candidate.position.y>>candidate.position.z);
         if(key=="RVEL") gotVel=bool(s>>candidate.velocity.x>>candidate.velocity.y>>candidate.velocity.z);
@@ -130,7 +148,7 @@ void Flight::load(const std::filesystem::path &path) {
        !std::isfinite(arot.length2())||!std::isfinite(vrot.length2())||
        (!landed&&crossp(candidate.position,candidate.velocity).length2()<1)||
        candidate.fuel<0||candidate.fuel>MainCapacity||
-       candidate.rcs<0||candidate.rcs>RcsCapacity||!candidate.glider.valid()||!std::isfinite(candidate.throttle)||candidate.throttle<0||candidate.throttle>1)
+       candidate.rcs<0||candidate.rcs>RcsCapacity||!candidate.glider.valid()||!candidate.hud.valid()||!std::isfinite(candidate.throttle)||candidate.throttle<0||candidate.throttle>1)
         throw std::runtime_error("Scenario contains invalid orbital state or fuel quantities.");
     if(!landed) candidate.align(candidate.velocity);
     if(hasArot&&(!landed||nativeCartesian)) {
@@ -151,7 +169,8 @@ void Flight::save(const std::filesystem::path &path) const {
      <<"\n  RVEL "<<velocity.x<<' '<<velocity.y<<' '<<velocity.z
      <<"\n  AROT "<<Deg(angles.x)<<' '<<Deg(angles.y)<<' '<<Deg(angles.z)
      <<"\n  VROT "<<Deg(angularVelocity.x)<<' '<<Deg(angularVelocity.y)<<' '<<Deg(angularVelocity.z)
-     <<"\n  PRPLEVEL 0:"<<fuel/MainCapacity<<" 1:"<<rcs/RcsCapacity<<'\n';
+     <<"\n  PRPLEVEL 0:"<<fuel/MainCapacity<<" 1:"<<rcs/RcsCapacity
+     <<"\n  HUDMode "<<hud.mode<<"\n  HUDBrightness "<<hud.brightness<<"\n  HUDColour "<<hud.colour<<'\n';
     if(groundContact) {double lat,lng;bodyCoordinates(reference,position,mjd,elapsed,lat,lng);f<<"  POS "<<Deg(lng)<<' '<<Deg(lat)<<"\n  HEADING "<<Deg(heading())<<"\n  ALT "<<altitude()<<'\n';}
     f<<"  DGMAIN "<<throttle<<'\n';
     glider.save(f);
@@ -204,22 +223,46 @@ void Flight::step(double dt,const Input &input) {
     Vector control(input.pitch,input.yaw,input.roll);
     Vector translation(input.lateral,input.vertical,input.translate);
     if(glider.rcsMode==2) { translation.x+=input.yaw; translation.y-=input.pitch; control={}; }
+    if(assistActive(Assist::KillRotation)&&angularVelocity.length()<1e-5) {
+        if(assist==Assist::KillRotation)clearAssist();else killRotationWithLevel=false;
+    }
     if(assist==Assist::KillRotation) {
         Vector limit(40000/(mass()*15.5),30000/(mass()*22.1),30000/(mass()*7.7));
         control={-angularVelocity.x/limit.x*3,-angularVelocity.y/limit.y*3,-angularVelocity.z/limit.z*3};
-    } else if(assist==Assist::Prograde||assist==Assist::Retrograde||assist==Assist::Maneuver) {
-        Vector target=(assist==Assist::Maneuver?maneuverDirection:assist==Assist::Prograde?velocity:-velocity).unit();
+    } else if(assist!=Assist::Free) {
+        Vector radial=position.unit(), normal=crossp(velocity,position).unit();
+        Vector target,desiredUp;bool controlRoll=false;
+        if(assist==Assist::Maneuver)target=maneuverDirection.unit();
+        else if(assist==Assist::Prograde||assist==Assist::Retrograde){
+            target=(assist==Assist::Prograde?velocity:-velocity).unit();
+            desiredUp=normal;controlRoll=normal.length2()>1e-12;
+        } else if(assist==Assist::Normal||assist==Assist::AntiNormal){
+            target=assist==Assist::Normal?normal:-normal;
+            desiredUp=(assist==Assist::Normal?-velocity:velocity).unit();controlRoll=target.length2()>1e-12;
+        } else if(assist==Assist::HorizonLevel){
+            Vector horizontal=forward-radial*dotp(forward,radial);
+            if(horizontal.length2()<1e-12)horizontal=velocity-radial*dotp(velocity,radial);
+            if(horizontal.length2()<1e-12){double lat,lng;bodyCoordinates(reference,position,mjd,elapsed,lat,lng);horizontal=bodySurface(reference,lat,lng,mjd,elapsed).north;}
+            target=horizontal.unit();desiredUp=radial;controlRoll=true;
+        }
+        if(target.length2()<1e-12)target=forward;
         Vector error=crossp(forward,target);
         // A 180-degree target needs an explicit axis: the cross product is zero there.
         if(dotp(forward,target)<-.98&&error.length()<.05) error=up;
         Vector desired(dotp(error,right),dotp(error,up),0);
         desired*=.6;
+        if(controlRoll){
+            Vector projected=desiredUp-forward*dotp(desiredUp,forward);
+            if(projected.length2()>1e-12){projected.unify();desired.z=std::clamp(atan2(dotp(forward,crossp(up,projected)),dotp(up,projected))*.6,-.6,.6);}
+        }
         control={(desired.x-angularVelocity.x)*mass()*15.5/40000*3,
                  (desired.y-angularVelocity.y)*mass()*22.1/30000*3,
-                 -angularVelocity.z*mass()*7.7/30000*3};
+                 (desired.z-angularVelocity.z)*mass()*7.7/30000*3};
+        if(killRotationWithLevel)control.y=-angularVelocity.y*mass()*22.1/30000*3;
     }
     for(int i=0;i<3;++i) { control(i)=std::clamp(control(i),-1.,1.); translation(i)=std::clamp(translation(i),-1.,1.); }
-    if(glider.rcsMode==0) { control={};translation={}; }
+    // The manual RCS dial does not disable the original nav computer.
+    if(glider.rcsMode==0) {if(assist==Assist::Free)control={};translation={};}
     // In hover attitude mode these axes request bounded pitch/bank targets.
     // Keep yaw/translation available without firing competing pitch/roll jets.
     if(hover.attitudeMode&&glider.hover>0&&altitude()<120000&&assist==Assist::Free)control.x=control.z=0;
@@ -316,7 +359,8 @@ void Flight::advance(double realSeconds,const Input &input) {
     glider.advance(dt,throttle,bodyAtmosphere(reference,altitude()).p);
     if(!maneuver&&!atmosphericFlight&&(assist==Assist::Free||warp>1)) {
         coast(dt); acceleration=0;
-        if(assist==Assist::Prograde||assist==Assist::Retrograde) align(assist==Assist::Prograde?velocity:-velocity);
+        // At accelerated time the finite-torque nav programs are suspended;
+        // do not teleport the vessel's attitude or bypass RCS fuel limits.
     } else {
         int steps=std::max(1,(int)ceil(dt*(altitude()<20?480:120)));
         for(int i=0;i<steps&&!impacted;++i) step(dt/steps,input);

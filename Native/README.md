@@ -104,7 +104,8 @@ The right cockpit MFD displays hover state while hover controls are enabled. The
 | Hover engines | Three independent engine levels, original thrust distribution and manual fore/aft balance; real force, torque and propellant use |
 | Hover controls | Automatic/manual attitude targets; altitude and vertical-speed hold; limits, manual override, original cockpit controls/readouts and scenario persistence |
 | RCS | Six-axis translation and three-axis rotation, original torque magnitudes and normalized moments of inertia, fuel-limited jets, off/rotation/translation modes |
-| Attitude assists | Finite-torque prograde, retrograde and kill-rotation control at normal speed; RCS supply and mode affect operation |
+| Attitude assists | Original six RCS programs, finite torque and fuel use at normal speed; prograde and retrograde put the planet on the left and right respectively. Nav programs can operate with the manual RCS dial off. |
+| HUD | Orbit, surface and docking selection, brightness and four colours from cockpit controls or the Navigation menu; docking displays no target until docking targets are supported |
 | Effects and lights | Throttle-linked main/retro/hover exhaust, RCS jets, navigation lights, flashing red beacons, white strobes and docking-light marker |
 | Atmosphere/aerodynamics | Original Earth 2006 atmosphere equations, original DG vertical/horizontal lift tables, induced/wave drag; a reduced native force/moment coupling below 120 km |
 | State persistence | Mechanism positions and motion targets, main/hover/retro settings, gimbals/balance, trim, RCS mode, pressures/valves, temperatures, pump, lights, attitude and angular rates |
@@ -135,7 +136,10 @@ The native animation registry contains **63 components extracted from upstream s
 | A / D | Left / right RCS translation |
 | Z / J | Up / down RCS translation |
 | P / O | Prograde / retrograde assist |
+| ; / ' | Normal / anti-normal assist |
+| Shift-L | Horizon-level assist |
 | K / N | Kill rotation / manual attitude |
+| Ctrl-H / Option-H | Cycle HUD mode / colour |
 | G | Toggle landing gear |
 | C | Toggle nose cone |
 | L | Toggle escape ladder |

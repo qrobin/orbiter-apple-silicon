@@ -65,6 +65,20 @@ bool visibleCockpitGroup(size_t group){
     // Original VC pilot body, head and visor; group 132 is the HUD overlay.
     return group!=62&&group!=83&&group!=84&&group!=132;
 }
+int cockpitNavButton(double u,double v){
+    if(!std::isfinite(u)||!std::isfinite(v)||u<0||u>=1||v<0||v>=1)return -1;
+    // Directly mirrors RcsProgButtons::ProcessMouseVC's 169 x 63 grid.
+    int x=int(u*169),y=int(v*63),column=x/43,row=y/33;
+    if(column>3||row>1||x%43>=40||y%33>=30)return -1;
+    static const int buttons[2][4]={{0,1,3,5},{-1,2,4,-1}};
+    return buttons[row][column];
+}
+int panelNavButton(double x,double y){
+    if(!std::isfinite(x)||!std::isfinite(y)||x<1124||x>=1272||y<62||y>=110)return -1;
+    int column=int(x-1124)/37,row=int(y-62)/24;
+    static const int buttons[2][4]={{-1,2,4,-1},{0,1,3,5}};
+    return buttons[row][column];
+}
 CockpitHit pickPanel2D(double x,double y){
     if(!std::isfinite(x)||!std::isfinite(y))return {};
     for(int d=0;d<2;++d){
@@ -78,6 +92,11 @@ CockpitHit pickPanel2D(double x,double y){
         if(x>=left&&x<left+288&&y>=63&&y<351)return {200+d,(x-left)/288,(y-63)/288};
     }
     auto inside=[&](double x0,double y0,double x1,double y1){return x>=x0&&x<x1&&y>=y0&&y<y1;};
+    int navButton=panelNavButton(x,y);if(navButton>=0)return {400+navButton,0,0};
+    if(inside(15,18,122,33)){
+        int column=int(x-15)/29;
+        if(column<=3&&int(x-15)%29<20)return {500+column,0,y-18};
+    }
     if(inside(4,122,57,297))return {300,0,y};
     if(inside(4,304,57,444))return {301,0,y};
     if(inside(93,373,125,572))return {302,0,y};

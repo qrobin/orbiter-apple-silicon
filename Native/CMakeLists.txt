@@ -69,6 +69,10 @@ add_executable(CameraTests Tests/CameraTests.cpp)
 target_link_libraries(CameraTests PRIVATE OrbiterFlightCore)
 add_test(NAME Native.Camera COMMAND CameraTests)
 
+add_executable(NavProgramTests Tests/NavProgramTests.cpp)
+target_link_libraries(NavProgramTests PRIVATE OrbiterFlightCore)
+add_test(NAME Native.NavPrograms COMMAND NavProgramTests)
+
 add_executable(SolarSystemTests Tests/SolarSystemTests.cpp)
 target_link_libraries(SolarSystemTests PRIVATE OrbiterFlightCore)
 target_compile_definitions(SolarSystemTests PRIVATE ORBITER_TEST_DATA="${PROJECT_SOURCE_DIR}")
