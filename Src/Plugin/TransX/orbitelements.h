@@ -21,7 +21,9 @@
 
 #pragma once
 
+#ifndef ORBITER_NATIVE
 #include <OrbiterSDK.h>
+#endif
 
 
 class OrbitElements{

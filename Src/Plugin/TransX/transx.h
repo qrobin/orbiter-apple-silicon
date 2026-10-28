@@ -20,7 +20,9 @@
 
 #ifndef __TRANSX_H
 #define __TRANSX_H
+#ifndef ORBITER_NATIVE
 #include "OrbiterAPI.h"
+#endif
 #include "graph.h"
 
 class TransxMFD: public MFD2 {
@@ -37,6 +39,9 @@ public:
 	void ReadStatus(FILEHANDLE scn);
 	static OAPI_MSGTYPE MsgProc (UINT msg, UINT mfd, WPARAM wparam, LPARAM lparam);
 
+#ifdef ORBITER_NATIVE
+	class viewstate *nativeView() const {return viewstate;}
+#endif
 	int getwidth();
 	int getheight();
 	static int GetMfdCount(){return MfdCount;}

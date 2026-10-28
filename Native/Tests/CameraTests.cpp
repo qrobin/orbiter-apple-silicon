@@ -1,5 +1,6 @@
 #include "Camera.h"
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 using namespace native;
 int checks=0;
@@ -14,6 +15,14 @@ int main(){try {
     fractional.drag(0,10000);check(fractional.pitch==1.35,"Upper native pitch stop");fractional.drag(0,-10000);check(fractional.pitch==-1.35,"Lower native pitch stop");
     full.zoom(5);check(fabs(full.distance-43*exp(.125))<1e-10,"Continuous native zoom response");
     full.zoom(-100000);check(full.distance==14,"Near distance stop");full.zoom(100000);check(full.distance==1000,"Far distance stop");
+    CockpitCamera cockpit,steps;check(fabs(cockpit.fov-50*RAD)<1e-12,"Original cockpit field of view");
+    Vector edge=cockpit.ray(0,0,1,0,16./9);cockpit.zoom(-10);for(int i=0;i<10;++i)steps.zoom(-1);
+    check(fabs(cockpit.fov-steps.fov)<1e-12,"Cockpit zoom is independent of event batching");
+    check(cockpit.ray(0,0,1,0,16./9).x<edge.x,"Zoom narrows cockpit picking rays with the image");
+    check(cockpit.ray(0,0,0,0,16./9).dist(Vector(0,0,1))<1e-12,"Center cockpit ray follows the view direction");
+    cockpit.zoom(-100000);check(cockpit.fov==15*RAD,"Cockpit maximum zoom");
+    cockpit.zoom(100000);check(cockpit.fov==85*RAD,"Cockpit minimum zoom");
+    double fov=cockpit.fov;cockpit.zoom(std::numeric_limits<double>::quiet_NaN());check(cockpit.fov==fov,"Invalid scroll is ignored");
     Flight flight;OrbitCamera camera;auto expected=camera.offset(flight);
     flight.align(Vector(-1,3,.5));check((camera.offset(flight)-expected).length()<1e-8,"Orbital chase camera does not roll with vessel attitude");
     check(fabs(expected.length()-camera.distance)<1e-8,"Orbit retains chosen distance");

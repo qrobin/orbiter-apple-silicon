@@ -67,6 +67,9 @@ public:
 	class basefunction *getpreviousfunc(){return previousfunc;};
 	class basefunction *getnextfunc(){return nextfunc;};
 	void onplaceindeletebuffer();//Do not call unless you know what it's for.
+#ifdef ORBITER_NATIVE
+    bool nativeManeuverVector(VECTOR3 *direction);
+#endif
 	void calculate(VECTOR3 *targetvel);
 	int calcnewview(int oldview,bool firststage);
 	bool soistatus();

@@ -20,7 +20,9 @@
 
 #define STRICT
 
+#ifndef ORBITER_NATIVE
 #include <windows.h>
+#endif
 #include <cstdio>
 #include <cmath>
 #include "parser.h"

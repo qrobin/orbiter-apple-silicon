@@ -22,3 +22,9 @@ This is a monthly visual composite, not current satellite weather or elevation g
 
 Planetary and lunar visual maps: Solar System Scope / INOVE, CC BY 4.0.
 See Bodies/CREDITS.md for sources, attribution and modification details.
+
+TransX native navigation uses the original Src/Plugin/TransX module.
+Copyright 2007-9 Steve Arch, Duncan Sharpe; 2011 atomicdryad;
+2013 Dimitris Gatsoulis and Szymon Ender. MIT/X11 license, included in
+Docs/TransX/Licence.txt. Original Delta-glider MFD areas and atlas labels
+are ported from Src/Vessel/DeltaGlider/MfdSubsys.cpp.

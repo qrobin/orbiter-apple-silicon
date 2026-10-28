@@ -1,6 +1,24 @@
-# Orbiter Native 0.7 — planets and moons
+# Orbiter Native 0.8.2 — original TransX and 2D panel
 
-A partial native Apple Silicon port of the supplied Orbiter source. Version 0.7 extends native flight and rendering to the original Solar System catalogue, retaining the cockpit, hover controls, Earth clouds and GPU exhaust. This remains an experimental native flight target, **not a complete port of Orbiter or every Delta-glider subsystem**.
+A partial native Apple Silicon port of the supplied Orbiter source. It includes the original TransX module, Solar System catalogue, cockpit and 2D panel, hover controls, Earth clouds and GPU exhaust. This remains an experimental native flight target, **not a complete port of Orbiter or every Delta-glider subsystem**.
+
+## TransX
+
+Press **F4** (or **Fn-F4** when macOS uses the function key for a system action), or choose **Navigation → TransX…**. The module is compiled directly from `Src/Plugin/TransX`: its stage handling, orbit and encounter calculations, escape/encounter/slingshot plans, original plots, variable controls, help and serialization are reused. The previous custom transfer-planner interface and its Lambert implementation have been removed.
+
+The native window exposes the original twelve MFD actions with readable labels and tooltips. **Left MFD / Right MFD** keeps the two original view states separate. The variable menu jumps to an existing TransX variable; **Enter value** and **Apply value** use its original entry/validation path. Numeric expressions such as `100+`, `100-` and `x` retain their TransX meaning. Native entry also accepts literal zero and legal planet/moon names for the current stage. In the display, H/F/R/W, period/comma, brackets, =/−, X/E invoke the original MFD keys after clicking the display. **Return to flight** restores normal flight keyboard control.
+
+For the usual interplanetary setup, select **Select Target → Escape** in the departure stage, then **Next stage** to reach its parent system. Select **Mars**, for example, in the Sun stage. Tune the original plan variables and change views as in TransX. **Navigation → TransX Quickstart…** opens the included original guide. This port does not supply an automatic mission or execute engine burns.
+
+**Navigation → TransX on Left/Right MFD** selects its cockpit displays. The Delta-glider’s original twelve side buttons on each display are clickable; their labels use the original `dg_vc4.dds` glyph atlas and their hit areas/spacing come from `MfdSubsys.cpp`. Hold Increase/Decrease for continuous changes. The native window is also available while flying externally.
+
+Drag an orbit graph in the TransX window or directly on a cockpit or 2D-panel MFD to rotate its 3D projection. Double-click the graph or choose **Reset graph** in the TransX window to return to the original projection. Each MFD keeps its own viewpoint. Target-view steering cues and the planned orbit are unchanged.
+
+Optional **Align with RCS** points at the same vector used by the original TransX Target view for a configured manoeuvre in the current gravity reference. It uses the glider’s finite RCS torque and fuel. Main, hover and retro engine levels remain under player control. **N** releases attitude assist. Planning through an escape stage alone does not create an active manoeuvre vector: configure the original **Manoeuvre mode**, velocity components and date first. A disabled alignment button means no applicable manoeuvre is available.
+
+Normal scenario saves include the original TransX status in a `TYPE TransX` MFD block. Opening the scenario restores it. New body/scenario starts reset the plan, while switching left/right views retains their separate view selection. The native host still supports one Delta-glider; general multi-vessel targeting, docking stacks, surface-base targets and other MFD/vessel modules are not ported. Flight uses the existing patched-conic simulation described below.
+
+Portability changes to TransX are limited to native host API bindings, drawing commands, header guards, native input handling, a return-value correction and a stable basis for perfectly circular native starts. Its navigation model and plan workflow remain upstream implementations. Author credits and the MIT/X11 license are included in the app.
 
 ## Solar System in 0.7
 
@@ -45,7 +63,9 @@ Open `Orbiter Native.app`. Press **M** for the native systems panel, or use **Fl
 
 Choose **Flight → Mechanism Demonstration** to watch gear, nose, retro covers, airbrakes, radiator and escape ladder deploy with the original staged animation timing at 10× simulation time. The ladder waits for the nose cone to finish opening. Press **R** to return to the normal orbital scenario.
 
-Press **V** to enter the original 3D cockpit. Drag to look around. Thirty-two original click regions (30 quadrilaterals and two spherical buttons) operate supported switches, gear/nose/airbrake levers, main and hover throttles, RCS selector, trim and gimbal controls. Sixteen switch handles rotate about their original pivots; the original main/hover throttle, gear and nose lever animations are connected. The original hover dial, spring switches, hold/mode buttons, balance pointers and small numeric hover readout are also connected. Click-and-drag the main or hover throttle to adjust it. **M** provides larger accessible controls for the same systems.
+Press **V** to cycle through external view, the original 3D cockpit and the original 2D instrument-panel view. The **Flight** menu also selects each view. In the 3D cockpit, drag to look around and scroll to zoom. The pilot body, head and visor are hidden from the pilot's camera. Thirty-two original click regions (30 quadrilaterals and two spherical buttons) operate supported switches, gear/nose/airbrake levers, main and hover throttles, RCS selector, trim and gimbal controls. Sixteen switch handles rotate about their original pivots; the original main/hover throttle, gear and nose lever animations are connected. The original hover dial, spring switches, hold/mode buttons, balance pointers and small numeric hover readout are also connected. Click-and-drag the main or hover throttle to adjust it. **M** provides larger accessible controls for the same systems.
+
+The 2D view uses the original `dg_panel.dds` main-panel artwork and original MFD/button positions. Both displays mirror their cockpit counterparts; their TransX buttons and graph dragging work in either view. Main/retro and hover throttles, gear, nose, airbrake, trim, RCS mode, hover attitude and hover hold are connected. The main levers control both engines together in the native flight model. The attitude and heading underlays show live flight data; other original panel instruments and switches are not all connected yet.
 
 The cockpit has live native surface/orbit and propulsion displays on the original MFD meshes. These are new native displays, not the full Orbiter MFD implementation. Original analog instruments and other cockpit buttons are not all connected.
 
@@ -97,14 +117,16 @@ The native animation registry contains **63 components extracted from upstream s
 | --- | --- |
 | M | Open glider systems panel |
 | F3 | Cycle visual cloud/weather presets |
+| F4 / Cmd-Shift-T | Open original TransX MFD controls |
 | F5 | Toggle automatic hover attitude |
 | F6 | Toggle altitude hold at current height |
 | F7 | Toggle zero vertical speed hold |
 | [ / ] | Decrease / increase hover throttle |
 | , / . | Hold left / right wheel brake; hold both to stop |
 | Shift-W | Toggle parking brake |
-| V | External view / virtual cockpit |
-| Drag / scroll | Orbit external camera / zoom; drag in cockpit to look around |
+| V | Cycle external / 3D cockpit / 2D instrument panel |
+| Drag / scroll | Orbit external camera or look around cockpit; scroll to zoom |
+| Drag / double-click TransX graph | Rotate its projection / reset it |
 | + / − or keypad + / − | Increase / decrease main throttle |
 | X | Cut main, hover and retro engines |
 | Arrow keys | Pitch/yaw in RCS rotation mode; vertical/lateral jets in translation mode |
@@ -142,7 +164,7 @@ Requires Apple Silicon, macOS 13+, Xcode command-line tools and CMake 3.19+. The
 ./Native/build.sh --run
 ```
 
-Result: `build/macos-arm64/Native/Orbiter Native.app`. Set `ORBITER_NATIVE_BUILD_DIR` for another directory. The build runs the native flight, glider, surface, hover, exhaust, camera and Solar System test suites and applies a local ad-hoc signature. Public notarization is not provided.
+Result: `build/macos-arm64/Native/Orbiter Native.app`. Set `ORBITER_NATIVE_BUILD_DIR` for another directory. The build runs the native flight, glider, surface, hover, exhaust, camera, Solar System and original TransX test suites and applies a local ad-hoc signature. Public notarization is not provided.
 
 For a bounded rendering run:
 
@@ -152,7 +174,7 @@ For a bounded rendering run:
   --capture /absolute/path/frame.png --report /absolute/path/performance.json
 ```
 
-Use `--hover-demo` for a repeatable hover capture (the practice flight advances 60 simulation seconds before rendering), `--surface` for the bundled parked Cape start, `--cockpit` for the 3D cockpit, `--scenario /absolute/path/file.scn` for a supported scenario. `--glider-demo` starts with selected mechanisms deployed for a repeatable render capture; the menu demonstration runs their actual transitions. Bounded frame runs ignore manual keyboard/camera input.
+Use `--hover-demo` for a repeatable hover capture (the practice flight advances 60 simulation seconds before rendering), `--surface` for the bundled parked Cape start, `--cockpit` for the 3D cockpit, `--panel2d` for the 2D panel, and `--scenario /absolute/path/file.scn` for a supported scenario. `--glider-demo` starts with selected mechanisms deployed for a repeatable render capture; the menu demonstration runs their actual transitions. Bounded frame runs ignore manual keyboard/camera input.
 
 Animation and cockpit geometry data can be regenerated from the included upstream sources with:
 

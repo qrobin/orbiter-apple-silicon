@@ -20,10 +20,14 @@
 
 #define STRICT
 
+#ifndef ORBITER_NATIVE
 #include <windows.h>
+#endif
 #include <cstdio>
 #include <cmath>
+#ifndef ORBITER_NATIVE
 #include "orbitersdk.h"
+#endif
 #include "parser.h"
 #include "mapfunction.h"
 #include "shiplist.h"

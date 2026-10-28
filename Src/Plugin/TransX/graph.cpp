@@ -20,10 +20,14 @@
 
 #define STRICT
 
+#ifndef ORBITER_NATIVE
 #include <windows.h>
+#endif
 #include <cstdio>
 #include <cmath>
+#ifndef ORBITER_NATIVE
 #include "orbitersdk.h"
+#endif
 #include "mfd.h"
 #include "graph.h"
 #include "TransXFunction.h"
@@ -89,7 +93,20 @@ void Graph::setprojection(const VECTOR3 &txaxis, const VECTOR3 &tyaxis, const VE
 	xaxis=unit(txaxis);
 	yaxis=unit(tyaxis);
 	zaxis=unit(tzaxis);
+#ifdef ORBITER_NATIVE
+	applyNativeRotation();
+#endif
 }
+
+#ifdef ORBITER_NATIVE
+void Graph::applyNativeRotation()
+{
+	// Rotate the original view basis, keeping distances and navigation intact.
+	double cy=cos(nativeYaw), sy=sin(nativeYaw), cp=cos(nativePitch), sp=sin(nativePitch);
+	VECTOR3 x=xaxis*cy+zaxis*sy, z=zaxis*cy-xaxis*sy, y=yaxis;
+	xaxis=x; yaxis=y*cp+z*sp; zaxis=z*cp-y*sp;
+}
+#endif
 
 void Graph::setprojection(const OrbitElements &torbit)
 {
@@ -119,6 +136,9 @@ void Graph::setprojection(const VECTOR3 &projection)
 		xaxis=cross*cross.x+xcross*cross.z; // Back around the orbit
 		yaxis=xcross*cross.x-cross*cross.z;
 	}
+#ifdef ORBITER_NATIVE
+	applyNativeRotation();
+#endif
 }
 
 void Graph::draworbit(const OrbitElements &element, oapi::Sketchpad *sketchpad, bool drawradius)

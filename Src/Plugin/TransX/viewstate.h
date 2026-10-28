@@ -38,6 +38,11 @@ class viewstate
 	void selfdownshift();
 	void resetshift();
 public:
+#ifdef ORBITER_NATIVE
+	int nativeStage() const {return varviewfunction;}
+	int nativeMode() const {return varviewmode;}
+	class transxstate *nativeState() const {return state;}
+#endif
 	bool doupdate(oapi::Sketchpad *sketchpad, int tw, int th, TransxMFD *mfdptr);
 	bool getrenderviewport(){return renderviewport;};
 	class MFDvariable *GetCurrVariable();

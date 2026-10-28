@@ -20,11 +20,15 @@
 
 #define STRICT
 #define ORBITER_MODULE
+#ifndef ORBITER_NATIVE
 #include <windows.h>
+#endif
 #include <cstdio>
 #include <cmath>
 #include <string>
+#ifndef ORBITER_NATIVE
 #include "orbitersdk.h"
+#endif
 
 #include "mfd.h"
 #include "graph.h"

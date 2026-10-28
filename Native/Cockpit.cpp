@@ -2,6 +2,7 @@
 #include "Mesh.h"
 #include "Hover.h"
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <limits>
 namespace native {
@@ -41,19 +42,86 @@ const std::vector<CockpitSphere> &cockpitSpheres() {
 #include "CockpitSpheres.inc"
     };return spheres;
 }
+const std::vector<CockpitZone> &cockpitMfdZones(){
+    // Original MfdSubsystem::clbkLoadVC quads and ProcessMouseVC button spacing.
+    static const auto zones=[](){std::vector<CockpitZone> z;
+        for(int d=0;d<2;++d)for(int side=0;side<2;++side){double x=(d? .0616:-.2684)+side*.1900;
+            Vector p(x,1.2155,7.2751),across(.0168,0,0),down(0,1.0963-1.2155,7.2317-7.2751);
+            for(int b=0;b<6;++b){auto top=p+down*(b*4./23),bottom=p+down*((b+.75)*4./23);
+                z.push_back({100+d*12+side*6+b,{top,top+across,bottom,bottom+across}});
+            }
+        }
+        return z;
+    }();return zones;
+}
+const std::vector<CockpitZone> &cockpitMfdScreens(){
+    // Display quads from the original deltaglider_vc.msh groups 88 and 89.
+    static const std::vector<CockpitZone> screens={
+        {200,{{{-0.245,1.07624,7.23827},{-0.085,1.07624,7.23827},{-0.245,1.22659,7.29299},{-0.085,1.22659,7.29299}}}},
+        {201,{{{ 0.085,1.07624,7.23827},{ 0.245,1.07624,7.23827},{ 0.085,1.22659,7.29299},{ 0.245,1.22659,7.29299}}}}
+    };return screens;
+}
+bool visibleCockpitGroup(size_t group){
+    // Original VC pilot body, head and visor; group 132 is the HUD overlay.
+    return group!=62&&group!=83&&group!=84&&group!=132;
+}
+CockpitHit pickPanel2D(double x,double y){
+    if(!std::isfinite(x)||!std::isfinite(y))return {};
+    for(int d=0;d<2;++d){
+        double offset=d?736:173;
+        for(int side=0;side<2;++side){double left=offset+side*348;
+            if(x>=left&&x<left+25&&y>=100&&y<323){
+                int row=int((y-100)/41);if(row<6&&int(y-100)%41<18)return {100+d*12+side*6+row,0,0};
+            }
+        }
+        double left=d?778:216;
+        if(x>=left&&x<left+288&&y>=63&&y<351)return {200+d,(x-left)/288,(y-63)/288};
+    }
+    auto inside=[&](double x0,double y0,double x1,double y1){return x>=x0&&x<x1&&y>=y0&&y<y1;};
+    if(inside(4,122,57,297))return {300,0,y};
+    if(inside(4,304,57,444))return {301,0,y};
+    if(inside(93,373,125,572))return {302,0,y};
+    if(inside(1221,359,1260,473))return {303,0,y};
+    if(inside(138,299,158,359))return {304,0,y};
+    if(inside(100,69,140,113))return {305,x,0};
+    if(inside(87,299,107,359))return {306,0,y};
+    if(inside(356,426,396,470))return {307,x,0};
+    if(inside(491,415,533,445))return {308,0,0};
+    return {};
+}
+bool paintMfdButtonLabels(Image &target,const Image &original,const std::array<bool,2>&enabled){
+    if(original.width<660||original.height<1024||original.rgba.size()!=size_t(original.width)*original.height*4)return false;
+    target=original;
+    // Glyphs and atlas layout from original MfdButtonCol::RedrawVC.
+    const int x[]={81,90,100,110,120,129,138,150,159,164,173,183,192,203,213,224,233,243,253,263,271,281,291,305,314,324};
+    const int w[]={9,9,9,9,8,8,10,8,4,7,8,7,10,9,10,8,9,9,8,9,9,9,12,8,9,8};
+    const char *labels[]={"HLP","FWD","BCK","VW","VAR","-VR","ADJ","-AJ","++","--","EXE","ENT"};
+    auto blit=[&](int dx,int dy,int sx,int sy,int width,int height){for(int row=0;row<height;++row)for(int col=0;col<width;++col)for(int c=0;c<4;++c)
+        target.rgba[(size_t(dy+row)*target.width+dx+col)*4+c]=original.rgba[(size_t(sy+row)*original.width+sx+col)*4+c];};
+    auto glyph=[&](char c){return c=='+'?std::pair<int,int>{333,6}:c=='-'?std::pair<int,int>{342,6}:std::pair<int,int>{x[c-'A'],w[c-'A']};};
+    for(int d=0;d<2;++d)for(int side=0;side<2;++side)for(int b=0;b<6;++b){int y=14+side*41+d*82,center=148+b*40;
+        blit(center-16,y,0,128,32,12);if(!enabled[d])continue;
+        const char *s=labels[side*6+b];int width=0;for(auto p=s;*p;++p)width+=glyph(*p).second;
+        int dx=center-width/2;for(auto p=s;*p;++p){auto [sx,gw]=glyph(*p);blit(dx,y,sx,1012,gw,12);dx+=gw;}
+    }
+    return true;
+}
 CockpitHit pickCockpit(const Vector &origin,const Vector &direction) {
     CockpitHit hit;double nearest=std::numeric_limits<double>::max();
-    for(const auto &z:cockpitZones()) {
+    auto testQuad=[&](const CockpitZone &z) {
         Vector a=z.corners[1]-z.corners[0],b=z.corners[2]-z.corners[0],normal=crossp(a,b);
-        double den=dotp(normal,direction);if(fabs(den)<1e-14) continue;
-        double t=dotp(normal,z.corners[0]-origin)/den;if(t<=0||t>=nearest)continue;
+        double den=dotp(normal,direction);if(fabs(den)<1e-14) return;
+        double t=dotp(normal,z.corners[0]-origin)/den;if(t<=0||t>=nearest)return;
         Vector delta=origin+direction*t-z.corners[0];
         double aa=dotp(a,a),bb=dotp(b,b),ab=dotp(a,b),det=aa*bb-ab*ab;
-        if(det<1e-20)continue;
+        if(det<1e-20)return;
         double u=(dotp(delta,a)*bb-dotp(delta,b)*ab)/det;
         double v=(dotp(delta,b)*aa-dotp(delta,a)*ab)/det;
         if(u>=0&&u<=1&&v>=0&&v<=1) {nearest=t;hit={z.action,u,v};}
-    }
+    };
+    for(const auto &z:cockpitZones())testQuad(z);
+    for(const auto &z:cockpitMfdZones())testQuad(z);
+    for(const auto &z:cockpitMfdScreens())testQuad(z);
     double a=direction.length2();if(a<1e-20)return hit;
     for(const auto &sphere:cockpitSpheres()) {
         Vector d=origin-sphere.center;double b=dotp(d,direction),c=d.length2()-sphere.radius*sphere.radius,disc=b*b-a*c;

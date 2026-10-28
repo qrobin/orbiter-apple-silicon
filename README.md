@@ -18,9 +18,13 @@ cd orbiter-apple-silicon
 
 The script builds `build/macos-arm64/Native/Orbiter Native.app`, runs the native tests and applies a local ad-hoc signature. Developer ID signing and notarization are not yet provided.
 
-Start with **M** for the glider systems panel, **V** for the original 3D cockpit, **+ / −** for main throttle, **X** to cut engines, **Space** to pause, and **T / Y** to change time acceleration. **F1** shows the controls. The **Flight** menu includes a mechanism demonstration.
+Start with **M** for the glider systems panel, **V** to cycle external, 3D cockpit and 2D instrument-panel views, **+ / −** for main throttle, **X** to cut engines, **Space** to pause, and **T / Y** to change time acceleration. **F1** shows the controls. The **Flight** menu includes a mechanism demonstration.
 
 See the [native guide](Native/README.md) for all controls, supported scenarios, capture options and implementation details.
+
+## Original TransX navigation
+
+**F4 / Navigation → TransX…** opens the ported original module. Its upstream stage, orbit, encounter, escape and slingshot code runs against the native Solar System and glider state. Original MFD graphics, twelve controls, cockpit buttons/label atlas and scenario serialization are connected. Drag the orbit graphs to rotate them. Native controls add readable labels, direct variable/value entry and optional finite RCS alignment; burns stay manual. See the [TransX guide](Native/README.md#transx). This work ports the existing game’s systems and preserves their workflow.
 
 ## Planets and moons
 
@@ -46,7 +50,7 @@ The native target currently supports one focused standard `DeltaGlider` around t
 
 ## Validation and CI
 
-The flight, glider, surface, hover, exhaust, camera and Solar System CTest suites pass locally in Release and with AddressSanitizer/UndefinedBehaviorSanitizer. They cover orbital propagation, fuel and propulsion, mechanism staging, cockpit/mesh geometry, scenario round trips ground-contact behavior and closed-loop hover recovery/target tracking. These checks do not establish full equivalence with the original simulator.
+The flight, glider, surface, hover, exhaust, camera, Solar System and original TransX CTest suites pass locally in Release and with AddressSanitizer/UndefinedBehaviorSanitizer. They cover orbital propagation, fuel and propulsion, mechanism staging, cockpit/mesh geometry, scenario round trips ground-contact behavior and closed-loop hover recovery/target tracking. These checks do not establish full equivalence with the original simulator.
 
 The [Apple Silicon workflow](.github/workflows/native-macos.yml) builds the arm64 app, runs all native suites, verifies the executable architecture and uploads a ZIP artifact. The imported Windows/Linux maintenance workflows are available as manual workflows.
 

@@ -28,7 +28,9 @@
 
 #include <vector>
 #include <map>
+#ifndef ORBITER_NATIVE
 #include <Orbitersdk.h>
+#endif
 
 struct GBODY{
 	OBJHANDLE bodyhandle;

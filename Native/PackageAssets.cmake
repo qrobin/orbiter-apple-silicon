@@ -25,3 +25,8 @@ endforeach()
 file(MAKE_DIRECTORY "${dst}/Ephemeris")
 file(GLOB vsop_files "${src}/Src/Celbody/Vsop87/Data/Vsop87B_*.dat")
 file(COPY ${vsop_files} "${src}/Src/Celbody/Moon/ELP82.dat" "${src}/Src/Celbody/Galsat/ephem_e15.dat" "${src}/Src/Celbody/Satsat/tass17.dat" DESTINATION "${dst}/Ephemeris")
+
+# TransX is compiled from its original module; ship its authors' license/manual.
+file(MAKE_DIRECTORY "${dst}/Docs/TransX")
+configure_file("${src}/Src/Plugin/TransX/Licence.txt" "${dst}/Docs/TransX/Licence.txt" COPYONLY)
+configure_file("${src}/Src/Plugin/TransX/Doc/TransX quickstart.pdf" "${dst}/Docs/TransX/TransX quickstart.pdf" COPYONLY)

@@ -20,10 +20,14 @@
 
 #define STRICT
 
+#ifndef ORBITER_NATIVE
 #include <windows.h>
+#endif
 #include <cstdio>
 #include <cmath>
+#ifndef ORBITER_NATIVE
 #include "orbitersdk.h"
+#endif
 #include "mfd.h"
 #include "graph.h"
 #include "orbitelements.h"
@@ -267,7 +271,13 @@ void OrbitElements::init(const VECTOR3 &rposition, const VECTOR3 &rvelocity, dou
 		eccvector=(rposition*(rvel2-gmplanet/radius)-rvelocity*dotp(rposition, rvelocity))*(1/gmplanet); //Eccentricity vector
 		semimajor=gmplanet/(rvel2-2*gmplanet/radius); //Length of semimajor axis  - is NEGATIVE if orbit is elliptical, POSITIVE if hyperbolic
 		eccentricity=length(eccvector); //Eccentricity of orbit
+#ifdef ORBITER_NATIVE
+        // Perfect circular native starts have no defined periapsis direction.
+        // Choose the current radius as the basis without changing the conic.
+        majoraxis=eccentricity<1e-12?unit(rposition):unit(eccvector);
+#else
 		majoraxis=unit(eccvector); //Vector towards Periapsis
+#endif
 		minoraxis=unit(crossp(planevector, majoraxis)); // Vector parallel to Minor axis of orbit - important for extracting vectors later
 		currcosthi=dotp(rposition, majoraxis)/radius; //cos thi is angle from periapsis, as measured from planet centre
 		currsinthi=dotp(rposition, minoraxis)/radius;

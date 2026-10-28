@@ -7,7 +7,7 @@ endif()
 set(CORE ${PROJECT_SOURCE_DIR}/Src/Orbiter)
 add_library(OrbiterFlightCore STATIC
     ${CORE}/Vecmat.cpp ${CORE}/Astro.cpp ${CORE}/Element.cpp ${CORE}/TimeData.cpp
-    Body.cpp SolarSystem.cpp Transfer.cpp
+    Body.cpp SolarSystem.cpp
     ${PROJECT_SOURCE_DIR}/Src/Celbody/Moon/ELP82.cpp
     ${PROJECT_SOURCE_DIR}/Src/Celbody/Galsat/Lieske.cpp
     ${PROJECT_SOURCE_DIR}/Src/Celbody/Satsat/Tass17.cpp
@@ -15,9 +15,9 @@ add_library(OrbiterFlightCore STATIC
 target_include_directories(OrbiterFlightCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${CORE})
 target_compile_definitions(OrbiterFlightCore PUBLIC ORBITER_NATIVE=1)
 target_compile_options(OrbiterFlightCore PRIVATE -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable)
-add_executable(OrbiterNative MACOSX_BUNDLE macOS/App.mm macOS/NativeVisuals.mm macOS/SolarRenderer.mm macOS/GliderPanel.inc)
+add_executable(OrbiterNative MACOSX_BUNDLE macOS/App.mm macOS/NativeVisuals.mm macOS/SolarRenderer.mm macOS/GliderPanel.inc macOS/TransXPanel.inc macOS/Panel2D.inc macOS/TransXDrawing.mm)
 target_compile_options(OrbiterNative PRIVATE -fobjc-arc -Wall -Wextra -Wno-unused-parameter)
-target_link_libraries(OrbiterNative PRIVATE OrbiterFlightCore
+target_link_libraries(OrbiterNative PRIVATE
     "-framework UniformTypeIdentifiers" "-framework Cocoa" "-framework Metal" "-framework MetalKit" "-framework QuartzCore")
 set_target_properties(OrbiterNative PROPERTIES
     OUTPUT_NAME "Orbiter Native"
@@ -74,7 +74,16 @@ target_link_libraries(SolarSystemTests PRIVATE OrbiterFlightCore)
 target_compile_definitions(SolarSystemTests PRIVATE ORBITER_TEST_DATA="${PROJECT_SOURCE_DIR}")
 add_test(NAME Native.SolarSystem COMMAND SolarSystemTests)
 
-add_executable(TransferTests Tests/TransferTests.cpp)
-target_link_libraries(TransferTests PRIVATE OrbiterFlightCore)
-target_compile_definitions(TransferTests PRIVATE ORBITER_TEST_DATA="${PROJECT_SOURCE_DIR}")
-add_test(NAME Native.Transfer COMMAND TransferTests)
+# Compile the original TransX algorithms and MFD against the native host API.
+file(GLOB TRANSX_ORIGINAL_SOURCES ${PROJECT_SOURCE_DIR}/Src/Plugin/TransX/*.cpp)
+add_library(NativeTransX STATIC ${TRANSX_ORIGINAL_SOURCES} TransX/SDK.cpp TransX/Session.cpp)
+target_link_libraries(NativeTransX PUBLIC OrbiterFlightCore)
+target_include_directories(NativeTransX PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/TransX ${PROJECT_SOURCE_DIR}/Src/Plugin/TransX)
+target_compile_definitions(NativeTransX PRIVATE _LIBCPP_ENABLE_CXX17_REMOVED_AUTO_PTR)
+target_compile_options(NativeTransX PRIVATE -include ${CMAKE_CURRENT_SOURCE_DIR}/TransX/SDK.h -Wno-deprecated-declarations -Wno-writable-strings)
+add_executable(TransXTests Tests/TransXTests.cpp)
+target_link_libraries(TransXTests PRIVATE NativeTransX)
+target_compile_definitions(TransXTests PRIVATE ORBITER_TEST_DATA="${PROJECT_SOURCE_DIR}" _LIBCPP_ENABLE_CXX17_REMOVED_AUTO_PTR)
+add_test(NAME Native.TransX COMMAND TransXTests)
+
+target_link_libraries(OrbiterNative PRIVATE NativeTransX)

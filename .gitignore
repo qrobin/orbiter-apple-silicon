@@ -35,3 +35,6 @@ Doc/**/*.gz
 
 # macOS Finder metadata
 .DS_Store
+
+# Local UI review captures
+.impeccable/review/

@@ -20,11 +20,15 @@
 
 #define STRICT
 
+#ifndef ORBITER_NATIVE
 #include <windows.h>
+#endif
 #include <cstdio>
 #include <cmath>
 #include <string>
+#ifndef ORBITER_NATIVE
 #include "orbitersdk.h"
+#endif
 #include "mfd.h"
 #include "mfdvartypes.h"
 #include "doublelink.h"
@@ -273,6 +277,18 @@ bool MFDvarmoon::loadvalue(char *buffer)
 bool MFDvarmoon::SetVariableBody(char *str)
 {
 	OBJHANDLE temp=oapiGetGbodyByName(str);
+#ifdef ORBITER_NATIVE
+    // The original typed-entry path only accepts ships. Native input also
+    // selects the same bodies offered by TransX's existing +/- controls.
+    if (!strcasecmp(str,"None")) {target=NULL;value=0;intbuffer[0]=0;return true;}
+    if (!strcasecmp(str,"Escape") || (temp && temp==mappointer->getmajor(centralbody) && temp!=centralbody)) {
+        if(mappointer->getmajor(centralbody)==centralbody)return false;
+        target=NULL;value=1;intbuffer[0]=0;return true;
+    }
+    if(temp && temp!=centralbody && mappointer->getmajor(temp)==centralbody) {
+        target=temp;value=2;oapiGetObjectName(temp,intbuffer,sizeof(intbuffer));return true;
+    }
+#endif
 	if (temp !=NULL)
 		return false;
 	temp=oapiGetObjectByName(str);
@@ -492,6 +508,12 @@ bool MFDvarfloat::floatvalidate(char * str, double * dfinal, double valcurrent, 
 	d = strtod( str, &endstr );
 	int lfullstr=strlen(str);
 	int lendstr=strlen(endstr);
+#ifdef ORBITER_NATIVE
+    // Preserve TransX expressions while accepting a literal zero in native entry.
+    if(!std::isfinite(d))return false;
+    if(endstr!=str && lendstr==0){*dfinal=d;return true;}
+#endif
+
 	if(d==0.0) {
 		if(lfullstr==lendstr) {
 			if(lfullstr==1 && *endstr=='x') {

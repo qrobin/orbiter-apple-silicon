@@ -20,8 +20,12 @@
 
 #define STRICT
 
+#ifndef ORBITER_NATIVE
 #include "orbitersdk.h"
+#endif
+#ifndef ORBITER_NATIVE
 #include "orbiterapi.h"
+#endif
 #include "basefunction.h"
 #include "transxstate.h"
 #include "TransXFunction.h"
@@ -811,6 +815,9 @@ void basefunction::doupdate(oapi::Sketchpad *sketchpad,int tw, int th,int viewmo
 		break;
 	}
 	sketchpad->Text(wpos,hpos,buffer,strlen(buffer));
+#ifdef ORBITER_NATIVE
+	graph.setNativeRotation(sketchpad->graphYaw,sketchpad->graphPitch);
+#endif
 	graph.setviewwindow(0,0,tw,th);
 	if (viewmode==1 && hypormaj.isvalid())//Target view
 	{
@@ -1072,3 +1079,15 @@ VECTOR3 basefunction::GetLineOfNodes()
 	const VECTOR3 & lineOfNodes = crossp(planeMinor, planeMajor);
     return lineOfNodes;
 }
+
+#ifdef ORBITER_NATIVE
+bool basefunction::nativeManeuverVector(VECTOR3 *direction)
+{
+    VECTOR3 targetvel;calculate(&targetvel);
+    if(!hypormaj.isvalid()||!craft.isvalid())return false;
+    // Exactly the vector used by the original TransX Target view.
+    double timeoffset=(m_ejdate-simstartMJD)*SECONDS_PER_DAY-craft.gettimestamp();
+    VECTOR3 p,v;craft.timetovectors(timeoffset,&deltavel);deltavel.getposvel(&p,&v);
+    *direction=targetvel-v;return length(*direction)>.1;
+}
+#endif

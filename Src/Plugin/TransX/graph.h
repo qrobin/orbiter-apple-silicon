@@ -39,6 +39,9 @@ public:
 	void setprojection(const OrbitElements &torbit);//View set from orbit's plane vector
 	void setprojection(const VECTOR3 &projection);// View set from vector
 	void setprojection(const VECTOR3 &txaxis, const VECTOR3 &tyaxis, const VECTOR3 &tzaxis);//Explicitly set axes
+#ifdef ORBITER_NATIVE
+	void setNativeRotation(double yaw, double pitch) { nativeYaw=yaw; nativePitch=pitch; }
+#endif
 	void drawvector(oapi::Sketchpad *sketchpad,const VECTOR3 &line1);//Draw vector using current projection & scale
 	void drawmarker(oapi::Sketchpad *sketchpad, const VECTOR3 & location, Shape shape);	// draws a marker at the specified location
 	void drawtwovector(oapi::Sketchpad *sketchpad, const VECTOR3 &line1, const VECTOR3 &line2);//Draw two vectors using current projection & scaling
@@ -51,6 +54,10 @@ public:
 	void getviewwindow(DWORD *xstart, DWORD *ystart, DWORD *xend, DWORD *yend);//Get back above info
 	double getviewscale();//Get viewscale number
 private:
+#ifdef ORBITER_NATIVE
+	void applyNativeRotation();
+	double nativeYaw=0,nativePitch=0;
+#endif
 	void drawcircle(oapi::Sketchpad *sketchpad, double size); //Draw circle representing planet
 	VECTOR3 xaxis, yaxis, zaxis; // projection vectors
 	DWORD ixstart, iystart, ixend, iyend, windowsize;//window parameters
