@@ -35,3 +35,15 @@ Doc/**/*.gz
 
 # macOS Finder metadata
 .DS_Store
+
+# Unreal generated files and copies of the shared source assets
+/Unreal/Binaries/
+/Unreal/Intermediate/
+/Unreal/Saved/
+/Unreal/DerivedDataCache/
+/Unreal/Content/OrbiterData/
+
+/Unreal/Content/Materials/
+/Unreal/Content/Textures/
+/Unreal/Content/Generated/
+/Unreal/Content/Maps/
