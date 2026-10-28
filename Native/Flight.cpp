@@ -230,15 +230,16 @@ void Flight::step(double dt,const Input &input) {
         Vector limit(40000/(mass()*15.5),30000/(mass()*22.1),30000/(mass()*7.7));
         control={-angularVelocity.x/limit.x*3,-angularVelocity.y/limit.y*3,-angularVelocity.z/limit.z*3};
     } else if(assist!=Assist::Free) {
-        Vector radial=position.unit(), normal=crossp(velocity,position).unit();
+        Vector radial=position.unit(),normal=crossp(velocity,position);
+        if(normal.length2()>1e-12)normal.unify();else normal={};
         Vector target,desiredUp;bool controlRoll=false;
-        if(assist==Assist::Maneuver)target=maneuverDirection.unit();
+        if(assist==Assist::Maneuver)target=maneuverDirection.length2()>1e-12?maneuverDirection.unit():forward;
         else if(assist==Assist::Prograde||assist==Assist::Retrograde){
-            target=(assist==Assist::Prograde?velocity:-velocity).unit();
+            target=velocity.length2()>1e-12?(assist==Assist::Prograde?velocity:-velocity).unit():forward;
             desiredUp=normal;controlRoll=normal.length2()>1e-12;
         } else if(assist==Assist::Normal||assist==Assist::AntiNormal){
             target=assist==Assist::Normal?normal:-normal;
-            desiredUp=(assist==Assist::Normal?-velocity:velocity).unit();controlRoll=target.length2()>1e-12;
+            if(normal.length2()>1e-12&&velocity.length2()>1e-12){desiredUp=(assist==Assist::Normal?-velocity:velocity).unit();controlRoll=true;}
         } else if(assist==Assist::HorizonLevel){
             Vector horizontal=forward-radial*dotp(forward,radial);
             if(horizontal.length2()<1e-12)horizontal=velocity-radial*dotp(velocity,radial);

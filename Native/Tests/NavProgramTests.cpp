@@ -37,6 +37,10 @@ int main(){try{
     check(stop.angularVelocity.length()<1e-4&&stop.assist==Assist::Free,"Kill rotation damps and releases after stopping");
     Flight dry=orbit();dry.rcs=0;Vector old=dry.forward;dry.toggleAssist(Assist::Retrograde);run(dry,5);
     check(dry.rcs==0&&dry.forward.dist(old)<1e-12,"An empty RCS supply cannot rotate the craft");
+    for(auto program:{Assist::Prograde,Assist::Retrograde,Assist::Normal,Assist::AntiNormal})for(int radial=0;radial<2;++radial){
+        Flight f=orbit();f.velocity=radial?f.position.unit()*20:Vector{};f.toggleAssist(program);run(f,2);
+        check(std::isfinite(f.forward.length())&&std::isfinite(f.up.length())&&std::isfinite(f.rcs),"Stationary and radial motion never produce an undefined nav attitude");
+    }
     Flight manualOff=orbit();manualOff.glider.rcsMode=0;manualOff.toggleAssist(Assist::Prograde);double fuel=manualOff.rcs;run(manualOff,5);
     check(manualOff.rcs<fuel,"The navigation computer works with the manual RCS dial off");
     Flight accelerated=orbit();accelerated.toggleAssist(Assist::Retrograde);accelerated.warp=10;old=accelerated.forward;fuel=accelerated.rcs;run(accelerated,1);
