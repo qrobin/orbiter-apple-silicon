@@ -28,6 +28,9 @@ public:
     void load(const std::filesystem::path &path);
     void save(const std::filesystem::path &path) const;
     void advance(double realSeconds, const Input &input={});
+    bool setHoverHold(int mode,double target);
+    void setHoverThrottle(double level);
+    void cutEngines();
     Elements orbit() const;
     void placeOnEarth(double latitude,double longitude,double heading,double clearance=2.53);
     double pitch() const;

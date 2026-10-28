@@ -12,10 +12,15 @@ struct Vertex { packed_float3 position; packed_float3 normal; packed_float2 uv; 
 struct Raster { float4 position [[position]]; float3 normal; float2 uv; float3 world; };
 vertex Raster meshVertex(uint id [[vertex_id]],const device Vertex *vertices [[buffer(0)]],
                          constant Frame &f [[buffer(1)]],constant Object &o [[buffer(2)]],constant SwitchUniform *switches [[buffer(3)]]) {
-    Raster out; Vertex v=vertices[id]; float3 local=float3(v.position),normal=float3(v.normal);
+    Raster out; Vertex v=vertices[id]; float3 local=float3(v.position),normal=float3(v.normal);float2 uv=float2(v.uv);
     for(int i=0;i<int(o.options.w);++i) {
         SwitchUniform sw=switches[i];
         if(int(o.options.z)!=int(sw.range.y)||id<uint(sw.axisStart.w)||id>=uint(sw.axisStart.w+sw.range.x)) continue;
+        if(sw.range.z>.5) {
+            local+=sw.axisStart.xyz*sw.pivotAngle.w;
+            if(sw.range.z>1.5&&id>=uint(sw.axisStart.w+6))uv.y=(sw.range.w>.5?1.5f:10.5f)/1024;
+            continue;
+        }
         float3 axis=sw.axisStart.xyz,q=local-sw.pivotAngle.xyz;float c=cos(sw.pivotAngle.w),s=sin(sw.pivotAngle.w);
         local=sw.pivotAngle.xyz+q*c+cross(axis,q)*s+axis*dot(axis,q)*(1-c);
         normal=normal*c+cross(axis,normal)*s+axis*dot(axis,normal)*(1-c);
@@ -24,7 +29,7 @@ vertex Raster meshVertex(uint id [[vertex_id]],const device Vertex *vertices [[b
     float3 view=float3(dot(p,f.cameraRight.xyz),dot(p,f.cameraUp.xyz),-dot(p,f.cameraForward.xyz));
     out.position=f.projection*float4(view,1);
     out.normal=(o.model*float4(normal,0)).xyz;
-    out.world=p; out.uv=float2(v.uv); return out;
+    out.world=p; out.uv=uv; return out;
 }
 fragment float4 meshFragment(Raster in [[stage_in]],constant Frame &f [[buffer(1)]],
                              constant Object &o [[buffer(2)]],texture2d<float> tex [[texture(0)]]) {

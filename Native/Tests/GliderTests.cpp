@@ -11,8 +11,8 @@ int checks=0;
 void check(bool value,const char *message) { ++checks;if(!value) throw std::runtime_error(message); }
 void run(Flight &f,double seconds,const Input &input={}) { for(int i=0;i<(int)(seconds*100);++i) f.advance(.01,input); }
 int main() {try {
-    check(cockpitZones().size()==25,"original cockpit click zones present");
-    check(cockpitSwitches().size()==16,"mechanical cockpit switch animations present");
+    check(cockpitZones().size()==30&&cockpitSpheres().size()==2,"original cockpit quadrilateral and spherical click zones present");
+    check(cockpitSwitches().size()==27,"mechanical cockpit switch and hover-control animations present");
     const auto &zone=*std::find_if(cockpitZones().begin(),cockpitZones().end(),[](const CockpitZone &z){return z.action==0;});
     Vector center=(zone.corners[0]+zone.corners[3])*.5;
     Vector normal=crossp(zone.corners[1]-zone.corners[0],zone.corners[2]-zone.corners[0]).unit();

@@ -49,8 +49,11 @@ struct GpuGroup { id<MTLBuffer> vertices,indices; NSUInteger count; size_t mater
     std::vector<Material> materials;
     NSMutableArray<id<MTLTexture>> *textures;
     id<MTLTexture> earthTexture,whiteTexture;
+    id<MTLTexture> hoverReadoutTexture;
+    Image hoverReadoutImage,hoverGlyphs;
     std::array<id<MTLTexture>,2> instrumentTextures;
     int activeCockpitControl;
+    double activeCockpitDirection;
     CFTimeInterval previous,begin,lastHud;
     NSUInteger frameCount,smokeFrames;
     double cpuSum,gpuSum;
@@ -65,6 +68,11 @@ struct GpuGroup { id<MTLBuffer> vertices,indices; NSUInteger count; size_t mater
 - (void)demonstrateGlider:(id)sender;
 - (void)startSurface:(id)sender;
 - (void)startOrbit:(id)sender;
+- (void)startHoverPractice:(id)sender;
+- (void)toggleHoverHold:(id)sender;
+- (void)toggleHoverAttitude:(id)sender;
+- (void)holdCurrentAltitude:(id)sender;
+- (void)holdZeroVerticalSpeed:(id)sender;
 - (void)toggleParkingBrake:(id)sender;
 - (void)openScenario:(id)sender;
 - (void)saveScenario:(id)sender;
@@ -86,8 +94,10 @@ struct GpuGroup { id<MTLBuffer> vertices,indices; NSUInteger count; size_t mater
 - (id)accessibilityValue {
     FlightView *v=self.flightView; if(!v) return @"Loading";
     auto &f=v->flight;
-    if(f.altitude()<120000) return [NSString stringWithFormat:@"%@, altitude %.1f metres, ground speed %.2f metres per second, vertical speed %+.1f, heading %.1f degrees, main throttle %.0f percent, hover %.0f percent, parking brake %@, fuel %.1f kg, controls %@",
-        f.paused?@"Paused":f.groundContact?@"On the ground":@"Flying",f.altitude(),f.groundSpeed,f.surfaceVerticalSpeed(),Deg(f.heading()),f.throttle*100,f.glider.hover*100,f.glider.parkingBrake?@"set":@"released",f.fuel,v->helpVisible?@"visible":@"hidden"];
+    auto &hover=f.glider.hoverControl;
+    NSString *holdState=hover.holdActive?[NSString stringWithFormat:@"%@ %.1f",hover.holdMode==1?@"altitude hold":@"vertical speed hold",hover.holdMode==1?hover.altitudeTarget:hover.verticalSpeedTarget]:@"off";
+    if(f.altitude()<120000) return [NSString stringWithFormat:@"%@, altitude %.1f metres, ground speed %.2f metres per second, vertical speed %+.1f, heading %.1f degrees, main throttle %.0f percent, hover %.0f percent, parking brake %@, fuel %.1f kg, hold %@, controls %@",
+        f.paused?@"Paused":f.groundContact?@"On the ground":@"Flying",f.altitude(),f.groundSpeed,f.surfaceVerticalSpeed(),Deg(f.heading()),f.throttle*100,f.glider.hover*100,f.glider.parkingBrake?@"set":@"released",f.fuel,holdState,v->helpVisible?@"visible":@"hidden"];
     return [NSString stringWithFormat:@"%@, altitude %.2f km, speed %.2f m/s, throttle %.0f percent, fuel %.1f kg, time acceleration %.0f, controls %@",
         v->flight.paused?@"Paused":v->flight.groundContact?@"On the ground":@"Flying",v->flight.altitude()/1000,v->flight.altitude()<120000?v->flight.groundSpeed:v->flight.velocity.length(),v->flight.throttle*100,v->flight.fuel,v->flight.warp,v->helpVisible?@"visible":@"hidden"];
 }
@@ -155,12 +165,16 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     CGFloat rx=w-278;
     [panel setFill]; NSRectFill(NSMakeRect(rx,bottom,pw,ph));
     text([NSString stringWithFormat:@"ENGINES  M %.0f / H %.0f / R %.0f %%",f.throttle*100,f.glider.hover*100,f.glider.retro*100],rx+14,bottom+ph-27,10,ink);
-    text([NSString stringWithFormat:@"Main engine       %3.0f %%",f.throttle*100],rx+14,bottom+ph-53,12,white,YES);
-    [ink setFill]; NSRectFill(NSMakeRect(rx+14,bottom+ph-68,224*f.throttle,3));
+    bool hoverPrimary=f.glider.hover>f.throttle;
+    double engineLevel=hoverPrimary?f.glider.hover:f.throttle;
+    text([NSString stringWithFormat:@"%@       %3.0f %%",hoverPrimary?@"Hover engines":@"Main engines ",engineLevel*100],rx+14,bottom+ph-53,12,white,YES);
+    [ink setFill]; NSRectFill(NSMakeRect(rx+14,bottom+ph-68,224*engineLevel,3));
     text([NSString stringWithFormat:@"Fuel             %6.0f kg",f.fuel],rx+14,bottom+ph-96,12,white,YES);
     text([NSString stringWithFormat:@"RCS              %6.0f kg",f.rcs],rx+14,bottom+ph-117,12,white,YES);
     text([NSString stringWithFormat:@"Load             %6.2f g",f.acceleration/9.80665],rx+14,bottom+ph-138,12,muted,YES);
-    text(f.groundContact?[NSString stringWithFormat:@"%d WHEELS · %@",f.wheelContacts,f.glider.parkingBrake?@"PARK BRAKE":@"BRAKES RELEASED"]:mode,rx+14,bottom+15,12,ink);
+    auto &hover=f.glider.hoverControl;
+    NSString *holdStatus=hover.holdActive?[NSString stringWithFormat:@"%@ %+.1f %@",hover.holdMode==1?@"ALT HOLD":@"VS HOLD",hover.holdMode==1?hover.altitudeTarget:hover.verticalSpeedTarget,hover.holdMode==1?@"m":@"m/s"]:nil;
+    text(holdStatus?holdStatus:f.groundContact?[NSString stringWithFormat:@"%d WHEELS · %@",f.wheelContacts,f.glider.parkingBrake?@"PARK BRAKE":@"BRAKES RELEASED"]:mode,rx+14,bottom+15,12,ink);
     if(v->orbitVisible&&w>950&&surface) {
         CGFloat ox=w*.5,oy=bottom+87,r=64;
         [panel setFill];NSRectFill(NSMakeRect(ox-120,bottom,240,ph));
@@ -195,10 +209,10 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     }
     text(@"+ / − Throttle    X Cut engines    M Glider systems    V Cockpit    Space Pause    F1 Controls",26,12,11,muted);
     if(v->helpVisible) {
-        CGFloat bw=600,bh=470,x=(w-bw)/2,y=(h-bh)/2;
+        CGFloat bw=600,bh=510,x=(w-bw)/2,y=(h-bh)/2;
         [panel setFill]; NSRectFill(NSMakeRect(x,y,bw,bh));
         text(@"Flight controls",x+24,y+bh-44,23,white);
-        NSArray<NSString *> *rows=@[@"+ / −      Increase / decrease main throttle",@"X          Cut main, hover and retro engines",@"↑ ↓ ← →    Pitch and yaw    ·    Q / E  Roll",@"W/S A/D Z/J   RCS forward/side/vertical",@"P / O      Prograde / retrograde assist",@"K / N      Kill rotation / manual control",@"T / Y      Increase / decrease time acceleration",@"[ / ]      Decrease / increase hover throttle",@", / .      Hold left / right wheel brake",@"Shift-W    Toggle parking brake",@"M / V      Glider systems / virtual cockpit",@"G C F B    Gear / nose / radiator / airbrake",@"H L U I    Hatch / ladder / retro covers / airlock",@"Drag       Orbit camera    ·    Scroll  Zoom",@"Space      Pause    ·    R  Restart    ·    F2  Diagram",@"⌘O / ⌘S    Open / save scenario    ·    F1  Close help"];
+        NSArray<NSString *> *rows=@[@"+ / −      Increase / decrease main throttle",@"X          Cut main, hover and retro engines",@"↑ ↓ ← →    Pitch and yaw    ·    Q / E  Roll",@"W/S A/D Z/J   RCS forward/side/vertical",@"P / O      Prograde / retrograde assist",@"K / N      Kill rotation / manual control",@"T / Y      Increase / decrease time acceleration",@"[ / ]      Decrease / increase hover throttle",@", / .      Hold left / right wheel brake",@"Shift-W    Toggle parking brake",@"F5/F6/F7   Hover attitude / hold altitude / zero climb",@"M / V      Glider systems / virtual cockpit",@"G C F B    Gear / nose / radiator / airbrake",@"H L U I    Hatch / ladder / retro covers / airlock",@"Drag       Orbit camera    ·    Scroll  Zoom",@"Space      Pause    ·    R  Restart    ·    F2  Diagram",@"⌘O / ⌘S    Open / save scenario    ·    F1  Close help"];
         for(NSUInteger i=0;i<rows.count;++i) text(rows[i],x+24,y+bh-81-i*23,13,ink,YES);
     }
 }
@@ -252,6 +266,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
             [tex replaceRegion:MTLRegionMake2D(0,0,image.width,image.height) mipmapLevel:0 withBytes:image.rgba.data() bytesPerRow:image.width*4];
             id<MTLCommandBuffer> cb=[queue commandBuffer]; id<MTLBlitCommandEncoder> blit=[cb blitCommandEncoder]; [blit generateMipmapsForTexture:tex]; [blit endEncoding]; [cb commit];
             [textures addObject:tex];
+            if(meshIndex==1&&name=="DG/blittgt1.dds"){hoverReadoutTexture=tex;hoverReadoutImage=image;}
         }
         for(size_t i=0;i<mesh.groups.size();++i) {
             const auto &g=mesh.groups[i]; GpuGroup group;
@@ -262,6 +277,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         }
     }
     MTKTextureLoader *loader=[[MTKTextureLoader alloc] initWithDevice:device];
+    hoverGlyphs=loadDDS(resource(@"Textures/DG/blitsrc1.dds").fileSystemRepresentation);
     earthTexture=[loader newTextureWithContentsOfURL:[NSURL fileURLWithPath:resource(@"earth.png")] options:@{MTKTextureLoaderOptionSRGB:@YES,MTKTextureLoaderOptionGenerateMipmaps:@YES,MTKTextureLoaderOptionOrigin:MTKTextureLoaderOriginTopLeft} error:&error];
     if(!earthTexture) @throw [NSException exceptionWithName:@"Earth texture error" reason:error.localizedDescription userInfo:nil];
     for(auto &tex:instrumentTextures) {
@@ -269,11 +285,13 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         tex=[device newTextureWithDescriptor:desc];
     }
     [self resetFlight:nil];
+    bool warmHover=false;
     NSArray<NSString *> *args=NSProcessInfo.processInfo.arguments;
     for(NSUInteger i=1;i<args.count;++i) {
         if([args[i] isEqual:@"--frames"]&&i+1<args.count) smokeFrames=[args[++i] integerValue];
         else if([args[i] isEqual:@"--capture"]&&i+1<args.count) capturePath=args[++i];
-        else if([args[i] isEqual:@"--surface"]) [self startSurface:nil];
+        else if([args[i] isEqual:@"--surface"]) {[self startSurface:nil];warmHover=false;}
+        else if([args[i] isEqual:@"--hover-demo"]) {[self startHoverPractice:nil];warmHover=true;}
         else if([args[i] isEqual:@"--cockpit"]) cockpit=true;
         else if([args[i] isEqual:@"--glider-demo"]) {
             for(Part p:{Part::Gear,Part::Nose,Part::Radiator,Part::RetroCover,Part::Airbrake}) { flight.glider.part(p).position=1;flight.glider.part(p).target=1; }
@@ -281,12 +299,13 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         }
         else if([args[i] isEqual:@"--prograde"]) { flight.assist=Assist::Prograde; flight.align(flight.velocity); }
         else if([args[i] isEqual:@"--report"]&&i+1<args.count) reportPath=args[++i];
-        else if([args[i] isEqual:@"--scenario"]&&i+1<args.count) { restartScenario=args[++i]; [self resetFlight:nil]; }
+        else if([args[i] isEqual:@"--scenario"]&&i+1<args.count) { restartScenario=args[++i]; [self resetFlight:nil];warmHover=false; }
     }
+    if(warmHover)for(int i=0;i<6000;++i)flight.advance(.01);
     [self updateCockpitDisplays];previous=begin=CACurrentMediaTime(); return self;
 }
 - (BOOL)acceptsFirstResponder { return YES; }
-- (void)clearInput { held.fill(false); }
+- (void)clearInput { held.fill(false);activeCockpitControl=-1;activeCockpitDirection=0; }
 - (void)viewDidMoveToWindow { [super viewDidMoveToWindow]; [self.window makeFirstResponder:self]; }
 - (void)mtkView:(MTKView *)view drawableSizeWillChange:(CGSize)size {}
 - (void)drawInMTKView:(MTKView *)view {
@@ -297,8 +316,8 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     input.roll=(held[12]?1.:0)-(held[14]?1.:0); input.translate=(held[13]?1.:0)-(held[1]?1.:0);
     input.lateral=(held[2]?1.:0)-(held[0]?1.:0); input.vertical=(held[6]?1.:0)-(held[38]?1.:0);
     input.leftBrake=held[43]?1:0;input.rightBrake=held[47]?1:0;
-    if(held[30]) flight.glider.hover=std::min(1.,flight.glider.hover+dt*.35);
-    if(held[33]) flight.glider.hover=std::max(0.,flight.glider.hover-dt*.35);
+    if(held[30]) flight.setHoverThrottle(flight.glider.hover+dt*.35);
+    if(held[33]) flight.setHoverThrottle(flight.glider.hover-dt*.35);
     if(held[24]||held[69]) flight.throttle=std::min(1.,flight.throttle+dt*.4);
     if(held[27]||held[78]) flight.throttle=std::max(0.,flight.throttle-dt*.4);
     if(input.pitch||input.yaw||input.roll) flight.assist=Assist::Free;
@@ -343,7 +362,16 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
                 bool values[]={g.valves[0],g.valves[1],g.valves[2],g.valves[3],g.valves[4],g.coolantPump,g.navLights,g.beacons,g.strobes,g.landingLight,g.instrumentLights};
                 enabled=values[sw.action-10];
             }
-            switchData.push_back({f4(sw.pivot,(enabled?1:-1)*28*RAD),f4(sw.axis,(float)sw.first),simd_make_float4((float)sw.count,(float)sw.group,0,0)});
+            auto &hover=g.hoverControl;double amount=(enabled?1:-1)*28*RAD;bool lit=false;
+            if(sw.action==40)amount=(1-hover.attitudeMode)*50*RAD;
+            else if(sw.action>=41&&sw.action<=43)amount=activeCockpitControl==sw.action?activeCockpitDirection*15*RAD:0;
+            else if(sw.action==45)amount=activeCockpitControl==45?.004:0;
+            else if(sw.action>=46&&sw.action<=48) {
+                lit=sw.action==46?hover.holdActive:hover.holdMode==sw.action-46;
+                bool pressed=activeCockpitControl==sw.action||(activeCockpitControl==44&&sw.action==47+(activeCockpitDirection>0));
+                amount=pressed?.0065:lit?.005:0;
+            }
+            switchData.push_back({f4(sw.pivot,amount),f4(sw.axis,(float)sw.first),simd_make_float4((float)sw.count,(float)sw.group,(float)sw.motion,lit?1.f:0.f)});
         }
         [encoder setVertexBytes:switchData.data() length:switchData.size()*sizeof(SwitchUniforms) atIndex:3];
         simd_float4x4 vesselModel=object.model;
@@ -409,8 +437,8 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         plume({-1,0,-7.7},{0,0,-1},dg.mainLevel*std::clamp(1-dg.mainBalance,0.,1.),12, .7);
         plume({1,0,-7.7},{0,0,-1},dg.mainLevel*std::clamp(1+dg.mainBalance,0.,1.),12, .7);
         for(double x:{-3.,3.}) plume({x,-.236,5.6},{0,-.04210548,.99911317},dg.retroLevel,3,.3);
-        plume({0,-1.5,3},{0,-1,0},dg.hoverLevel,6,.4);
-        for(double x:{-3.,3.}) plume({x,-1.3,-4.55},{0,-1,0},dg.hoverLevel,6,.4);
+        plume({0,-1.5,3},{0,-1,0},dg.hoverControl.levels[0],6,.4);
+        for(int i=0;i<2;++i) plume({i?3.:-3.,-1.3,-4.55},{0,-1,0},dg.hoverControl.levels[i+1],6,.4);
         Vector rot=dg.rcsRotation,tr=dg.rcsTranslation;
         for(int sign:{-1,1}) {
             double p=std::max(0.,sign*rot.x),y=std::max(0.,sign*rot.y),r=std::max(0.,sign*rot.z);
@@ -480,6 +508,9 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         @"meanCPUEncodeMs":@(cpuSum/frameCount),@"lastGPUFrameMs":@(gpuMs),@"scenarioElapsed":@(flight.elapsed),
         @"altitudeMeters":@(flight.altitude()),@"meshGroups":@(groups.size()),
         @"groundSpeed":@(flight.groundSpeed),@"wheelContacts":@(flight.wheelContacts),@"parkingBrake":@(flight.glider.parkingBrake),@"impacted":@(flight.impacted),
+        @"hoverHoldActive":@(flight.glider.hoverControl.holdActive),@"hoverHoldMode":@(flight.glider.hoverControl.holdMode),
+        @"hoverAltitudeTarget":@(flight.glider.hoverControl.altitudeTarget),@"verticalSpeed":@(flight.surfaceVerticalSpeed()),@"pitchDegrees":@(Deg(flight.pitch())),@"bankDegrees":@(Deg(flight.bank())),
+        @"hoverFront":@(flight.glider.hoverControl.levels[0]),@"hoverLeft":@(flight.glider.hoverControl.levels[1]),@"hoverRight":@(flight.glider.hoverControl.levels[2]),
         @"surfacePads":@(surfaceBase.pads),@"surfaceBuildings":@(surfaceBase.buildings),@"surfaceRunways":@(surfaceBase.runways)};
     [[NSJSONSerialization dataWithJSONObject:report options:NSJSONWritingPrettyPrinted error:nil] writeToFile:reportPath atomically:YES];
 }
@@ -500,6 +531,16 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
             orbit.e<1?[NSString stringWithFormat:@"ApA   %.1f km",(orbit.ApDist()-EarthRadius)/1000]:@"ApA   ESCAPE",
             [NSString stringWithFormat:@"PeA   %.1f km",(orbit.PeDist()-EarthRadius)/1000],
             [NSString stringWithFormat:@"ECC   %.5f",orbit.e],[NSString stringWithFormat:@"VS    %+.1f m/s",flight.radialSpeed()]];
+        else if(flight.glider.hoverControl.attitudeMode||flight.glider.hoverControl.holdActive) {
+            auto &hover=flight.glider.hoverControl;
+            rows=@[hover.holdActive?(hover.holdMode==1?@"HOVER / ALT HOLD":@"HOVER / VS HOLD"):@"HOVER / HOLD OFF",
+                [NSString stringWithFormat:@"TGT %.1f %@",hover.holdMode==2?hover.verticalSpeedTarget:hover.altitudeTarget,hover.holdMode==2?@"m/s":@"m"],
+                [NSString stringWithFormat:@"VS  %+.2f m/s",flight.surfaceVerticalSpeed()],
+                [NSString stringWithFormat:@"P %+.1f  B %+.1f deg",Deg(flight.pitch()),Deg(flight.bank())],
+                [NSString stringWithFormat:@"FRONT %.0f %%",hover.levels[0]*100],
+                [NSString stringWithFormat:@"L %.0f %%  R %.0f %%",hover.levels[1]*100,hover.levels[2]*100],
+                [NSString stringWithFormat:@"FUEL %.0f kg",flight.fuel],hover.attitudeLimited?@"ATTITUDE LIMIT":hover.thrustLimited?@"THRUST LIMIT":@"M: HOVER CONTROLS"];
+        }
         else rows=@[@"GLIDER SYSTEMS",[NSString stringWithFormat:@"MAIN  %.0f %%",flight.throttle*100],
             [NSString stringWithFormat:@"HOVR  %.0f %%",flight.glider.hover*100],[NSString stringWithFormat:@"RETR  %.0f %%",flight.glider.retro*100],
             [NSString stringWithFormat:@"FUEL  %.0f kg",flight.fuel],[NSString stringWithFormat:@"RCS   %.0f kg",flight.rcs],
@@ -510,6 +551,13 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         id<MTLCommandBuffer> cb=[queue commandBuffer];id<MTLBlitCommandEncoder> blit=[cb blitCommandEncoder];
         [blit copyFromBuffer:upload sourceOffset:0 sourceBytesPerRow:2048 sourceBytesPerImage:512*2048 sourceSize:MTLSizeMake(512,512,1) toTexture:instrumentTextures[display] destinationSlice:0 destinationLevel:0 destinationOrigin:MTLOriginMake(0,0,0)];
         [blit endEncoding];[cb commit];
+    }
+    if(hoverReadoutTexture&&paintHoverReadout(hoverReadoutImage,hoverGlyphs,flight.glider.hoverControl)) {
+        auto &image=hoverReadoutImage;
+        id<MTLBuffer> upload=[self.device newBufferWithBytes:image.rgba.data() length:image.rgba.size() options:MTLResourceStorageModeShared];
+        id<MTLCommandBuffer> cb=[queue commandBuffer];id<MTLBlitCommandEncoder> blit=[cb blitCommandEncoder];
+        [blit copyFromBuffer:upload sourceOffset:0 sourceBytesPerRow:image.width*4 sourceBytesPerImage:image.rgba.size() sourceSize:MTLSizeMake(image.width,image.height,1) toTexture:hoverReadoutTexture destinationSlice:0 destinationLevel:0 destinationOrigin:MTLOriginMake(0,0,0)];
+        [blit generateMipmapsForTexture:hoverReadoutTexture];[blit endEncoding];[cb commit];
     }
 }
 - (void)resetFlight:(id)sender {
@@ -523,6 +571,29 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     yaw=-.55;pitch=.22;distance=43;cockpit=false;
 }
 - (void)startOrbit:(id)sender {restartScenario=resource(@"Scenarios/DG Mk4 in orbit.scn");[self resetFlight:nil];}
+- (void)startHoverPractice:(id)sender {
+    restartScenario=resource(@"Scenarios/Cape Canaveral hover.scn");[self resetFlight:nil];
+    yaw=-.55;pitch=.22;distance=43;cockpit=false;status=@"Hover practice · climbing to 100 m · X disengages hold and cuts engines";
+}
+- (void)toggleHoverHold:(id)sender {
+    auto &h=flight.glider.hoverControl;
+    if(h.holdActive){h.holdActive=false;h.resetFeedback();status=@"Hover hold disengaged · throttle retained";}
+    else if(!flight.setHoverHold(h.holdMode==2?2:1,h.holdMode==2?h.verticalSpeedTarget:h.altitudeTarget))status=@"Hover hold requires fuel and Earth flight below 120 km";
+    else status=@"Hover hold engaged · manual hover throttle or X disengages hold";
+}
+- (void)toggleHoverAttitude:(id)sender {auto &h=flight.glider.hoverControl;h.attitudeMode=h.attitudeMode==1?0:1;status=h.attitudeMode?@"Hover auto attitude · pitch/roll keys command up to 10° tilt":@"Hover attitude control off";}
+- (void)holdCurrentAltitude:(id)sender {
+    auto &h=flight.glider.hoverControl;
+    if(h.holdActive&&h.holdMode==1){[self toggleHoverHold:nil];return;}
+    if(flight.setHoverHold(1,std::max(0.,flight.altitude())))status=@"Holding current altitude · X cuts engines";
+    else status=@"Hover hold requires fuel and Earth flight below 120 km";
+}
+- (void)holdZeroVerticalSpeed:(id)sender {
+    auto &h=flight.glider.hoverControl;
+    if(h.holdActive&&h.holdMode==2){[self toggleHoverHold:nil];return;}
+    if(flight.setHoverHold(2,0))status=@"Holding zero vertical speed · X cuts engines";
+    else status=@"Hover hold requires fuel and Earth flight below 120 km";
+}
 - (void)toggleParkingBrake:(id)sender {flight.glider.parkingBrake=!flight.glider.parkingBrake;self.hud.needsDisplay=YES;}
 - (void)demonstrateGlider:(id)sender {
     [self startOrbit:nil];cockpit=false;flight.align(flight.velocity);flight.assist=Assist::Prograde;flight.warp=10;
@@ -555,7 +626,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     if(event.isARepeat) return;
     switch(code) {
         case 49:[self pauseFlight:nil];break;
-        case 7:flight.throttle=0;flight.glider.hover=flight.glider.retro=0;break; // X
+        case 7:flight.cutEngines();break; // X
         case 15:[self resetFlight:nil];break;
         case 35:flight.assist=Assist::Prograde;break;
         case 31:flight.assist=Assist::Retrograde;break;
@@ -573,6 +644,9 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         case 37:if(!flight.glider.toggle(Part::Ladder)) status=@"Open the nose cone fully before extending the ladder";break;
         case 34:flight.glider.toggle(event.modifierFlags&NSEventModifierFlagShift?Part::InnerLock:Part::OuterLock);break;
         case 32:flight.glider.toggle(Part::RetroCover);break;
+        case 96:[self toggleHoverAttitude:nil];break;
+        case 97:[self holdCurrentAltitude:nil];break;
+        case 98:[self holdZeroVerticalSpeed:nil];break;
         case 122:[self toggleHelp:nil];break;
         case 120:orbitVisible=!orbitVisible;break;
     }
@@ -595,17 +669,37 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     } else if(hit.action==30) g.rcsMode=(g.rcsMode+1)%3;
     else if(hit.action==31) g.trim=std::clamp(g.trim+(hit.v>.5?.1:-.1),-1.,1.);
     else if(hit.action==32) g.gimbalPitch=std::clamp(g.gimbalPitch+(hit.v>.5?.1:-.1),-1.,1.);
-    else if(hit.action==33) g.gimbalYaw=std::clamp(g.gimbalYaw+(hit.u>.5?.1:-.1),-1.,1.);
+    else if(hit.action==33) g.gimbalYaw=std::clamp(g.gimbalYaw+(hit.v>.5?.1:-.1),-1.,1.);
     else if(hit.action==34) {flight.throttle=std::clamp(1-hit.v,0.,1.);activeCockpitControl=34;}
-    else if(hit.action==35) {g.hover=std::clamp(hit.v,0.,1.);activeCockpitControl=35;}
+    else if(hit.action==35) {flight.setHoverThrottle(std::clamp(hit.v,0.,1.));activeCockpitControl=35;}
+    else if(hit.action==40) {g.hoverControl.attitudeMode=std::clamp(g.hoverControl.attitudeMode+(hit.u>.5?1:-1),0,2);}
+    else if(hit.action>=41&&hit.action<=43) {
+        activeCockpitControl=hit.action;activeCockpitDirection=hit.v>.5?1:-1;auto &h=g.hoverControl;
+        if(hit.action==43) {if(h.holdMode==2)h.verticalSpeedTarget=std::clamp(h.verticalSpeedTarget+activeCockpitDirection*.1,-20.,20.);else h.altitudeTarget=std::clamp(h.altitudeTarget+activeCockpitDirection*.5,0.,120000.);}
+        else if(h.attitudeMode==2) {double &target=hit.action==41?h.pitchTarget:h.bankTarget;target=std::clamp(target+activeCockpitDirection*RAD,-10*RAD,10*RAD);}
+    }
+    else if(hit.action==44) {
+        auto &h=g.hoverControl;int mode=hit.u>.5?2:1;activeCockpitControl=44;activeCockpitDirection=hit.u>.5?1:-1;
+        if(h.holdActive&&mode!=h.holdMode)flight.setHoverHold(mode,mode==1?std::max(0.,flight.altitude()):std::clamp(flight.surfaceVerticalSpeed(),-20.,20.));else h.holdMode=mode;
+    }
+    else if(hit.action==45) {activeCockpitControl=45;auto &h=g.hoverControl;if(h.holdMode==2)h.verticalSpeedTarget=0;else h.altitudeTarget=std::clamp(flight.altitude(),0.,120000.);}
+    else if(hit.action==46) {activeCockpitControl=46;[self toggleHoverHold:nil];}
     status=@"Cockpit control operated · M opens the complete systems panel";
 }
 - (void)mouseUp:(NSEvent *)event { activeCockpitControl=-1; }
 - (void)mouseDragged:(NSEvent *)event {
     if(smokeFrames) return;
-    if(activeCockpitControl>=34) {
+    if(activeCockpitControl==34||activeCockpitControl==35) {
         double &level=activeCockpitControl==34?flight.throttle:flight.glider.hover;
-        level=std::clamp(level-event.deltaY*.01,0.,1.);return;
+        double value=std::clamp(level-event.deltaY*.01,0.,1.);
+        if(activeCockpitControl==35)flight.setHoverThrottle(value);else level=value;return;
+    }
+    if(activeCockpitControl>=40) {
+        auto &h=flight.glider.hoverControl;
+        if(activeCockpitControl==41&&h.attitudeMode==2)h.pitchTarget=std::clamp(h.pitchTarget-event.deltaY*.2*RAD,-10*RAD,10*RAD);
+        if(activeCockpitControl==42&&h.attitudeMode==2)h.bankTarget=std::clamp(h.bankTarget+event.deltaX*.2*RAD,-10*RAD,10*RAD);
+        if(activeCockpitControl==43) {if(h.holdMode==2)h.verticalSpeedTarget=std::clamp(h.verticalSpeedTarget+event.deltaX*.1,-20.,20.);else h.altitudeTarget=std::clamp(h.altitudeTarget+event.deltaX,0.,120000.);}
+        return;
     }
     if(cockpit) { cockpitYaw=std::clamp(cockpitYaw+event.deltaX*.006,-2.5,2.5); cockpitPitch=std::clamp(cockpitPitch-event.deltaY*.006,-1.1,1.1); }
     else { yaw+=event.deltaX*.009; pitch=std::clamp(pitch+event.deltaY*.009,-1.35,1.35); }
@@ -638,6 +732,10 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         NSMenuItem *pause=[fm addItemWithTitle:@"Pause / Resume" action:@selector(pauseFlight:) keyEquivalent:@""]; pause.target=self.view;
         NSMenuItem *systems=[fm addItemWithTitle:@"Glider Systems…" action:@selector(showSystems:) keyEquivalent:@""]; systems.target=self.view;
         NSMenuItem *surface=[fm addItemWithTitle:@"Cape Canaveral — Surface Flight" action:@selector(startSurface:) keyEquivalent:@""];surface.target=self.view;
+        NSMenuItem *practice=[fm addItemWithTitle:@"Cape Canaveral — Hover Practice" action:@selector(startHoverPractice:) keyEquivalent:@""];practice.target=self.view;
+        NSMenuItem *hoverAtt=[fm addItemWithTitle:@"Toggle Hover Auto Attitude (F5)" action:@selector(toggleHoverAttitude:) keyEquivalent:@""];hoverAtt.target=self.view;
+        NSMenuItem *holdAlt=[fm addItemWithTitle:@"Hold Current Altitude (F6)" action:@selector(holdCurrentAltitude:) keyEquivalent:@""];holdAlt.target=self.view;
+        NSMenuItem *holdVS=[fm addItemWithTitle:@"Hold Zero Vertical Speed (F7)" action:@selector(holdZeroVerticalSpeed:) keyEquivalent:@""];holdVS.target=self.view;
         NSMenuItem *orbit=[fm addItemWithTitle:@"Earth Orbit" action:@selector(startOrbit:) keyEquivalent:@""];orbit.target=self.view;
         NSMenuItem *park=[fm addItemWithTitle:@"Toggle Parking Brake" action:@selector(toggleParkingBrake:) keyEquivalent:@""];park.target=self.view;
         NSMenuItem *demo=[fm addItemWithTitle:@"Mechanism Demonstration" action:@selector(demonstrateGlider:) keyEquivalent:@""];demo.target=self.view;

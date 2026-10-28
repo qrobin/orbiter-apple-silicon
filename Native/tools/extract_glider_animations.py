@@ -65,7 +65,7 @@ print(f'Extracted {count} animation components from original source.')
 # Cockpit click quadrilaterals, in the original vessel coordinate frame.
 zone_map={'VC_GEARLEVER':0,'VC_NCONELEVER':1,'VC_ELADDER_SWITCH':2,'VC_OLOCK_SWITCH':3,'VC_ILOCK_SWITCH':4,'VC_HATCH_SWITCH':5,'VC_RADIATOR_SWITCH':6,'VC_RCOVER_SWITCH':7,'VC_AIRBRAKELEVER':8,
 'VC_CABIN_O2_SWITCH':10,'VC_VALVE1_SWITCH':11,'VC_VALVE2_SWITCH':12,'VC_VALVE3_SWITCH':13,'VC_LOCK_O2_SWITCH':14,'VC_PUMP_SWITCH':15,'VC_NAVLIGHT_SWITCH':16,'VC_STROBELIGHT_SWITCH':18,'VC_LANDINGLIGHT_SWITCH':19,'VC_INSTRLIGHT_SWITCH':20,
-'VC_RCS_DIAL':30,'VC_ETRIMWHEEL':31,'VC_GIMBAL_PSWITCH':32,'VC_GIMBAL_YSWITCH':33}
+'VC_HOVER_DIAL':40,'VC_HOVER_PSWITCH':41,'VC_HOVER_RSWITCH':42,'VC_HOVER_HOLDALT_SWITCH':43,'VC_HOVERMODE_BUTTONS':44,'VC_RCS_DIAL':30,'VC_ETRIMWHEEL':31,'VC_GIMBAL_PSWITCH':32,'VC_GIMBAL_YSWITCH':33}
 zones=['// Original cockpit click areas. Copyright (c) Martin Schweiger. MIT License.']
 for name,data in re.findall(r'const VECTOR3 (VC_\w+)_mousearea\[4\]\s*=\s*\{(.*?)\};',(dg/'dg_vc_anim.h').read_text(),re.S):
     if name not in zone_map:continue
@@ -90,3 +90,29 @@ for filename in ['DockingSubsys.cpp','PressureSubsys.cpp','ThermalSubsys.cpp','M
         switches.append('{'+f'{zone_map[prefix]},{int(symbols[group])},{offsets[prefix]},33,{pv},{av}'+'}, // '+prefix)
 (root/'Native/CockpitSwitches.inc').write_text('\n'.join(switches)+'\n')
 print(f'Extracted {len(switches)-1} mechanical cockpit switches.')
+
+# Original spherical hover buttons and additional mechanical vertex ranges.
+spheres=['// Original spherical hover buttons. Copyright (c) Martin Schweiger. MIT License.']
+for prefix,action in [('VC_BTN_HOVER_HOLDALT',46),('VC_BTN_HOVER_HOLDALT_CUR',45)]:
+    radius=re.search(r'const double '+prefix+r'_mouserad\s*=\s*([\d.]+)',header).group(1)
+    center=','.join(str(num(n)) for n in vectors[prefix+'_ref'])
+    spheres.append('{'+str(action)+',Vector('+center+'),'+radius+'}, // '+prefix)
+(root/'Native/CockpitSpheres.inc').write_text('\n'.join(spheres)+'\n')
+for prefix,action,group,count,motion in [
+    ('VC_HOVER_DIAL',40,'GRP_DIAL1_VC',76,0),
+    ('VC_HOVER_PSWITCH',41,'GRP_SWITCH2_VC',28,0),
+    ('VC_HOVER_RSWITCH',42,'GRP_SWITCH2_VC',28,0),
+    ('VC_HOVER_HOLDALT_SWITCH',43,'GRP_SWITCH2_VC',28,0),
+    ('VC_BTN_HOVER_HOLDALT_CUR',45,'GRP_BUTTON2_VC',20,1),
+    ('VC_BTN_HOVER_HOLDALT',46,'GRP_BUTTON3_VC',20,1),
+    ('VC_BTN_HOVERMODE_1',47,'GRP_BUTTON3_VC',20,1),
+    ('VC_BTN_HOVERMODE_2',48,'GRP_BUTTON3_VC',20,1),
+    ('VC_BTN_HOVER_HOLDALT',46,'GRP_LIT_SURF_VC',8,2),
+    ('VC_BTN_HOVERMODE_1',47,'GRP_LIT_SURF_VC',8,2),
+    ('VC_BTN_HOVERMODE_2',48,'GRP_LIT_SURF_VC',8,2)]:
+    first=offsets[prefix+('_LABEL' if motion==2 else '')]
+    pivot='{'+','.join(str(num(n)) for n in vectors[prefix+'_ref'])+'}'
+    axis='{'+','.join(str(num(n)) for n in vectors[prefix+'_axis'])+'}'
+    switches.append('{'+f'{action},{int(symbols[group])},{first},{count},{pivot},{axis},{motion}'+'}, // '+prefix)
+(root/'Native/CockpitSwitches.inc').write_text('\n'.join(switches)+'\n')
+print(f'Extracted {len(switches)-1} cockpit motion components and {len(spheres)-1} spherical click areas.')

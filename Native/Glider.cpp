@@ -63,6 +63,8 @@ std::string Glider::warning() const {
     if(part(Part::OuterLock).position>.01&&part(Part::InnerLock).position>.01) return "BOTH AIRLOCK DOORS OPEN — cabin venting";
     if(retro>.01&&!part(Part::RetroCover).open()) return "RETRO INHIBITED — open retro covers";
     if(coolantTemperature>330) return "COOLANT HOT — deploy radiator and enable coolant pump";
+    if(hoverControl.attitudeLimited) return "HOVER ATTITUDE LIMIT — correct pitch/bank within 30 degrees";
+    if(hoverControl.thrustLimited) return "HOVER THRUST LIMIT — target may be unreachable at this mass";
     return {};
 }
 double Glider::channel(Channel c) const {
@@ -107,6 +109,7 @@ std::vector<RigidTransform> Glider::transforms(size_t groupCount,int mesh) const
     return transforms;
 }
 bool Glider::parse(const std::string &line) {
+    if(hoverControl.parse(line))return true;
     std::istringstream s(line); std::string key; s>>key;
     for(size_t i=0;i<PartCount;++i) if(key==keys[i]) {
         double p=0,v=0; if(!(s>>p>>v)) throw std::runtime_error("Invalid mechanism state.");
@@ -122,6 +125,7 @@ bool Glider::parse(const std::string &line) {
     return false;
 }
 void Glider::save(std::ostream &o) const {
+    hoverControl.save(o);
     for(size_t i=0;i<PartCount;++i) {
         auto &a=parts[i]; double speed=a.moving()?copysign(a.rate,a.target-a.position):0;
         o<<"  "<<keys[i]<<' '<<a.position<<' '<<speed<<'\n';
@@ -135,6 +139,7 @@ void Glider::save(std::ostream &o) const {
      <<"\n  DGLIGHTS "<<navLights<<' '<<beacons<<' '<<strobes<<' '<<landingLight<<' '<<instrumentLights<<'\n';
 }
 bool Glider::valid() const {
+    if(!hoverControl.valid())return false;
     for(const auto &a:parts) if(!std::isfinite(a.position)||!std::isfinite(a.target)||a.position<0||a.position>1||a.target<0||a.target>1) return false;
     for(double n:{hover,retro,mainBalance,gimbalPitch,gimbalYaw,hoverBalance,trim,cabinPressure,lockPressure,coolantTemperature,cabinTemperature}) if(!std::isfinite(n)) return false;
     return hover>=0&&hover<=1&&retro>=0&&retro<=1&&fabs(mainBalance)<=1&&fabs(gimbalPitch)<=1&&fabs(gimbalYaw)<=1&&fabs(hoverBalance)<=1&&fabs(trim)<=1&&rcsMode>=0&&rcsMode<=2&&cabinPressure>=0&&cabinPressure<=400000&&lockPressure>=0&&lockPressure<=400000&&coolantTemperature>=100&&coolantTemperature<=1000&&cabinTemperature>=100&&cabinTemperature<=1000;

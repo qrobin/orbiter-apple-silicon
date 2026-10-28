@@ -10,7 +10,12 @@
     NSMutableArray<NSTextField *> *mechanismValues,*engineValues;
     NSMutableArray<NSSlider *> *engineSliders;
     NSTextField *summary,*pressure,*thermal,*warning;
-    NSButton *parkingBrake;
+    NSButton *parkingBrake,*holdButton;
+    NSSegmentedControl *hoverAttitude,*holdMode;
+    NSSlider *hoverPitch,*hoverBank;
+    NSTextField *hoverPitchLabel,*hoverBankLabel,*holdTarget,*holdTargetLabel,*hoverReadout;
+    NSButton *captureHoldTarget;
+    NSNumberFormatter *holdFormatter;
     NSSegmentedControl *rcsSelector;
     NSTimer *refreshTimer;
 }
@@ -26,7 +31,7 @@
     panel.releasedWhenClosed=NO;
     NSScrollView *scroll=[[NSScrollView alloc] initWithFrame:NSMakeRect(0,0,440,690)];
     scroll.hasVerticalScroller=YES; scroll.autohidesScrollers=YES;
-    FlippedGliderDocument *doc=[[FlippedGliderDocument alloc] initWithFrame:NSMakeRect(0,0,420,1510)];
+    FlippedGliderDocument *doc=[[FlippedGliderDocument alloc] initWithFrame:NSMakeRect(0,0,420,1866)];
     scroll.documentView=doc; panel.contentView=scroll;
     mechanismButtons=[NSMutableArray new]; mechanismValues=[NSMutableArray new];
     engineSliders=[NSMutableArray new]; engineValues=[NSMutableArray new]; switches=[NSMutableArray new];
@@ -72,10 +77,30 @@
     warning=label(@"",18,1340,386,11);warning.frame=NSMakeRect(18,1340,386,58);warning.maximumNumberOfLines=3;
     warning.textColor=[NSColor colorWithRed:1 green:.72 blue:.36 alpha:1];
     label(@"Mechanisms follow simulation time. M opens this panel.",18,1402,390,11);
-    for(NSView *item in doc.subviews) if(item!=summary) {NSRect frame=item.frame;frame.origin.y+=68;item.frame=frame;}
+    for(NSView *item in doc.subviews) if(item!=summary) {NSRect frame=item.frame;frame.origin.y+=424;item.frame=frame;}
     parkingBrake=[NSButton checkboxWithTitle:@"Parking brake  (Shift-W)" target:self action:@selector(changeParkingBrake:)];
     parkingBrake.frame=NSMakeRect(18,43,384,24);[doc addSubview:parkingBrake];
     label(@"Hold , / . for left/right brakes. [ / ] changes hover thrust.",18,76,390,11);
+    section(@"Hover control",112);
+    hoverAttitude=[NSSegmentedControl segmentedControlWithLabels:@[@"Off",@"Auto attitude",@"Manual targets"] trackingMode:NSSegmentSwitchTrackingSelectOne target:self action:@selector(changeHoverAttitude:)];
+    hoverAttitude.frame=NSMakeRect(18,141,384,28);[hoverAttitude setAccessibilityLabel:@"Hover attitude mode"];[doc addSubview:hoverAttitude];
+    hoverPitchLabel=label(@"Pitch target",18,181,184);hoverBankLabel=label(@"Bank target",218,181,184);
+    hoverPitch=[NSSlider sliderWithValue:0 minValue:-10 maxValue:10 target:self action:@selector(changeHoverAngle:)];
+    hoverBank=[NSSlider sliderWithValue:0 minValue:-10 maxValue:10 target:self action:@selector(changeHoverAngle:)];hoverBank.tag=1;hoverPitch.continuous=hoverBank.continuous=YES;
+    hoverPitch.frame=NSMakeRect(18,205,180,20);hoverBank.frame=NSMakeRect(218,205,180,20);
+    [hoverPitch setAccessibilityLabel:@"Hover pitch target in degrees"];[hoverBank setAccessibilityLabel:@"Hover bank target in degrees"];
+    [doc addSubview:hoverPitch];[doc addSubview:hoverBank];
+    holdMode=[NSSegmentedControl segmentedControlWithLabels:@[@"Altitude hold",@"Vertical speed hold"] trackingMode:NSSegmentSwitchTrackingSelectOne target:self action:@selector(changeHoldMode:)];
+    holdMode.frame=NSMakeRect(18,244,384,28);[holdMode setAccessibilityLabel:@"Hover hold mode"];[doc addSubview:holdMode];
+    holdTargetLabel=label(@"Target (m)",18,284,110);
+    holdTarget=[NSTextField textFieldWithString:@"100.0"];holdTarget.frame=NSMakeRect(126,280,100,26);
+    holdFormatter=[NSNumberFormatter new];holdFormatter.numberStyle=NSNumberFormatterDecimalStyle;holdFormatter.maximumFractionDigits=1;
+    holdFormatter.minimum=@0;holdFormatter.maximum=@120000;holdTarget.formatter=holdFormatter;holdTarget.target=self;holdTarget.action=@selector(changeHoldTarget:);[doc addSubview:holdTarget];
+    captureHoldTarget=[NSButton buttonWithTitle:@"Use current altitude" target:self action:@selector(captureHoverTarget:)];
+    captureHoldTarget.frame=NSMakeRect(237,278,165,28);[doc addSubview:captureHoldTarget];
+    holdButton=[NSButton buttonWithTitle:@"Engage Altitude Hold" target:self action:@selector(toggleHoverHold:)];
+    holdButton.frame=NSMakeRect(18,322,384,30);[doc addSubview:holdButton];
+    hoverReadout=label(@"",18,365,384,11);hoverReadout.frame=NSMakeRect(18,365,384,64);hoverReadout.maximumNumberOfLines=3;
     [self refresh:nil];
     refreshTimer=[NSTimer scheduledTimerWithTimeInterval:.2 target:self selector:@selector(refresh:) userInfo:nil repeats:YES];
     [panel center]; return self;
@@ -91,6 +116,25 @@
     }
     double values[]={f.throttle,g.hover,g.retro,g.mainBalance,g.gimbalPitch,g.gimbalYaw,g.hoverBalance,g.trim};
     for(size_t i=0;i<8;++i) { engineSliders[i].doubleValue=values[i]; engineValues[i].stringValue=[NSString stringWithFormat:@"%+.0f%%",values[i]*100]; }
+    auto &h=g.hoverControl;
+    hoverAttitude.selectedSegment=h.attitudeMode;
+    hoverPitch.enabled=hoverBank.enabled=h.attitudeMode==2;
+    hoverPitch.doubleValue=Deg(h.pitchTarget);hoverBank.doubleValue=Deg(h.bankTarget);
+    hoverPitchLabel.stringValue=[NSString stringWithFormat:@"Pitch target %+.1f°",Deg(h.pitchTarget)];
+    hoverBankLabel.stringValue=[NSString stringWithFormat:@"Bank target %+.1f°",Deg(h.bankTarget)];
+    engineSliders[6].enabled=h.attitudeMode==0;
+    engineSliders[6].toolTip=@"Fore/aft balance is controlled automatically while hover attitude control is enabled.";
+    bool altitudeMode=h.holdMode!=2;holdMode.selectedSegment=altitudeMode?0:1;
+    holdTargetLabel.stringValue=altitudeMode?@"Target (m)":@"Target (m/s)";
+    holdFormatter.minimum=altitudeMode?@0:@(-20);holdFormatter.maximum=altitudeMode?@120000:@20;
+    if(!holdTarget.currentEditor)holdTarget.doubleValue=altitudeMode?h.altitudeTarget:h.verticalSpeedTarget;
+    [holdTarget setAccessibilityLabel:altitudeMode?@"Hover altitude target in metres":@"Hover vertical speed target in metres per second"];
+    captureHoldTarget.title=altitudeMode?@"Use current altitude":@"Set zero climb";
+    holdButton.title=[NSString stringWithFormat:@"%@ %@ Hold",h.holdActive?@"Disengage":@"Engage",altitudeMode?@"Altitude":@"Vertical Speed"];
+    holdButton.enabled=h.holdActive||(f.altitude()<120000&&f.fuel>0&&!f.impacted);
+    holdButton.toolTip=@"Requires main propellant and Earth flight below 120 km. Manual hover throttle or Cut Engines disengages hold.";
+    hoverReadout.stringValue=[NSString stringWithFormat:@"Pitch %+.1f°  Bank %+.1f°  Vertical %+.2f m/s\nEngines F %.0f%%  L %.0f%%  R %.0f%%\n%@",Deg(f.pitch()),Deg(f.bank()),f.surfaceVerticalSpeed(),h.levels[0]*100,h.levels[1]*100,h.levels[2]*100,h.attitudeLimited?@"Attitude outside 30° control range":h.thrustLimited?@"Thrust at limit — target may be unreachable":h.holdActive?@"Hold engaged · X cuts engines":@"Hold off · manual hover throttle"];
+    hoverReadout.textColor=(h.attitudeLimited||h.thrustLimited)?[NSColor colorWithRed:1 green:.72 blue:.36 alpha:1]:NSColor.labelColor;
     rcsSelector.selectedSegment=g.rcsMode;
     pressure.stringValue=[NSString stringWithFormat:@"Cabin %.1f kPa    Airlock %.1f kPa",g.cabinPressure/1000,g.lockPressure/1000];
     thermal.stringValue=[NSString stringWithFormat:@"Coolant %.1f K    Cabin %.1f K",g.coolantTemperature,g.cabinTemperature];
@@ -105,8 +149,30 @@
 - (void)changeEngine:(NSSlider *)sender {
     auto &f=flightView->flight; auto &g=f.glider;
     double *values[]={&f.throttle,&g.hover,&g.retro,&g.mainBalance,&g.gimbalPitch,&g.gimbalYaw,&g.hoverBalance,&g.trim};
-    *values[sender.tag]=sender.doubleValue; [self refresh:nil];
+    if(sender.tag==1)f.setHoverThrottle(sender.doubleValue);else *values[sender.tag]=sender.doubleValue; [self refresh:nil];
 }
+- (void)changeHoverAttitude:(NSSegmentedControl *)sender {flightView->flight.glider.hoverControl.attitudeMode=(int)sender.selectedSegment;[self refresh:nil];}
+- (void)changeHoverAngle:(NSSlider *)sender {
+    auto &h=flightView->flight.glider.hoverControl;
+    (sender.tag?h.bankTarget:h.pitchTarget)=Rad(sender.doubleValue);[self refresh:nil];
+}
+- (void)changeHoldMode:(NSSegmentedControl *)sender {
+    auto &f=flightView->flight;auto &h=f.glider.hoverControl;int mode=(int)sender.selectedSegment+1;
+    if(h.holdActive&&mode!=h.holdMode)f.setHoverHold(mode,mode==1?std::max(0.,f.altitude()):std::clamp(f.surfaceVerticalSpeed(),-20.,20.));
+    else h.holdMode=mode;
+    [self refresh:nil];
+}
+- (void)changeHoldTarget:(NSTextField *)sender {
+    auto &h=flightView->flight.glider.hoverControl;
+    if(h.holdMode==2)h.verticalSpeedTarget=std::clamp(sender.doubleValue,-20.,20.);else h.altitudeTarget=std::clamp(sender.doubleValue,0.,120000.);
+    [self refresh:nil];
+}
+- (void)captureHoverTarget:(id)sender {
+    auto &f=flightView->flight;auto &h=f.glider.hoverControl;
+    if(h.holdMode==2)h.verticalSpeedTarget=0;else h.altitudeTarget=std::clamp(f.altitude(),0.,120000.);
+    [self refresh:nil];
+}
+- (void)toggleHoverHold:(id)sender {[flightView toggleHoverHold:nil];[self refresh:nil];}
 - (void)changeParkingBrake:(NSButton *)sender {flightView->flight.glider.parkingBrake=sender.state==NSControlStateValueOn;}
 - (void)changeRCS:(NSSegmentedControl *)sender { flightView->flight.glider.rcsMode=(int)sender.selectedSegment; }
 - (void)changeSwitch:(NSButton *)sender {
@@ -114,7 +180,7 @@
     bool *values[]={&g.valves[0],&g.valves[1],&g.valves[2],&g.valves[3],&g.valves[4],&g.coolantPump,&g.navLights,&g.beacons,&g.strobes,&g.landingLight,&g.instrumentLights};
     *values[sender.tag]=sender.state==NSControlStateValueOn;
 }
-- (void)cutEngines:(id)sender { flightView->flight.throttle=flightView->flight.glider.hover=flightView->flight.glider.retro=0;[self refresh:nil]; }
+- (void)cutEngines:(id)sender { flightView->flight.cutEngines();[self refresh:nil]; }
 @end
 @implementation FlightView (GliderControls)
 - (void)showSystems:(id)sender {

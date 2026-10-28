@@ -43,6 +43,22 @@ double Flight::heading() const {
     double h=atan2(dotp(forward,frame.east),dotp(forward,frame.north));return h<0?h+Pi2:h;
 }
 double Flight::surfaceVerticalSpeed() const { return dotp(velocity-crossp(earthSpin(),position),position.unit()); }
+bool Flight::setHoverHold(int mode,double target) {
+    if(altitude()>120000||fuel<=0||impacted||!std::isfinite(target)||
+       (mode!=1&&mode!=2)||(mode==1&&(target<0||target>120000))||(mode==2&&fabs(target)>20))return false;
+    auto &h=glider.hoverControl;h.holdMode=mode;
+    if(mode==1)h.altitudeTarget=target;else h.verticalSpeedTarget=target;
+    h.holdActive=true;h.resetFeedback();assist=Assist::Free;
+    if(!h.attitudeMode)h.attitudeMode=1;
+    return true;
+}
+void Flight::setHoverThrottle(double level) {
+    glider.hover=std::clamp(level,0.,1.);glider.hoverControl.holdActive=false;glider.hoverControl.resetFeedback();
+}
+void Flight::cutEngines() {
+    throttle=glider.hover=glider.retro=0;glider.mainLevel=glider.hoverLevel=glider.retroLevel=0;
+    glider.hoverControl.holdActive=false;glider.hoverControl.resetFeedback();glider.hoverControl.levels.fill(0);
+}
 void Flight::load(const std::filesystem::path &path) {
     std::ifstream file(path); if(!file) throw std::runtime_error("Cannot open scenario.");
     Flight candidate; std::string line, focus, blockName;
@@ -151,6 +167,9 @@ void Flight::coast(double dt) {
     } else e.PosVel(position,velocity,elapsed+dt);
 }
 void Flight::step(double dt,const Input &input) {
+    auto &hover=glider.hoverControl;
+    if(fuel<=0||altitude()>120000){hover.holdActive=false;hover.resetFeedback();}
+    hover.updateHold(dt,altitude(),surfaceVerticalSpeed(),MaxHoverThrust/mass(),glider.hover);
     Vector control(input.pitch,input.yaw,input.roll);
     Vector translation(input.lateral,input.vertical,input.translate);
     if(glider.rcsMode==2) { translation.x+=input.yaw; translation.y-=input.pitch; control={}; }
@@ -170,6 +189,9 @@ void Flight::step(double dt,const Input &input) {
     }
     for(int i=0;i<3;++i) { control(i)=std::clamp(control(i),-1.,1.); translation(i)=std::clamp(translation(i),-1.,1.); }
     if(glider.rcsMode==0) { control={};translation={}; }
+    // In hover attitude mode these axes request bounded pitch/bank targets.
+    // Keep yaw/translation available without firing competing pitch/roll jets.
+    if(hover.attitudeMode&&glider.hover>0&&altitude()<120000&&assist==Assist::Free)control.x=control.z=0;
     glider.rcsRotation=control; glider.rcsTranslation=translation;
     glider.elevator=std::clamp(-input.pitch,-1.,1.); glider.rudder=input.yaw; glider.aileron=input.roll;
     // Original DG thruster locations, directions and easy-model vacuum ratings.
@@ -181,16 +203,18 @@ void Flight::step(double dt,const Input &input) {
     double rightEngine=throttle*std::clamp(1+glider.mainBalance,0.,1.)*200000;
     Vector mainDirection(glider.gimbalYaw/7.7,tan(5*RAD)*glider.gimbalPitch,1); mainDirection.unify();
     double retro=glider.retroLevel*34000;
-    double hf=glider.hover*140000*std::clamp(1+glider.hoverBalance,0.,1.);
-    double ha=glider.hover*140000*(3./4.55)*.5*std::clamp(1-glider.hoverBalance,0.,1.);
-    double demand=(left+rightEngine+retro*2+hf+ha*2)*dt/ExhaustVelocity;
+    hover.balance(glider.hover,glider.hoverBalance,pitch(),bank(),-angularVelocity.x,-angularVelocity.z,
+                  glider.rcsMode==2?0:input.pitch,glider.rcsMode==2?0:input.roll);
+    double hf=hover.levels[0]*140000,hl=hover.levels[1]*140000*(3./4.55)*.5,hr=hover.levels[2]*140000*(3./4.55)*.5;
+    double demand=(left+rightEngine+retro*2+hf+hl+hr)*dt/ExhaustVelocity;
     double scale=demand>0?std::min(1.,fuel/demand):1;
     engine({-1,0,-7.7},mainDirection,left*scale); engine({1,0,-7.7},mainDirection,rightEngine*scale);
     engine({-3,-.236,5.6},{0,.04210548,-.99911317},retro*scale);
     engine({3,-.236,5.6},{0,.04210548,-.99911317},retro*scale);
-    engine({0,0,3},{0,1,0},hf*scale); engine({-3,0,-4.55},{0,1,0},ha*scale); engine({3,0,-4.55},{0,1,0},ha*scale);
+    engine({0,0,3},{0,1,0},hf*scale); engine({-3,0,-4.55},{0,1,0},hl*scale); engine({3,0,-4.55},{0,1,0},hr*scale);
     fuel=demand>=fuel?0:fuel-demand;
-    glider.mainLevel=throttle*scale; glider.retroLevel*=scale; glider.hoverLevel=glider.hover*scale;
+    glider.mainLevel=throttle*scale; glider.retroLevel*=scale; glider.hoverLevel=(hf+hl+hr)*scale/MaxHoverThrust;
+    for(auto &level:hover.levels)level*=scale;
     double rcsDemand=5000*(fabs(control.x)+fabs(control.y)+fabs(control.z)+fabs(translation.x)+fabs(translation.y)+fabs(translation.z))*dt/ExhaustVelocity;
     double rcsScale=rcsDemand>0?std::min(1.,rcs/rcsDemand):1;
     torque+=Vector(control.x*40000,control.y*30000,control.z*30000)*rcsScale;
@@ -227,7 +251,7 @@ void Flight::step(double dt,const Input &input) {
     force+=Vector(dotp(ground.force,right),dotp(ground.force,up),dotp(ground.force,forward));
     torque+=ground.torque;
     if(ground.maximumClosingSpeed>12&&ground.contacts>0) {
-        impacted=true;paused=true;throttle=glider.hover=glider.retro=0;return;
+        impacted=true;paused=true;cutEngines();return;
     }
     Vector inertia=Vector(15.5,22.1,7.7)*mass();
     Vector w=angularVelocity;
@@ -253,7 +277,7 @@ void Flight::step(double dt,const Input &input) {
 void Flight::advance(double realSeconds,const Input &input) {
     if(paused||impacted||realSeconds<=0||!std::isfinite(realSeconds)) return;
     bool atmosphericFlight=altitude()<120000;
-    bool maneuver=throttle>0||glider.hover>0||glider.retro>0||input.pitch||input.yaw||input.roll||input.translate||input.lateral||input.vertical||angularVelocity.length2()>1e-16;
+    bool maneuver=throttle>0||glider.hover>0||glider.hoverControl.holdActive||glider.retro>0||input.pitch||input.yaw||input.roll||input.translate||input.lateral||input.vertical||angularVelocity.length2()>1e-16;
     if(maneuver||atmosphericFlight) warp=1;
     double dt=std::min(realSeconds,.1)*std::clamp(warp,1.0,1000.0);
     glider.elevator=-input.pitch;glider.rudder=input.yaw;glider.aileron=input.roll;
@@ -268,6 +292,6 @@ void Flight::advance(double realSeconds,const Input &input) {
     elapsed+=dt;
     Vector relativeVelocity=velocity-crossp(earthSpin(),position);
     groundSpeed=(relativeVelocity-position.unit()*dotp(relativeVelocity,position.unit())).length();
-    if(altitude()<-10) { impacted=true; paused=true; throttle=glider.hover=glider.retro=0; }
+    if(altitude()<-10) { impacted=true; paused=true; cutEngines(); }
 }
 }
