@@ -16,6 +16,7 @@ struct ExhaustTrailPuff {
     double age,lifetime,radius,opacity,halfLength,seed;
     bool vacuum;
 };
+double exhaustTrailRadius(const ExhaustTrailPuff &puff);
 // Long-lived atmospheric exhaust, stored in the emitting body's inertial frame.
 class ExhaustTrail {
 public:

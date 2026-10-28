@@ -71,7 +71,11 @@ static void advect(ExhaustTrailPuff &p,double dt){
         double r=p.position.length();Vector gravity=p.position*(-b.mu()/(r*r*r));
         p.position+=p.velocity*dt+gravity*(dt*dt*.5);p.velocity+=gravity*dt;p.age+=dt;return;
     }
-    Vector air=atmosphericVelocity(p.body,p.position)+p.position.unit()*(2.5*exp(-p.age/15));
+    Vector radial=p.position.unit(),lateral=crossp(p.axis,radial);
+    if(lateral.length2()<1e-12)lateral=crossp(b.pole(),radial);
+    if(lateral.length2()<1e-12)lateral=b.equatorZ();else lateral.unify();
+    // Small differences in the local air motion gradually spread neighbouring puffs.
+    Vector air=atmosphericVelocity(p.body,p.position)+radial*(2.5*exp(-p.age/15))+lateral*((p.seed-.5)*.48);
     // Hot exhaust rapidly mixes into ambient air, then drifts with the atmosphere.
     double damping=exp(-2*dt);Vector relative=p.velocity-air;
     p.position+=air*dt+relative*((1-damping)*.5);
@@ -80,6 +84,10 @@ static void advect(ExhaustTrailPuff &p,double dt){
         Vector radial=p.position.unit();p.position=radial*(b.radius+.5);
         double down=dotp(p.velocity,radial);if(down<0)p.velocity-=radial*down;
     }
+}
+double exhaustTrailRadius(const ExhaustTrailPuff &p){
+    double age=std::max(0.,p.age);
+    return p.radius+(p.vacuum?age*12:sqrt(age)*1.1+age*.12);
 }
 void ExhaustTrail::reset(){particles.clear();history={};haveBody=false;serial=0;}
 void ExhaustTrail::update(const Flight &f,double dt,double humidity){

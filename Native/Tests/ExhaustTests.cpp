@@ -44,6 +44,8 @@ int main(){try {
     double length=0;for(const auto &p:trail.puffs())length=std::max(length,p.position.dist(aircraft.position));
     check(length>20000,"A moving craft leaves many kilometres of world-anchored trail");
     check(trail.puffs().front().age>100&&trail.puffs().back().age<1,"Old puffs persist and new puffs are emitted");
+    auto young=trail.puffs().front();young.age=0;auto old=young;old.age=120;
+    check(exhaustTrailRadius(old)>exhaustTrailRadius(young)+20,"Smoke broadens as it disperses in the atmosphere");
     aircraft.glider.mainLevel=0;size_t beforeCut=trail.puffs().size();Vector oldPuff=trail.puffs().front().position;aircraft.position+=Vector(10000,0,0);trail.update(aircraft,.1);
     check(!trail.puffs().empty()&&trail.puffs().size()<=beforeCut&&trail.puffs().front().position.dist(oldPuff)<100,"Engine cutoff retains the existing world-anchored trail");
     loadEphemerides(std::filesystem::path(ORBITER_TEST_DATA)/"Src/Celbody");aircraft.changeReference(BodyId::Sun);trail.update(aircraft,.1);
@@ -53,6 +55,7 @@ int main(){try {
     aircraft.position={EarthRadius+400000,0,0};aircraft.glider.mainLevel=1;trail.reset();
     for(int i=0;i<120;++i){aircraft.position+=aircraft.velocity*.1;trail.update(aircraft,.1);}
     check(!trail.puffs().empty()&&std::all_of(trail.puffs().begin(),trail.puffs().end(),[](const auto &p){return p.vacuum;}),"Vacuum produces a thin expanding gas plume rather than atmospheric smoke");
+    auto gas=trail.puffs().front();gas.age=10;check(exhaustTrailRadius(gas)>100,"Rarefied gas expands into a broad plume");
     length=0;for(const auto &p:trail.puffs())length=std::max(length,p.position.dist(aircraft.position));check(length>10000,"Vacuum exhaust expands for many kilometres behind a sustained burn");
     aircraft.glider.mainLevel=0;trail.update(aircraft,25);check(trail.puffs().empty(),"The vacuum plume fades after engine shutdown");
     aircraft.glider.mainLevel=1;

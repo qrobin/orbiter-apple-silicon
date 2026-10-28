@@ -157,12 +157,13 @@ struct SmokeDraw {ParticleUniforms particle;float depth;};
             center=centers[index];
         }
         Vector relative=center+p.position-flight.position-offset;double z=dotp(relative,cameraForward);
-        double size=p.radius+(p.vacuum?p.age*12:sqrt(std::max(0.,p.age))*1.1),extent=size+p.halfLength;
+        double physicalSize=exhaustTrailRadius(p),size=physicalSize,extent=size+p.halfLength;
         if(z+extent<.2||fabs(dotp(relative,cameraRight))>std::max(0.,z)*f.screen.z*aspect+extent||fabs(dotp(relative,cameraUp))>std::max(0.,z)*f.screen.z+extent)continue;
         // Preserve subpixel trails at a distance without changing their world position.
         size=std::max(size,std::max(0.,z)*f.screen.z*1.5/std::max(1.f,f.screen.y));
         double age=std::clamp(p.age/p.lifetime,0.,1.);
-        double opacity=p.opacity*pow(1-age,1.35)*(p.vacuum?1/(1+p.age*.035):.55+.45*(1-exp(-p.age/3)));
+        double dispersion=p.vacuum?1/(1+p.age*.035):(.55+.45*(1-exp(-p.age/3)))*(.5+.5*sqrt(p.radius/physicalSize));
+        double opacity=p.opacity*pow(1-age,1.35)*dispersion;
         ParticleUniforms u{visualVector(relative,age),visualVector(p.axis,p.halfLength),{(float)size,(float)opacity,(float)p.seed,p.vacuum?1.f:0.f}};
         visibleSmoke.push_back({u,(float)z});
     }
