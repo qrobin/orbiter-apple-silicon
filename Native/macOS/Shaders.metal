@@ -18,7 +18,7 @@ vertex Raster meshVertex(uint id [[vertex_id]],const device Vertex *vertices [[b
         if(int(o.options.z)!=int(sw.range.y)||id<uint(sw.axisStart.w)||id>=uint(sw.axisStart.w+sw.range.x)) continue;
         if(sw.range.z>.5) {
             local+=sw.axisStart.xyz*sw.pivotAngle.w;
-            if(sw.range.z>1.5&&id>=uint(sw.axisStart.w+6))uv.y=(sw.range.w>.5?1.5f:10.5f)/1024;
+            if(sw.range.z>1.5&&sw.range.z<2.5&&id>=uint(sw.axisStart.w+6))uv.y=(sw.range.w>.5?1.5f:10.5f)/1024;
             continue;
         }
         float3 axis=sw.axisStart.xyz,q=local-sw.pivotAngle.xyz;float c=cos(sw.pivotAngle.w),s=sin(sw.pivotAngle.w);

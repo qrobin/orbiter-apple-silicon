@@ -362,7 +362,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
                 bool values[]={g.valves[0],g.valves[1],g.valves[2],g.valves[3],g.valves[4],g.coolantPump,g.navLights,g.beacons,g.strobes,g.landingLight,g.instrumentLights};
                 enabled=values[sw.action-10];
             }
-            auto &hover=g.hoverControl;double amount=(enabled?1:-1)*28*RAD;bool lit=false;
+            auto &hover=g.hoverControl;double amount=(enabled?1:-1)*28*RAD;bool lit=false;Vector axis=sw.axis;
             if(sw.action==40)amount=(1-hover.attitudeMode)*50*RAD;
             else if(sw.action>=41&&sw.action<=43)amount=activeCockpitControl==sw.action?activeCockpitDirection*15*RAD:0;
             else if(sw.action==45)amount=activeCockpitControl==45?.004:0;
@@ -371,7 +371,13 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
                 bool pressed=activeCockpitControl==sw.action||(activeCockpitControl==44&&sw.action==47+(activeCockpitDirection>0));
                 amount=pressed?.0065:lit?.005:0;
             }
-            switchData.push_back({f4(sw.pivot,amount),f4(sw.axis,(float)sw.first),simd_make_float4((float)sw.count,(float)sw.group,(float)sw.motion,lit?1.f:0.f)});
+            else if(sw.action==50||sw.action==51) {
+                double p=hover.attitudeMode?(sw.action==50?flight.pitch():hover.pitchTarget):0;
+                double b=hover.attitudeMode?(sw.action==50?flight.bank():hover.bankTarget):0;
+                double dx=-std::clamp(b,-10*RAD,10*RAD)*(.0103/(10*RAD)),dy=-std::clamp(p,-10*RAD,10*RAD)*(.0103/(10*RAD));
+                axis={dx,dy*cos(.622165),dy*sin(.622165)};amount=1;
+            }
+            switchData.push_back({f4(sw.pivot,amount),f4(axis,(float)sw.first),simd_make_float4((float)sw.count,(float)sw.group,(float)sw.motion,lit?1.f:0.f)});
         }
         [encoder setVertexBytes:switchData.data() length:switchData.size()*sizeof(SwitchUniforms) atIndex:3];
         simd_float4x4 vesselModel=object.model;

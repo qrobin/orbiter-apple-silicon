@@ -114,5 +114,10 @@ for prefix,action,group,count,motion in [
     pivot='{'+','.join(str(num(n)) for n in vectors[prefix+'_ref'])+'}'
     axis='{'+','.join(str(num(n)) for n in vectors[prefix+'_axis'])+'}'
     switches.append('{'+f'{action},{int(symbols[group])},{first},{count},{pivot},{axis},{motion}'+'}, // '+prefix)
+# Original HoverDisp target/current pointers use two four-vertex ranges.
+for action,offset in [(50,4),(51,0)]:
+    first=offsets['VC_HOVER_INDICATOR']+offset
+    pivot='{'+','.join(str(num(n)) for n in vectors['VC_HOVER_INDICATOR_ref'])+'}'
+    switches.append('{'+f'{action},{int(symbols["GRP_VC_INSTR_VC"])},{first},4,{pivot},'+ '{0,0,0},3}, // Hover balance indicator')
 (root/'Native/CockpitSwitches.inc').write_text('\n'.join(switches)+'\n')
 print(f'Extracted {len(switches)-1} cockpit motion components and {len(spheres)-1} spherical click areas.')
