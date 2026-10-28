@@ -47,7 +47,7 @@ Main, retro, hover and RCS nozzles use the applied, fuel-scaled commands from th
 These are bounded visual particles, not a computational fluid dynamics model or a calibrated propellant spectrum. The system caps particle count at 1536 and batches their geometry into one mesh section.
 
 - **M:** cycle RCS rotation → translation → off.
-- **Arrows / Q / E:** attitude in rotation mode; arrows give lateral/vertical translation in translation mode.
+- **Arrows / Q / E:** attitude in rotation mode; arrows give lateral/vertical translation and Q/E give forward/back translation in translation mode.
 - **Numpad 8 / 2:** forward/back translation.
 - **Numpad 6 / 4:** right/left translation.
 - **Numpad 9 / 3:** up/down translation.
@@ -60,3 +60,12 @@ The separate RCS tank, RCS-off state and fuel exhaustion remain part of the flig
 Material generation validates every graph connection. Editor render checks wait for shader and texture compilation before capturing a frame. The global globe does not cast mesh shadows; atmospheric transmittance handles planet-scale sunlight, and clouds cast their own shadows. The analytic atmospheric ground lies 500 m below the globe radius to avoid intersecting the globe's polygon chords.
 
 The current procedural spacecraft has no Lumen distance-field representation. The default uses direct solar lighting, atmospheric transmittance, captured sky lighting and screen-space reflections; hardware ray tracing is disabled. Cloud ray samples are capped through the component's 0.75 view sample scale. This configuration preserves the current lighting while avoiding unsupported procedural-mesh Lumen work.
+
+
+## Standalone app
+
+Run `./Unreal/package.sh` after installing the build dependencies. It builds the editor/core/assets and creates the self-contained arm64 Development app in `../Orbiter-Unreal-Apple-Silicon/Mac/OrbiterUE.app`. The packaged app requires macOS 14 or newer and does not require the Unreal editor to run. It uses local signing; Developer ID distribution/notarization is not configured.
+
+Packaging settings live in `DefaultGame.ini`, including the original simulation data staged as loose files for the C++ parsers. Materials and the cloud assets are explicitly cooked. The script includes a tested fallback for the local UE 5.8.2/Xcode 27.1 post-build failure: it finalizes the generated Xcode project directly, invokes Unreal's metadata writer for that compiled target, then resumes cooking/staging. It does not modify the installed engine. Logs are in `Saved/Packaging`.
+
+This is an external-flight preview. The native cockpit UI, full instrumentation and detailed local terrain/base rendering remain in the Metal frontend. Visual weather uses presets; live meteorological data and weather-driven flight forces are not implemented.

@@ -46,7 +46,9 @@ AOrbiterPawn::AOrbiterPawn() {
 }
 AOrbiterPawn::~AOrbiterPawn()=default;
 void AOrbiterPawn::LoadFlight(bool Surface) {
-    Sim->Flight.load(TCHAR_TO_UTF8(*(Sim->Data/(Surface?TEXT("Scenarios/Cape Canaveral native.scn"):TEXT("Scenarios/DG Mk4 in orbit.scn")))));
+    const FString Scenario=Sim->Data/(Surface?TEXT("Scenarios/Cape Canaveral native.scn"):TEXT("Scenarios/DG Mk4 in orbit.scn"));
+    if(!FPaths::FileExists(Scenario)){Error=TEXT("Missing staged scenario: ")+Scenario;UE_LOG(LogTemp,Error,TEXT("%s"),*Error);return;}
+    Sim->Flight.load(TCHAR_TO_UTF8(*Scenario));
     Error.Empty();
 }
 void AOrbiterPawn::BeginPlay() {
@@ -57,7 +59,9 @@ void AOrbiterPawn::BeginPlay() {
     FParse::Value(FCommandLine::Get(),TEXT("OrbiterCapture="),CapturePath);
     try {
         Sim.Reset(new FOrbiterSimulation);Sim->Data=FPaths::ConvertRelativePathToFull(FPaths::ProjectContentDir()/TEXT("OrbiterData"));
+        UE_LOG(LogTemp,Display,TEXT("ORBITER_DATA %s"),*Sim->Data);
         LoadFlight(FParse::Param(FCommandLine::Get(),TEXT("surface")));
+        if(!Error.IsEmpty()){if(SmokeFrames)FPlatformMisc::RequestExitWithStatus(false,1);return;}
         if(FParse::Param(FCommandLine::Get(),TEXT("OrbiterEarthDemo"))) {
             Sim->Flight.placeOnEarth(28.5*RAD,-80.6*RAD,90*RAD,350000);
             Sim->Flight.velocity=native::earthSurface(28.5*RAD,-80.6*RAD,Sim->Flight.mjd).east*sqrt(native::Mu/Sim->Flight.position.length());
@@ -134,6 +138,7 @@ void AOrbiterPawn::Tick(float DT) {
         if(PC->IsInputKeyDown(EKeys::LeftBracket))F.setHoverThrottle(F.glider.hover-DT*.35);
         Input.pitch=PC->IsInputKeyDown(EKeys::Down)-PC->IsInputKeyDown(EKeys::Up);Input.yaw=PC->IsInputKeyDown(EKeys::Right)-PC->IsInputKeyDown(EKeys::Left);Input.roll=PC->IsInputKeyDown(EKeys::Q)-PC->IsInputKeyDown(EKeys::E);
         Input.translate=PC->IsInputKeyDown(EKeys::NumPadEight)-PC->IsInputKeyDown(EKeys::NumPadTwo);
+        if(F.glider.rcsMode==2)Input.translate+=Input.roll; // Q/E provide fore/aft on laptop keyboards.
         Input.lateral=PC->IsInputKeyDown(EKeys::NumPadSix)-PC->IsInputKeyDown(EKeys::NumPadFour);
         Input.vertical=PC->IsInputKeyDown(EKeys::NumPadNine)-PC->IsInputKeyDown(EKeys::NumPadThree);
         Input.leftBrake=PC->IsInputKeyDown(EKeys::Comma);Input.rightBrake=PC->IsInputKeyDown(EKeys::Period);
