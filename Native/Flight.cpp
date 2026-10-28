@@ -165,7 +165,7 @@ void Flight::startOrbit(BodyId id){
     double date=mjd+elapsed/86400;bool automatic=automaticReferenceChanges;*this=Flight();mjd=date;reference=id;automaticReferenceChanges=automatic;
     const auto &b=centralBody();double altitude=std::max(b.radius*.06,b.atmosphereLimit+20000.);
     if(b.radius<100000)altitude=b.radius*.08;
-    double radius=id==BodyId::Sun?AU*.5:b.radius+altitude;
+    double radius=id==BodyId::Sun?AU*.5:!b.solid?b.radius*4:b.radius+altitude;
     Vector sun=ephemeridesReady()&&id!=BodyId::Sun?(-bodyState(id,mjd).position).unit():Vector(.32,.84,-.44).unit();
     Vector radial=(sun*.95+b.pole()*.25).unit();position=radial*radius;
     velocity=crossp(b.pole(),radial).unit()*sqrt(b.mu()/radius);align(velocity);assist=Assist::Prograde;
@@ -309,6 +309,7 @@ void Flight::advance(double realSeconds,const Input &input) {
     if(paused||impacted||realSeconds<=0||!std::isfinite(realSeconds)) return;
     bool atmosphericFlight=(reference==BodyId::Earth?altitude()<120000:bodyAtmosphere(reference,altitude()).rho>1e-12)||(centralBody().solid&&altitude()<20);
     bool maneuver=throttle>0||glider.hover>0||glider.hoverControl.holdActive||glider.retro>0||input.pitch||input.yaw||input.roll||input.translate||input.lateral||input.vertical||angularVelocity.length2()>1e-16;
+    if(warp>1&&centralBody().solid&&orbit().PeDist()<centralBody().radius+20){warp=1;atmosphericFlight=true;}
     if(maneuver||atmosphericFlight) warp=1;
     double dt=std::min(realSeconds,.1)*std::clamp(warp,1.0,1000.0);
     glider.elevator=-input.pitch;glider.rudder=input.yaw;glider.aileron=input.roll;

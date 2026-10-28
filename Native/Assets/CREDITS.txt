@@ -19,3 +19,6 @@ Original image: https://assets.science.nasa.gov/content/dam/science/esd/eo/image
 Credit: NASA Earth Observatory, Reto Stöckli and the Blue Marble team.
 
 This is a monthly visual composite, not current satellite weather or elevation geometry. At this resolution one pixel represents about 4.9 km at the equator. The original 21600 × 10800 JPEG is downloaded to the developer cache, not redistributed here.
+
+Planetary and lunar visual maps: Solar System Scope / INOVE, CC BY 4.0.
+See Bodies/CREDITS.md for sources, attribution and modification details.

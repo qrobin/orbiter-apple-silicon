@@ -22,6 +22,10 @@ Start with **M** for the glider systems panel, **V** for the original 3D cockpit
 
 See the [native guide](Native/README.md) for all controls, supported scenarios, capture options and implementation details.
 
+## Planets and moons
+
+Use **Solar System** in the menu bar to start an orbit around any of the original catalogue's 33 bodies: the Sun, all eight planets, Vesta and 23 moons. Body-specific gravity, rotation, scenario references, native ephemerides, sunlit phases and Saturn's rings are connected. The flight model uses patched conics with continuous sphere-of-influence transitions. See the [Solar System guide](Native/README.md#solar-system-in-07) for the body list and precision/visual limits.
+
 ## Native graphics
 
 Earth uses the credited 8K NASA Blue Marble map. Metal renders spherical volumetric cloud layers, sun attenuation and cloud shadows with temporal reconstruction. **Weather** in the menu bar or **F3** selects clear, scattered, overcast or storm presets. These are visual presets, not live meteorological data.
@@ -38,11 +42,11 @@ Main, retro, hover and RCS engines have nozzle-aligned 3D flame cores and GPU pa
 - Live native surface/orbit/propulsion displays, cabin and airlock pressure, a reduced thermal model, and original atmosphere/airfoil data with reduced native aerodynamic coupling.
 - Experimental ground-physics core: original touchdown geometry, suspension, wheel friction, braking, steering, hover liftoff, soft/hard contact and geographic landed-scenario loading. Interactive wheel/parking brakes, hover throttle keys, a surface start and native surface instruments are connected. Ground handling remains experimental.
 
-The native target currently supports one focused standard `DeltaGlider` at Earth. Other ships and stations, docking, terrain and complete bases, complete MFDs and analog instruments, full damage/coolant models, DG-S scramjets, sound, scripting and Windows plug-ins are incomplete or unavailable. The [native guide](Native/README.md#implementation-boundary) describes these limits.
+The native target currently supports one focused standard `DeltaGlider` around the catalogue bodies. Other ships and stations, docking, terrain and complete bases, complete MFDs and analog instruments, full damage/coolant models, DG-S scramjets, sound, scripting and Windows plug-ins are incomplete or unavailable. The [native guide](Native/README.md#implementation-boundary) describes these limits.
 
 ## Validation and CI
 
-The flight, glider, surface, hover, exhaust and camera CTest suites pass locally in Release and with AddressSanitizer/UndefinedBehaviorSanitizer. They cover orbital propagation, fuel and propulsion, mechanism staging, cockpit/mesh geometry, scenario round trips ground-contact behavior and closed-loop hover recovery/target tracking. These checks do not establish full equivalence with the original simulator.
+The flight, glider, surface, hover, exhaust, camera and Solar System CTest suites pass locally in Release and with AddressSanitizer/UndefinedBehaviorSanitizer. They cover orbital propagation, fuel and propulsion, mechanism staging, cockpit/mesh geometry, scenario round trips ground-contact behavior and closed-loop hover recovery/target tracking. These checks do not establish full equivalence with the original simulator.
 
 The [Apple Silicon workflow](.github/workflows/native-macos.yml) builds the arm64 app, runs all native suites, verifies the executable architecture and uploads a ZIP artifact. The imported Windows/Linux maintenance workflows are available as manual workflows.
 

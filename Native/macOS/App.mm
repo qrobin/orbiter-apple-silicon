@@ -10,6 +10,8 @@
 #include "Base.h"
 #include "Camera.h"
 #import "NativeVisuals.h"
+#import "SolarRenderer.h"
+#include "SolarSystem.h"
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #include <algorithm>
 #include <array>
@@ -46,6 +48,9 @@ struct GpuGroup { id<MTLBuffer> vertices,indices; NSUInteger count; size_t mater
 @private
     id<MTLCommandQueue> queue;
     NativeVisuals *visuals;
+    SolarRenderer *solar;
+    NSInteger restartBody;
+    BodyId lastBody;
     bool rcsDemo;
     NSPoint lastDragPoint;
     bool haveDragPoint;
@@ -87,6 +92,7 @@ struct GpuGroup { id<MTLBuffer> vertices,indices; NSUInteger count; size_t mater
 - (void)toggleHelp:(id)sender;
 - (void)clearInput;
 - (void)cycleWeather:(id)sender;
+- (void)startBodyOrbit:(NSMenuItem *)sender;
 - (void)setWeather:(NSMenuItem *)sender;
 - (void)updateCockpitDisplays;
 @end
@@ -105,10 +111,10 @@ struct GpuGroup { id<MTLBuffer> vertices,indices; NSUInteger count; size_t mater
     auto &f=v->flight;
     auto &hover=f.glider.hoverControl;
     NSString *holdState=hover.holdActive?[NSString stringWithFormat:@"%@ %.1f",hover.holdMode==1?@"altitude hold":@"vertical speed hold",hover.holdMode==1?hover.altitudeTarget:hover.verticalSpeedTarget]:@"off";
-    if(f.altitude()<120000) return [NSString stringWithFormat:@"%@, altitude %.1f metres, ground speed %.2f metres per second, vertical speed %+.1f, heading %.1f degrees, main throttle %.0f percent, hover %.0f percent, parking brake %@, fuel %.1f kg, hold %@, controls %@",
+    if(f.altitude()<std::min(120000.,f.centralBody().radius*.02)) return [NSString stringWithFormat:@"%@, altitude %.1f metres, ground speed %.2f metres per second, vertical speed %+.1f, heading %.1f degrees, main throttle %.0f percent, hover %.0f percent, parking brake %@, fuel %.1f kg, hold %@, controls %@",
         f.paused?@"Paused":f.groundContact?@"On the ground":@"Flying",f.altitude(),f.groundSpeed,f.surfaceVerticalSpeed(),Deg(f.heading()),f.throttle*100,f.glider.hover*100,f.glider.parkingBrake?@"set":@"released",f.fuel,holdState,v->helpVisible?@"visible":@"hidden"];
     return [NSString stringWithFormat:@"%@, altitude %.2f km, speed %.2f m/s, throttle %.0f percent, fuel %.1f kg, time acceleration %.0f, controls %@",
-        v->flight.paused?@"Paused":v->flight.groundContact?@"On the ground":@"Flying",v->flight.altitude()/1000,v->flight.altitude()<120000?v->flight.groundSpeed:v->flight.velocity.length(),v->flight.throttle*100,v->flight.fuel,v->flight.warp,v->helpVisible?@"visible":@"hidden"];
+        v->flight.paused?@"Paused":v->flight.groundContact?@"On the ground":@"Flying",v->flight.altitude()/1000,v->flight.altitude()<std::min(120000.,v->flight.centralBody().radius*.02)?v->flight.groundSpeed:v->flight.velocity.length(),v->flight.throttle*100,v->flight.fuel,v->flight.warp,v->helpVisible?@"visible":@"hidden"];
 }
 - (NSView *)hitTest:(NSPoint)p { return nil; }
 - (void)drawRect:(NSRect)rect { [self paint:self.bounds]; }
@@ -122,7 +128,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
 }
 - (void)paint:(NSRect)b {
     FlightView *v=self.flightView; if(!v) return;
-    Flight &f=v->flight; CGFloat w=b.size.width,h=b.size.height;
+    Flight &f=v->flight;double radius=f.centralBody().radius;NSString *bodyName=[NSString stringWithUTF8String:f.centralBody().name]; CGFloat w=b.size.width,h=b.size.height;
     NSColor *ink=[NSColor colorWithRed:.76 green:.94 blue:.79 alpha:1];
     NSColor *muted=[NSColor colorWithRed:.60 green:.72 blue:.66 alpha:1];
     NSColor *white=[NSColor colorWithWhite:.95 alpha:1];
@@ -135,7 +141,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     [panel setFill];NSRectFill(NSMakeRect(0,h-headerHeight,w,headerHeight));
     NSRectFill(NSMakeRect(0,0,w,28));
     text(@"Orbiter",26,h-44,22,white);
-    text([NSString stringWithFormat:@"Delta-glider  /  %s",f.name.c_str()],26,h-66,12,muted);
+    text([NSString stringWithFormat:@"Delta-glider  /  %s  /  %@",f.name.c_str(),bodyName],26,h-66,12,muted);
     text([NSString stringWithFormat:@"%@   ·   %.0f×   ·   T+ %.0f s",f.paused?@"PAUSED":@"FLIGHT",f.warp,f.elapsed],w-320,h-37,12,ink,YES);
     text([NSString stringWithFormat:@"Metal  ·  ARM64  ·  %.0f fps",v->fps],w-320,h-57,11,muted,YES);
     if(v->status.length) text(v->status,26,h-93,12,ink);
@@ -151,10 +157,10 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     if(!v->cockpit) {
     CGFloat left=26,bottom=35,pw=252,ph=194;
     [panel setFill]; NSRectFill(NSMakeRect(left,bottom,pw,ph));
-    bool surface=f.altitude()<120000;
+    bool surface=f.altitude()<std::min(120000.,f.centralBody().radius*.02);
     Elements orbit=surface?Elements():f.orbit();
     if(surface) {
-        text(@"SURFACE  /  EARTH",left+14,bottom+ph-27,11,ink);
+        text([NSString stringWithFormat:@"SURFACE / %@",bodyName.uppercaseString],left+14,bottom+ph-27,11,ink);
         NSArray *rows=@[[NSString stringWithFormat:@"Altitude       %9.1f m",f.altitude()],
             [NSString stringWithFormat:@"Ground speed   %9.2f m/s",f.groundSpeed],
             [NSString stringWithFormat:@"Vertical       %+9.2f m/s",f.surfaceVerticalSpeed()],
@@ -163,12 +169,12 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
             [NSString stringWithFormat:@"Bank           %+9.1f°",Deg(f.bank())]];
         for(NSUInteger i=0;i<rows.count;++i) text(rows[i],left+14,bottom+ph-53-i*22,12,i<3?white:ink,YES);
     } else {
-        text(@"ORBIT  /  EARTH",left+14,bottom+ph-27,11,ink);
+        text([NSString stringWithFormat:@"ORBIT / %@",bodyName.uppercaseString],left+14,bottom+ph-27,11,ink);
         text([NSString stringWithFormat:@"Altitude       %9.2f km",f.altitude()/1000],left+14,bottom+ph-53,12,white,YES);
         text([NSString stringWithFormat:@"Speed          %9.2f m/s",f.velocity.length()],left+14,bottom+ph-74,12,white,YES);
         text([NSString stringWithFormat:@"Vertical       %+9.2f m/s",f.radialSpeed()],left+14,bottom+ph-95,12,white,YES);
-        text(orbit.e<1?[NSString stringWithFormat:@"Apoapsis       %9.2f km",(orbit.ApDist()-EarthRadius)/1000]:@"Apoapsis          ESCAPE",left+14,bottom+ph-123,12,ink,YES);
-        text([NSString stringWithFormat:@"Periapsis      %9.2f km",(orbit.PeDist()-EarthRadius)/1000],left+14,bottom+ph-144,12,ink,YES);
+        text(orbit.e<1?[NSString stringWithFormat:@"Apoapsis       %9.2f km",(orbit.ApDist()-radius)/1000]:@"Apoapsis          ESCAPE",left+14,bottom+ph-123,12,ink,YES);
+        text([NSString stringWithFormat:@"Periapsis      %9.2f km",(orbit.PeDist()-radius)/1000],left+14,bottom+ph-144,12,ink,YES);
         text([NSString stringWithFormat:@"Eccentricity   %9.5f",orbit.e],left+14,bottom+ph-165,12,muted,YES);
     }
     CGFloat rx=w-278;
@@ -200,12 +206,12 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         text([NSString stringWithFormat:@"HDG %05.1f°",Deg(f.heading())],ox-42,bottom+10,11,ink,YES);
     }
     if(v->orbitVisible&&w>950&&!surface) {
-        CGFloat ox=w*.5,oy=bottom+95,scale=70/std::max(EarthRadius,orbit.e<1?orbit.ApDist():f.position.length());
+        CGFloat ox=w*.5,oy=bottom+95,scale=70/std::max(radius,orbit.e<1?orbit.ApDist():f.position.length());
         [panel setFill]; NSRectFill(NSMakeRect(ox-120,bottom,240,ph));
         text(@"OSCULATING ORBIT",ox-100,bottom+ph-27,11,ink);
         [[NSColor colorWithRed:.08 green:.22 blue:.31 alpha:1] setFill];
-        CGFloat radius=EarthRadius*scale;
-        [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(ox-radius,oy-radius,2*radius,2*radius)] fill];
+        CGFloat discRadius=radius*scale;
+        [[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(ox-discRadius,oy-discRadius,2*discRadius,2*discRadius)] fill];
         if(orbit.e<1) {
             [ink setStroke]; NSBezierPath *p=[NSBezierPath bezierPath];
             for(int j=0;j<=180;++j) { double a=j*Pi2/180, r=orbit.Rdist(a)*scale;
@@ -231,7 +237,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     id<MTLDevice> device=MTLCreateSystemDefaultDevice();
     if(!device) @throw [NSException exceptionWithName:@"Metal unavailable" reason:@"A Metal-capable Mac is required." userInfo:nil];
     self=[super initWithFrame:frame device:device]; if(!self) return nil;
-    activeCockpitControl=-1;cockpitPitch=-.25;
+    activeCockpitControl=-1;cockpitPitch=-.25;restartBody=-1;lastBody=BodyId::Earth;
     held.fill(false); yaw=-.55; pitch=.32; distance=43; helpVisible=false; orbitVisible=true;
     self.colorPixelFormat=MTLPixelFormatBGRA8Unorm_sRGB; self.depthStencilPixelFormat=MTLPixelFormatDepth32Float;
     self.sampleCount=[device supportsTextureSampleCount:4]?4:1;self.clearDepth=0;
@@ -240,8 +246,9 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     NSError *error=nil; NSString *source=[NSString stringWithContentsOfFile:resource(@"Shaders.metal") encoding:NSUTF8StringEncoding error:&error];
     NSString *types=[NSString stringWithContentsOfFile:resource(@"VisualTypes.h") encoding:NSUTF8StringEncoding error:&error];
     NSString *effects=[NSString stringWithContentsOfFile:resource(@"NativeVisuals.metal") encoding:NSUTF8StringEncoding error:&error];
-    if(!source||!types||!effects)@throw [NSException exceptionWithName:@"Missing Metal source" reason:error.localizedDescription userInfo:nil];
-    source=[NSString stringWithFormat:@"%@\n%@\n%@",types,effects,source];
+    NSString *solarSource=[NSString stringWithContentsOfFile:resource(@"SolarSystem.metal") encoding:NSUTF8StringEncoding error:&error];
+    if(!source||!types||!effects||!solarSource)@throw [NSException exceptionWithName:@"Missing Metal source" reason:error.localizedDescription userInfo:nil];
+    source=[NSString stringWithFormat:@"%@\n%@\n%@\n%@",types,effects,source,solarSource];
     id<MTLLibrary> library=[device newLibraryWithSource:source options:nil error:&error];
     if(!library) @throw [NSException exceptionWithName:@"Metal shader error" reason:error.localizedDescription userInfo:nil];
     MTLRenderPipelineDescriptor *pd=[MTLRenderPipelineDescriptor new];
@@ -294,19 +301,23 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     hoverGlyphs=loadDDS(resource(@"Textures/DG/blitsrc1.dds").fileSystemRepresentation);
     earthTexture=[loader newTextureWithContentsOfURL:[NSURL fileURLWithPath:resource(@"earth-8k.jpg")] options:@{MTKTextureLoaderOptionSRGB:@YES,MTKTextureLoaderOptionGenerateMipmaps:@YES,MTKTextureLoaderOptionOrigin:MTKTextureLoaderOriginTopLeft} error:&error];
     if(!earthTexture) @throw [NSException exceptionWithName:@"Earth texture error" reason:error.localizedDescription userInfo:nil];
+    solar=[[SolarRenderer alloc] initWithDevice:device library:library samples:self.sampleCount earth:earthTexture];
+    loadEphemerides(resource(@"Ephemeris").fileSystemRepresentation);
     for(auto &tex:instrumentTextures) {
         MTLTextureDescriptor *desc=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm_sRGB width:512 height:512 mipmapped:NO];
         tex=[device newTextureWithDescriptor:desc];
     }
     [self resetFlight:nil];
-    bool warmHover=false;
+    bool warmHover=false;NSInteger lookAt=-1;
     NSArray<NSString *> *args=NSProcessInfo.processInfo.arguments;
     for(NSUInteger i=1;i<args.count;++i) {
         if([args[i] isEqual:@"--frames"]&&i+1<args.count) smokeFrames=[args[++i] integerValue];
         else if([args[i] isEqual:@"--capture"]&&i+1<args.count) capturePath=args[++i];
+        else if([args[i] isEqual:@"--body"]&&i+1<args.count){restartBody=(NSInteger)findBody(args[++i].UTF8String);[self resetFlight:nil];pitch=flight.centralBody().solid?.32:1.35;warmHover=false;}
+        else if([args[i] isEqual:@"--look-at"]&&i+1<args.count)lookAt=(NSInteger)findBody(args[++i].UTF8String);
         else if([args[i] isEqual:@"--weather"]&&i+1<args.count)visuals.weather=[args[++i] integerValue];
         else if([args[i] isEqual:@"--throttle"]&&i+1<args.count)flight.throttle=std::clamp([args[++i] doubleValue],0.,1.);
-        else if([args[i] isEqual:@"--altitude"]&&i+1<args.count){double lat,lon;earthCoordinates(flight.position,flight.mjd,flight.elapsed,lat,lon);flight.placeOnEarth(lat,lon,flight.heading(),std::clamp([args[++i] doubleValue],2.53,1000000.));flight.groundContact=false;flight.wheelContacts=0;}
+        else if([args[i] isEqual:@"--altitude"]&&i+1<args.count){double lat,lon;bodyCoordinates(flight.reference,flight.position,flight.mjd,flight.elapsed,lat,lon);flight.placeOnBody(lat,lon,flight.heading(),std::clamp([args[++i] doubleValue],2.53,1000000.));flight.groundContact=false;flight.wheelContacts=0;}
         else if([args[i] isEqual:@"--paused"])flight.paused=true;
         else if([args[i] isEqual:@"--rcs-demo"])rcsDemo=true;
         else if([args[i] isEqual:@"--camera-yaw"]&&i+1<args.count)yaw=[args[++i] doubleValue]*RAD;
@@ -321,9 +332,14 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         }
         else if([args[i] isEqual:@"--prograde"]) { flight.assist=Assist::Prograde; flight.align(flight.velocity); }
         else if([args[i] isEqual:@"--report"]&&i+1<args.count) reportPath=args[++i];
-        else if([args[i] isEqual:@"--scenario"]&&i+1<args.count) { restartScenario=args[++i]; [self resetFlight:nil];warmHover=false; }
+        else if([args[i] isEqual:@"--scenario"]&&i+1<args.count) { restartBody=-1;restartScenario=args[++i]; [self resetFlight:nil];warmHover=false; }
     }
     if(warmHover)for(int i=0;i<6000;++i)flight.advance(.01);
+    if(lookAt>=0){
+        double date=flight.mjd+flight.elapsed/86400;Vector direction=bodyState((BodyId)lookAt,date).position-bodyState(flight.reference,date).position-flight.position;
+        Vector radial=flight.position.unit(),tangent=flight.velocity-radial*dotp(flight.velocity,radial);if(tangent.length2()<1)tangent=flight.forward;tangent.unify();Vector lateral=crossp(radial,tangent).unit(),out=-direction.unit();
+        pitch=std::clamp(asin(std::clamp(dotp(out,radial),-1.,1.)),-1.35,1.35);yaw=atan2(dotp(out,lateral),-dotp(out,tangent));
+    }
     [self updateCockpitDisplays];previous=begin=CACurrentMediaTime(); return self;
 }
 - (BOOL)acceptsFirstResponder { return YES; }
@@ -358,11 +374,11 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     float aspect=self.drawableSize.width/std::max(1.,self.drawableSize.height),tanHalf=tan(50*RAD*.5);
     FrameUniforms uniforms{}; uniforms.projection=projection(aspect,tanHalf);
     uniforms.right=f4(cameraRight); uniforms.up=f4(cameraUp); uniforms.forward=f4(dir);
-    uniforms.position=f4((flight.position+offset)/EarthRadius);
-    // Fixed initial solar direction for the single-body flight milestone.
-    uniforms.sun=f4(Vector(.32,.84,-.44).unit());
-    uniforms.screen={(float)self.drawableSize.width,(float)self.drawableSize.height,tanHalf,(float)fmod((flight.mjd+flight.elapsed/86400.-51544.5)*86400/86164.10132+4.88948754/Pi2,1.)};
-    uniforms.environment={(float)((flight.position+offset).length()/EarthRadius-1),(float)flight.altitude(),0,(float)fmod(flight.elapsed,86400.)};
+    uniforms.position=f4((flight.position+offset)/flight.centralBody().radius);
+    uniforms.screen={(float)self.drawableSize.width,(float)self.drawableSize.height,tanHalf,0};
+    uniforms.environment={0,(float)flight.altitude(),0,(float)fmod(flight.elapsed,86400.)};
+    if(lastBody!=flight.reference){[visuals reset];lastBody=flight.reference;}
+    [solar updateFrame:&uniforms flight:flight offset:offset];
     [visuals prepare:&uniforms width:drawable.texture.width height:drawable.texture.height];
     ObjectUniforms object={};
     object.model.columns[0]=f4(flight.right); object.model.columns[1]=f4(flight.up); object.model.columns[2]=f4(flight.forward); object.model.columns[3]=f4(-offset,1);
@@ -370,9 +386,14 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     [visuals encodeShadows:cb frame:uniforms];
     id<MTLRenderCommandEncoder> encoder=[cb renderCommandEncoderWithDescriptor:visuals.scenePass];
     [encoder setRenderPipelineState:skyPipeline]; [encoder setDepthStencilState:skyDepth];
-    [encoder setFragmentBytes:&uniforms length:sizeof(uniforms) atIndex:1]; [encoder setFragmentTexture:earthTexture atIndex:0];
+    [encoder setFragmentBytes:&uniforms length:sizeof(uniforms) atIndex:1]; [encoder setFragmentTexture:[solar textureForBody:flight.reference] atIndex:0];
+    [encoder setFragmentTexture:solar.rings atIndex:2];
     [encoder setFragmentTexture:visuals.cloudShadows atIndex:1];
     [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+    [encoder setDepthStencilState:depthState];
+    [solar encodeBodies:encoder frame:uniforms flight:flight offset:offset];
+    [encoder setFragmentBytes:&uniforms length:sizeof(uniforms) atIndex:1];
+    [encoder setFragmentTexture:visuals.cloudShadows atIndex:1];
     {
         [encoder setRenderPipelineState:meshPipeline]; [encoder setDepthStencilState:depthState]; [encoder setCullMode:MTLCullModeNone];
         [encoder setVertexBytes:&uniforms length:sizeof(uniforms) atIndex:1];
@@ -405,7 +426,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         simd_float4x4 vesselModel=object.model;
         auto baseFrame=earthSurface(surfaceBase.latitude,surfaceBase.longitude,flight.mjd,flight.elapsed);
         Vector basePosition=baseFrame.up*EarthRadius-flight.position;
-        if(basePosition.length()<80000 && flight.altitude()<50000) {
+        if(flight.reference==BodyId::Earth&&basePosition.length()<80000 && flight.altitude()<50000) {
             object.model.columns[0]=f4(-baseFrame.north);object.model.columns[1]=f4(baseFrame.up);object.model.columns[2]=f4(baseFrame.east);object.model.columns[3]=f4(basePosition-offset,1);
             object.options={0,0,0,0};
             for(const auto &g:groups) if(g.mesh==2) {
@@ -504,9 +525,9 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     auto sorted=intervals; std::sort(sorted.begin(),sorted.end());
     double mean=sorted.empty()?0:std::accumulate(sorted.begin(),sorted.end(),0.)/sorted.size();
     double p95=sorted.empty()?0:sorted[(sorted.size()-1)*95/100];
-    NSDictionary *report=@{@"architecture":@"arm64",@"renderer":@"Metal",@"device":self.device.name,
+    NSDictionary *report=@{@"architecture":@"arm64",@"renderer":@"Metal",@"body":[NSString stringWithUTF8String:flight.centralBody().name],@"bodyRadius":@(flight.centralBody().radius),@"bodyMu":@(flight.gravityMu()),@"solarSystemBodies":@(BodyCount),@"device":self.device.name,
         @"frames":@(frameCount),@"drawableWidth":@(self.drawableSize.width),@"drawableHeight":@(self.drawableSize.height),
-        @"screenMaximumFPS":@(self.window.screen.maximumFramesPerSecond),@"requestedFPS":@(self.preferredFramesPerSecond),@"sampleCount":@(self.sampleCount),@"weather":[visuals weatherName],@"cloudWidth":@(visuals.cloudWidth),@"cloudHeight":@(visuals.cloudHeight),@"hdr":@YES,
+        @"screenMaximumFPS":@(self.window.screen.maximumFramesPerSecond),@"requestedFPS":@(self.preferredFramesPerSecond),@"sampleCount":@(self.sampleCount),@"weather":flight.reference==BodyId::Earth?[visuals weatherName]:@"Not applicable",@"cloudWidth":@(visuals.cloudWidth),@"cloudHeight":@(visuals.cloudHeight),@"hdr":@YES,
         @"exhaustEmitters":@(visuals.emitterCount),@"exhaustParticles":@([visuals liveParticleCount]),@"cameraDistance":@(distance),@"forwardLength":@(flight.forward.length()),@"rightLength":@(flight.right.length()),@"meanFrameMs":@(mean),@"p95FrameMs":@(p95),@"meanFPS":@(mean?1000/mean:0),
         @"meanCPUEncodeMs":@(cpuSum/frameCount),@"lastGPUFrameMs":@(gpuMs),@"scenarioElapsed":@(flight.elapsed),
         @"altitudeMeters":@(flight.altitude()),@"meshGroups":@(groups.size()),
@@ -514,25 +535,26 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         @"hoverHoldActive":@(flight.glider.hoverControl.holdActive),@"hoverHoldMode":@(flight.glider.hoverControl.holdMode),
         @"hoverAltitudeTarget":@(flight.glider.hoverControl.altitudeTarget),@"verticalSpeed":@(flight.surfaceVerticalSpeed()),@"pitchDegrees":@(Deg(flight.pitch())),@"bankDegrees":@(Deg(flight.bank())),
         @"hoverFront":@(flight.glider.hoverControl.levels[0]),@"hoverLeft":@(flight.glider.hoverControl.levels[1]),@"hoverRight":@(flight.glider.hoverControl.levels[2]),
-        @"surfacePads":@(surfaceBase.pads),@"surfaceBuildings":@(surfaceBase.buildings),@"surfaceRunways":@(surfaceBase.runways)};
+        @"surfacePads":@(flight.reference==BodyId::Earth?surfaceBase.pads:0),@"surfaceBuildings":@(flight.reference==BodyId::Earth?surfaceBase.buildings:0),@"surfaceRunways":@(flight.reference==BodyId::Earth?surfaceBase.runways:0)};
     [[NSJSONSerialization dataWithJSONObject:report options:NSJSONWritingPrettyPrinted error:nil] writeToFile:reportPath atomically:YES];
 }
 - (void)updateCockpitDisplays {
-    bool surface=flight.altitude()<120000;Elements orbit=surface?Elements():flight.orbit();
+    NSString *bodyName=[NSString stringWithUTF8String:flight.centralBody().name];double radius=flight.centralBody().radius;
+    bool surface=flight.altitude()<std::min(120000.,flight.centralBody().radius*.02);Elements orbit=surface?Elements():flight.orbit();
     NSColor *green=[NSColor colorWithRed:.52 green:1 blue:.58 alpha:1];
     for(int display=0;display<2;++display) {
         NSBitmapImageRep *rep=[[NSBitmapImageRep alloc] initWithBitmapDataPlanes:nullptr pixelsWide:512 pixelsHigh:512 bitsPerSample:8 samplesPerPixel:4 hasAlpha:YES isPlanar:NO colorSpaceName:NSCalibratedRGBColorSpace bytesPerRow:2048 bitsPerPixel:32];
         [NSGraphicsContext saveGraphicsState];NSGraphicsContext.currentContext=[NSGraphicsContext graphicsContextWithBitmapImageRep:rep];
         [[NSColor blackColor] setFill];NSRectFill(NSMakeRect(0,0,512,512));
         NSArray<NSString *> *rows;
-        if(!display&&surface) rows=@[@"SURFACE / EARTH",[NSString stringWithFormat:@"ALT   %.1f m",flight.altitude()],
+        if(!display&&surface) rows=@[[NSString stringWithFormat:@"SURFACE / %@",bodyName.uppercaseString],[NSString stringWithFormat:@"ALT   %.1f m",flight.altitude()],
             [NSString stringWithFormat:@"GS    %.2f m/s",flight.groundSpeed],[NSString stringWithFormat:@"VS    %+.2f m/s",flight.surfaceVerticalSpeed()],
             [NSString stringWithFormat:@"HDG   %.1f deg",Deg(flight.heading())],[NSString stringWithFormat:@"PITCH %+.1f deg",Deg(flight.pitch())],
             [NSString stringWithFormat:@"BANK  %+.1f deg",Deg(flight.bank())],flight.glider.parkingBrake?@"PARK BRAKE SET":@"BRAKES RELEASED"];
-        else if(!display) rows=@[@"ORBIT / EARTH",[NSString stringWithFormat:@"ALT   %.2f km",flight.altitude()/1000],
+        else if(!display) rows=@[[NSString stringWithFormat:@"ORBIT / %@",bodyName.uppercaseString],[NSString stringWithFormat:@"ALT   %.2f km",flight.altitude()/1000],
             [NSString stringWithFormat:@"VEL   %.1f m/s",flight.velocity.length()],
-            orbit.e<1?[NSString stringWithFormat:@"ApA   %.1f km",(orbit.ApDist()-EarthRadius)/1000]:@"ApA   ESCAPE",
-            [NSString stringWithFormat:@"PeA   %.1f km",(orbit.PeDist()-EarthRadius)/1000],
+            orbit.e<1?[NSString stringWithFormat:@"ApA   %.1f km",(orbit.ApDist()-radius)/1000]:@"ApA   ESCAPE",
+            [NSString stringWithFormat:@"PeA   %.1f km",(orbit.PeDist()-radius)/1000],
             [NSString stringWithFormat:@"ECC   %.5f",orbit.e],[NSString stringWithFormat:@"VS    %+.1f m/s",flight.radialSpeed()]];
         else if(flight.glider.hoverControl.attitudeMode||flight.glider.hoverControl.holdActive) {
             auto &hover=flight.glider.hoverControl;
@@ -565,23 +587,25 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
 }
 - (void)resetFlight:(id)sender {
     [self clearInput];[visuals reset];demoLadderQueued=false;
-    if(!restartScenario)restartScenario=resource(@"Scenarios/DG Mk4 in orbit.scn");
-    flight.load(restartScenario.fileSystemRepresentation);
-    status=flight.groundContact?@"Surface flight · [ / ] hover thrust · M opens systems":@"Earth orbit · Press F1 for controls";
+    if(restartBody>=0)flight.startOrbit((BodyId)restartBody);
+    else {if(!restartScenario)restartScenario=resource(@"Scenarios/DG Mk4 in orbit.scn");flight.load(restartScenario.fileSystemRepresentation);}
+    flight.automaticReferenceChanges=true;
+    status=[NSString stringWithFormat:@"%s %@ · Press F1 for controls",flight.centralBody().name,flight.groundContact?@"surface flight":@"orbit"];
+
 }
 - (void)startSurface:(id)sender {
-    restartScenario=resource(@"Scenarios/Cape Canaveral native.scn");[self resetFlight:nil];
+    restartBody=-1;restartScenario=resource(@"Scenarios/Cape Canaveral native.scn");[self resetFlight:nil];
     yaw=-.55;pitch=.22;distance=43;cockpit=false;
 }
-- (void)startOrbit:(id)sender {restartScenario=resource(@"Scenarios/DG Mk4 in orbit.scn");[self resetFlight:nil];}
+- (void)startOrbit:(id)sender {restartBody=-1;restartScenario=resource(@"Scenarios/DG Mk4 in orbit.scn");[self resetFlight:nil];}
 - (void)startHoverPractice:(id)sender {
-    restartScenario=resource(@"Scenarios/Cape Canaveral hover.scn");[self resetFlight:nil];
+    restartBody=-1;restartScenario=resource(@"Scenarios/Cape Canaveral hover.scn");[self resetFlight:nil];
     yaw=-.55;pitch=.22;distance=43;cockpit=false;status=@"Hover practice · climbing to 100 m · X disengages hold and cuts engines";
 }
 - (void)toggleHoverHold:(id)sender {
     auto &h=flight.glider.hoverControl;
     if(h.holdActive){h.holdActive=false;h.resetFeedback();status=@"Hover hold disengaged · throttle retained";}
-    else if(!flight.setHoverHold(h.holdMode==2?2:1,h.holdMode==2?h.verticalSpeedTarget:h.altitudeTarget))status=@"Hover hold requires fuel and Earth flight below 120 km";
+    else if(!flight.setHoverHold(h.holdMode==2?2:1,h.holdMode==2?h.verticalSpeedTarget:h.altitudeTarget))status=@"Hover hold requires fuel and a solid body below 120 km";
     else status=@"Hover hold engaged · manual hover throttle or X disengages hold";
 }
 - (void)toggleHoverAttitude:(id)sender {auto &h=flight.glider.hoverControl;h.attitudeMode=h.attitudeMode==1?0:1;status=h.attitudeMode?@"Hover auto attitude · pitch/roll keys command up to 10° tilt":@"Hover attitude control off";}
@@ -589,13 +613,13 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     auto &h=flight.glider.hoverControl;
     if(h.holdActive&&h.holdMode==1){[self toggleHoverHold:nil];return;}
     if(flight.setHoverHold(1,std::max(0.,flight.altitude())))status=@"Holding current altitude · X cuts engines";
-    else status=@"Hover hold requires fuel and Earth flight below 120 km";
+    else status=@"Hover hold requires fuel and a solid body below 120 km";
 }
 - (void)holdZeroVerticalSpeed:(id)sender {
     auto &h=flight.glider.hoverControl;
     if(h.holdActive&&h.holdMode==2){[self toggleHoverHold:nil];return;}
     if(flight.setHoverHold(2,0))status=@"Holding zero vertical speed · X cuts engines";
-    else status=@"Hover hold requires fuel and Earth flight below 120 km";
+    else status=@"Hover hold requires fuel and a solid body below 120 km";
 }
 - (void)toggleParkingBrake:(id)sender {flight.glider.parkingBrake=!flight.glider.parkingBrake;self.hud.needsDisplay=YES;}
 - (void)demonstrateGlider:(id)sender {
@@ -609,8 +633,8 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
 - (void)showError:(const char *)message { NSAlert *a=[NSAlert new]; a.messageText=@"Unable to load flight"; a.informativeText=[NSString stringWithUTF8String:message]; [a runModal]; }
 - (void)openScenario:(id)sender {
     [self clearInput]; BOOL wasPaused=flight.paused; flight.paused=true;
-    NSOpenPanel *panel=[NSOpenPanel openPanel]; panel.allowedContentTypes=@[[UTType typeWithFilenameExtension:@"scn"]]; panel.message=@"Choose an Earth scenario focused on a standard DeltaGlider.";
-    if([panel runModal]==NSModalResponseOK) { try { flight.load(panel.URL.fileSystemRepresentation); restartScenario=panel.URL.path;status=panel.URL.lastPathComponent; }
+    NSOpenPanel *panel=[NSOpenPanel openPanel]; panel.allowedContentTypes=@[[UTType typeWithFilenameExtension:@"scn"]]; panel.message=@"Choose a Solar System scenario focused on a standard DeltaGlider.";
+    if([panel runModal]==NSModalResponseOK) { try { flight.load(panel.URL.fileSystemRepresentation); restartBody=-1;restartScenario=panel.URL.path;status=panel.URL.lastPathComponent; }
         catch(const std::exception &e) { [self showError:e.what()]; flight.paused=wasPaused; } }
     else flight.paused=wasPaused;
     previous=CACurrentMediaTime();
@@ -654,6 +678,13 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         case 122:[self toggleHelp:nil];break;
         case 120:orbitVisible=!orbitVisible;break;
     }
+}
+- (void)startBodyOrbit:(NSMenuItem *)sender {
+    restartBody=sender.tag;[self resetFlight:nil];yaw=-.55;pitch=flight.centralBody().solid?.32:1.35;distance=43;cockpit=false;self.hud.needsDisplay=YES;
+}
+- (BOOL)validateMenuItem:(NSMenuItem *)item {
+    if(item.action==@selector(setWeather:))return flight.reference==BodyId::Earth;
+    return YES;
 }
 - (void)cycleWeather:(id)sender {visuals.weather=(visuals.weather+1)%4;status=[NSString stringWithFormat:@"Weather: %@ · F3 changes cloud coverage",[visuals weatherName]];self.hud.needsDisplay=YES;}
 - (void)setWeather:(NSMenuItem *)sender {visuals.weather=sender.tag;status=[NSString stringWithFormat:@"Weather: %@",[visuals weatherName]];self.hud.needsDisplay=YES;}
@@ -726,7 +757,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     @try { try {
         NSRect rect=NSMakeRect(0,0,1280,800);
         self.window=[[NSWindow alloc] initWithContentRect:rect styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable|NSWindowStyleMaskMiniaturizable|NSWindowStyleMaskResizable backing:NSBackingStoreBuffered defer:NO];
-        self.window.title=@"Orbiter Native — Delta-glider"; self.window.minSize=NSMakeSize(900,600); self.window.delegate=self;
+        self.window.title=[NSString stringWithFormat:@"Orbiter Native %@ — Delta-glider",[NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"]]; self.window.minSize=NSMakeSize(900,600); self.window.delegate=self;
         self.window.appearance=[NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
         self.view=[[FlightView alloc] initWithFrame:rect]; self.view.autoresizingMask=NSViewWidthSizable|NSViewHeightSizable;
         NSView *root=[[NSView alloc] initWithFrame:rect]; [root addSubview:self.view];
@@ -750,6 +781,12 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         NSMenuItem *demo=[fm addItemWithTitle:@"Mechanism Demonstration" action:@selector(demonstrateGlider:) keyEquivalent:@""];demo.target=self.view;
         NSMenuItem *reset=[fm addItemWithTitle:@"Restart Flight" action:@selector(resetFlight:) keyEquivalent:@""]; reset.target=self.view;
         NSMenuItem *help=[fm addItemWithTitle:@"Flight Controls" action:@selector(toggleHelp:) keyEquivalent:@"?"]; help.target=self.view;
+        NSMenuItem *solarItem=[NSMenuItem new];solarItem.title=@"Solar System";[main addItem:solarItem];NSMenu *system=[NSMenu new];solarItem.submenu=system;
+        for(const auto &b:bodies())if(b.id==BodyId::Sun||b.parent==BodyId::Sun){
+            NSMenuItem *parent=[system addItemWithTitle:[NSString stringWithUTF8String:b.name] action:nil keyEquivalent:@""];NSMenu *children=[NSMenu new];parent.submenu=children;
+            NSMenuItem *orbit=[children addItemWithTitle:[NSString stringWithFormat:@"%s Orbit",b.name] action:@selector(startBodyOrbit:) keyEquivalent:@""];orbit.target=self.view;orbit.tag=(NSInteger)b.id;
+            for(const auto &moon:bodies())if(b.id!=BodyId::Sun&&moon.id!=b.id&&moon.parent==b.id){NSMenuItem *item=[children addItemWithTitle:[NSString stringWithFormat:@"%s Orbit",moon.name] action:@selector(startBodyOrbit:) keyEquivalent:@""];item.target=self.view;item.tag=(NSInteger)moon.id;}
+        }
         NSMenuItem *weatherItem=[NSMenuItem new];weatherItem.title=@"Weather";[main addItem:weatherItem];NSMenu *weather=[NSMenu new];weatherItem.submenu=weather;
         NSArray *presets=@[@"Clear",@"Scattered",@"Overcast",@"Storm"];
         for(NSInteger i=0;i<4;++i){NSMenuItem *item=[weather addItemWithTitle:presets[i] action:@selector(setWeather:) keyEquivalent:@""];item.target=self.view;item.tag=i;}

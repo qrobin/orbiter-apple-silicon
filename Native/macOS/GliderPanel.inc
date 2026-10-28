@@ -132,7 +132,7 @@
     captureHoldTarget.title=altitudeMode?@"Use current altitude":@"Set zero climb";
     holdButton.title=[NSString stringWithFormat:@"%@ %@ Hold",h.holdActive?@"Disengage":@"Engage",altitudeMode?@"Altitude":@"Vertical Speed"];
     holdButton.enabled=h.holdActive||(f.altitude()<120000&&f.fuel>0&&!f.impacted);
-    holdButton.toolTip=@"Requires main propellant and Earth flight below 120 km. Manual hover throttle or Cut Engines disengages hold.";
+    holdButton.toolTip=@"Requires main propellant and flight over a solid body below 120 km. Manual hover throttle or Cut Engines disengages hold.";
     hoverReadout.stringValue=[NSString stringWithFormat:@"Pitch %+.1f°  Bank %+.1f°  Vertical %+.2f m/s\nEngines F %.0f%%  L %.0f%%  R %.0f%%\n%@",Deg(f.pitch()),Deg(f.bank()),f.surfaceVerticalSpeed(),h.levels[0]*100,h.levels[1]*100,h.levels[2]*100,h.attitudeLimited?@"Attitude outside 30° control range":h.thrustLimited?@"Thrust at limit — target may be unreachable":h.holdActive?@"Hold engaged · X cuts engines":@"Hold off · manual hover throttle"];
     hoverReadout.textColor=(h.attitudeLimited||h.thrustLimited)?[NSColor colorWithRed:1 green:.72 blue:.36 alpha:1]:NSColor.labelColor;
     rcsSelector.selectedSegment=g.rcsMode;

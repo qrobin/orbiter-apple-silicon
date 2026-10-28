@@ -1,6 +1,33 @@
-# Orbiter Native 0.6 — Metal clouds and exhaust
+# Orbiter Native 0.7 — planets and moons
 
-A partial native Apple Silicon port of the supplied Orbiter source. Version 0.6 adds volumetric cloud/weather presets, the 8K Earth map, GPU exhaust and HDR lighting to the existing native Delta-glider, cockpit and hover controls. This remains an experimental native flight target, **not a complete port of Orbiter or every Delta-glider subsystem**.
+A partial native Apple Silicon port of the supplied Orbiter source. Version 0.7 extends native flight and rendering to the original Solar System catalogue, retaining the cockpit, hover controls, Earth clouds and GPU exhaust. This remains an experimental native flight target, **not a complete port of Orbiter or every Delta-glider subsystem**.
+
+## Solar System in 0.7
+
+Choose **Solar System → a planet → its Orbit or a moon's Orbit**. This starts a new orbit around that body at the current simulation date. **R** restarts the selected orbit. **Flight → Earth Orbit** and the Cape starts return to the original Earth scenarios.
+
+The catalogue has **33 bodies**: Sun, eight planets, Vesta and 23 moons.
+
+| Parent | Moons |
+| --- | --- |
+| Earth | Moon |
+| Mars | Phobos, Deimos |
+| Jupiter | Io, Europa, Ganymede, Callisto |
+| Saturn | Mimas, Enceladus, Tethys, Dione, Rhea, Titan, Hyperion, Iapetus |
+| Uranus | Miranda, Ariel, Umbriel, Titania, Oberon |
+| Neptune | Triton, Proteus, Nereid |
+
+Each body has its original configured mass/radius, rotating surface frame and body-specific gravity. Orbital instruments subtract the active body's radius; low-altitude surface instruments scale their threshold to the body's size. Gas giants have no solid landing surface. The reference switches automatically at sphere-of-influence boundaries, preserving heliocentric position and velocity. This is a **patched-conic** flight model: spacecraft acceleration uses the active central body, rather than summing all bodies' gravity/tidal forces.
+
+The native ephemeris adapters use the bundled **VSOP87B** series for planets, **ELP82** for the Moon, **GALSAT/Lieske** for Jupiter's four large moons and **TASS17** for Saturn's eight moons. The remaining satellites and Vesta use the original configured mean Kepler elements. Positions/velocities are reconstructed through 60-second Hermite samples. Axial precession is frozen at the catalogue's mean J2000 orientation.
+
+The renderer shows the other bodies at their current positions and angular sizes, with sunlit phases and Saturn's rings. The Sun direction follows the spacecraft's heliocentric position. Sun, planets and the Moon have credited 2K maps (Earth retains its NASA 8K map). Other moons and Vesta have procedural surface materials; their generated markings are approximations. Surfaces remain mean spheres without local terrain relief. Very distant bodies can be below a pixel in size.
+
+Earth alone has the existing weather/cloud presets. Airless bodies have vacuum, and other atmospheres use a reduced hydrostatic isothermal model based on their configured pressure, density and gravity; they do not reuse Earth's atmospheric profile. The existing glider aerodynamics remain a reduced model. The spherical touchdown solver and hover controls use the active body's gravity and surface rotation. Cape scenery is drawn only at Earth.
+
+Native scenarios can save/load supported body references in `STATUS Orbiting <body>` and `STATUS Landed <solid body>`. Other vessels and stations in the file are still not instantiated.
+
+For a bounded render check, add `--body Moon`, `--body Mars`, `--body Jupiter` or another catalogue name. `--look-at Jupiter` or `--look-at Saturn` sets an initial camera direction for reviewing a parent planet from a moon. Native drag/scroll controls remain available in interactive flight.
 
 ## Native graphics in 0.6
 
@@ -10,7 +37,7 @@ Clouds occupy a spherical layer above Earth. A GPU-generated 128³ Perlin/Worley
 
 Main, retro, hover and RCS effects use the tested shared nozzle/command data. Instanced 3D blue-white flame cores follow the craft and gimbals. A 4096-slot GPU particle pool emits and advects exhaust in the inertial frame, retaining the spacecraft's velocity at emission and responding to gravity. Pressure changes the visible spread. Soft depth intersections, local cloud attenuation, FP16 scene rendering, bloom and tone mapping integrate the exhaust into the view. The flame and particle appearance is an approximation, not a fluid/combustion simulation.
 
-The native camera sensitivity, flight controls, original cockpit, glider systems and Cape scenery remain available. The solar direction is still fixed for this milestone. Global imagery is not detailed local terrain; the Cape ground cover remains approximate.
+The native camera sensitivity, flight controls, original cockpit, glider systems and Cape scenery remain available. The solar direction now follows the heliocentric spacecraft position. Global imagery is not detailed local terrain; the Cape ground cover remains approximate.
 
 ## Try it
 
@@ -115,7 +142,7 @@ Requires Apple Silicon, macOS 13+, Xcode command-line tools and CMake 3.19+. The
 ./Native/build.sh --run
 ```
 
-Result: `build/macos-arm64/Native/Orbiter Native.app`. Set `ORBITER_NATIVE_BUILD_DIR` for another directory. The build runs the native flight, glider, surface, hover, exhaust and camera test suites and applies a local ad-hoc signature. Public notarization is not provided.
+Result: `build/macos-arm64/Native/Orbiter Native.app`. Set `ORBITER_NATIVE_BUILD_DIR` for another directory. The build runs the native flight, glider, surface, hover, exhaust, camera and Solar System test suites and applies a local ad-hoc signature. Public notarization is not provided.
 
 For a bounded rendering run:
 
@@ -156,13 +183,13 @@ Pressure uses a continuous solution to the original cabin/airlock volume and con
 
 Still incomplete:
 
-- Full native vessel/body engine, moving solar-system bodies, SPICE modules, perturbations, terrain, complete bases and validated atmospheric flight-model equivalence. Ground contact currently uses an experimental spherical-surface model; hard impacts stop the flight.
+- Full native vessel/body engine, SPICE modules, simultaneous multi-body perturbations, terrain, complete bases and validated atmospheric flight-model equivalence. Ground contact currently uses an experimental spherical-surface model; hard impacts stop the flight.
 - Full DG damage/failure model, complete coolant circuit, atmospheric ascent/landing autopilots, original analog instruments, all cockpit buttons and complete MFD modes.
 - Docking/undocking mechanics, other ships and stations. The animated nose exposes the port, but docking requires the unported multi-vessel infrastructure.
 - DG-S scramjet systems (a separate variant), original sound, Lua scripting and Windows DLL plug-ins.
 
-Only Earth scenarios focused on a standard `DeltaGlider` are accepted; landed scenario support is experimental. Other objects in those scenarios are not instantiated; native saves contain the focused vessel only, with native extension fields for its additional controls. No full-simulator equivalence is claimed.
+Scenarios focused on a standard `DeltaGlider` at a catalogue body are accepted; landed scenario support is experimental. Other objects in those scenarios are not instantiated; native saves contain the focused vessel only, with native extension fields for its additional controls. No full-simulator equivalence is claimed.
 
-NASA's credited global Earth image is a visual backdrop, not the high-resolution terrain/elevation system. Solar direction is fixed for this milestone. Display settings are not changed; presentation rate follows the active refresh mode.
+NASA's credited global Earth image is a visual backdrop, not the high-resolution terrain/elevation system. Solar direction follows the heliocentric spacecraft position. Display settings are not changed; presentation rate follows the active refresh mode.
 
 See `Assets/CREDITS.txt`, the bundled MIT license and original source notices.

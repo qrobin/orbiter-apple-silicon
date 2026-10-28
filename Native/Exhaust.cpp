@@ -43,9 +43,12 @@ std::vector<ExhaustEmitter> gliderExhaust(const Flight &f) {
     for(double x:{-.817096,.817096})jet({x,-.488177,9.729635},{0,0,1},-t.z);
     return out;
 }
-PlumeShape plumeShape(double altitude,ExhaustKind kind) {
-    const double air=pow(std::clamp(earthAtmosphere(altitude).p/101325.,0.,1.),.25);
+static PlumeShape pressureShape(double pressure,ExhaustKind kind) {
+    const double air=pow(std::clamp(pressure/101325.,0.,1.),.25);
     if(kind==ExhaustKind::Rcs)return {55, .035, .10+(1-air)*.3};
     return {260+(1-air)*300, .085+(1-air)*.035, .035+(1-air)*.10};
 }
+PlumeShape plumeShape(double altitude,ExhaustKind kind){return pressureShape(earthAtmosphere(altitude).p,kind);}
+PlumeShape plumeShape(const Flight &f,ExhaustKind kind){return pressureShape(bodyAtmosphere(f.reference,f.altitude()).p,kind);}
+
 }

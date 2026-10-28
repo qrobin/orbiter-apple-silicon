@@ -16,7 +16,9 @@ struct FrameUniforms {
     VFLOAT4 right,up,forward,position,sun,screen,environment;
     VFLOAT4 clouds; // base/top in metres, coverage, storm amount
     VFLOAT4 previousRight,previousUp,previousForward,previousPosition;
+    VFLOAT4 body,haze,equatorX,pole,equatorZ,surfaceColor;
 };
+struct CelestialUniforms { VFLOAT4 directionRadius,axisX,pole,axisZ,light,material,rings; };
 struct EmitterUniforms { VFLOAT4 positionLevel,directionRadius,style; };
 struct ParticleUniforms { VFLOAT4 positionAge,velocityLife,style; };
 struct EffectUniforms {
@@ -30,5 +32,5 @@ struct SkyRaster { float4 position [[position]]; float2 uv; };
 #undef VFLOAT4
 #undef VMATRIX
 #ifndef __METAL_VERSION__
-static_assert(sizeof(FrameUniforms)==256 && sizeof(EmitterUniforms)==48 && sizeof(ParticleUniforms)==48 && sizeof(EffectUniforms)==80);
+static_assert(sizeof(FrameUniforms)==352 && sizeof(CelestialUniforms)==112 && sizeof(EmitterUniforms)==48 && sizeof(ParticleUniforms)==48 && sizeof(EffectUniforms)==80);
 #endif

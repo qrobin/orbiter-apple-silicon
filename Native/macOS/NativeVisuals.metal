@@ -1,5 +1,4 @@
 // Cloud volumes, temporal reconstruction and exhaust implemented directly in Metal.
-constant float planetRadius=6371010.0f;
 constant uint particleCapacity=4096;
 uint visualHash(uint x) { x^=x>>16;x*=0x7feb352du;x^=x>>15;x*=0x846ca68bu;return x^(x>>16); }
 float visualRandom(uint x) { return float(visualHash(x)&0xffffffu)/16777216.0f; }
@@ -29,8 +28,7 @@ kernel void makeCloudNoise(texture3d<float,access::write> output [[texture(0)]],
     output.write(float4(base*.7+worley*.3,worley,periodicNoise(p*4+19,4),1),id);
 }
 float3 terrestrial(float3 p,constant FrameUniforms &f) {
-    float co=cos(.4090928f),so=sin(.4090928f);
-    float3 e=float3(p.x,p.y*co+p.z*so,-p.y*so+p.z*co);
+    float3 e=float3(dot(p,f.equatorX.xyz),dot(p,f.pole.xyz),dot(p,f.equatorZ.xyz));
     float a=f.screen.w*(2*M_PI_F),c=cos(a),s=sin(a);
     return float3(c*e.x-s*e.z,e.y,s*e.x+c*e.z);
 }
@@ -40,7 +38,7 @@ float2 terrestrialUV(float3 p,constant FrameUniforms &f) {
 }
 float cloudDensity(float3 p,constant FrameUniforms &f,texture3d<float> noise) {
     if(f.clouds.z<=0)return 0;
-    float h=length(p)-planetRadius;
+    float h=length(p)-f.body.x;
     float height=(h-f.clouds.x)/(f.clouds.y-f.clouds.x);
     if(height<=0||height>=1)return 0;
     constexpr sampler s(filter::linear,address::repeat);
@@ -57,9 +55,9 @@ float cloudDensity(float3 p,constant FrameUniforms &f,texture3d<float> noise) {
     return density*profile*(.00065+f.clouds.w*.00045);
 }
 // Stable sphere intersections avoid subtracting two large, nearly equal squared radii.
-float2 cloudShellRoots(float cameraHeight,float shellHeight,float mu) {
-    float b=(planetRadius+cameraHeight)*mu;
-    float c=(cameraHeight-shellHeight)*(2*planetRadius+cameraHeight+shellHeight);
+float2 cloudShellRoots(float cameraHeight,float shellHeight,float mu,float radius) {
+    float b=(radius+cameraHeight)*mu;
+    float c=(cameraHeight-shellHeight)*(2*radius+cameraHeight+shellHeight);
     float d=b*b-c;if(d<0)return float2(1,-1);
     float q=-b-copysign(sqrt(d),b);float other=abs(q)>1e-6?c/q:-b;
     return float2(min(q,other),max(q,other));
@@ -80,11 +78,11 @@ kernel void cloudShadowMap(constant FrameUniforms &f [[buffer(0)]],texture3d<flo
                            texture2d<float,access::write> shadow [[texture(1)]],uint2 id [[thread_position_in_grid]]) {
     if(id.x>=shadow.get_width()||id.y>=shadow.get_height())return;
     float2 uv=(float2(id)+.5)/float2(shadow.get_width(),shadow.get_height());
-    float3 ray=viewRay(uv,f);float cameraHeight=f.environment.x*planetRadius;
-    float2 roots=cloudShellRoots(cameraHeight,0,dot(normalize(f.position.xyz),ray));
+    float3 ray=viewRay(uv,f);float cameraHeight=f.environment.x*f.body.x;
+    float2 roots=cloudShellRoots(cameraHeight,0,dot(normalize(f.position.xyz),ray),f.body.x);
     float optical=0;
     if(roots.x>=0&&roots.y>roots.x&&f.clouds.z>0){
-        float3 surface=normalize(normalize(f.position.xyz)*(planetRadius+cameraHeight)+ray*roots.x)*planetRadius;
+        float3 surface=normalize(normalize(f.position.xyz)*(f.body.x+cameraHeight)+ray*roots.x)*f.body.x;
         float mu=dot(normalize(surface),f.sun.xyz);
         if(mu>.02){
             float step=(f.clouds.y-f.clouds.x)/4;
@@ -102,12 +100,12 @@ kernel void marchClouds(constant FrameUniforms &f [[buffer(0)]],constant uint &f
     float2 uv=(float2(id)+.5)/float2(size);float3 ray=viewRay(uv,f);
     uint2 full=min(uint2(uv*float2(depth.get_width(),depth.get_height())),uint2(depth.get_width()-1,depth.get_height()-1));
     float geometry=depthDistance(depth.read(full).r,ray,f);
-    float cameraHeight=f.environment.x*planetRadius;
-    float2 roots=cloudShellRoots(cameraHeight,f.clouds.y,dot(normalize(f.position.xyz),ray));
+    float cameraHeight=f.environment.x*f.body.x;
+    float2 roots=cloudShellRoots(cameraHeight,f.clouds.y,dot(normalize(f.position.xyz),ray),f.body.x);
     float start=max(0.0f,roots.x),end=min(roots.y,geometry);
-    float2 inner=cloudShellRoots(cameraHeight,f.clouds.x,dot(normalize(f.position.xyz),ray));
+    float2 inner=cloudShellRoots(cameraHeight,f.clouds.x,dot(normalize(f.position.xyz),ray),f.body.x);
     if(cameraHeight>f.clouds.x&&inner.x>start)end=min(end,inner.x);
-    float3 origin=normalize(f.position.xyz)*(planetRadius+cameraHeight);
+    float3 origin=normalize(f.position.xyz)*(f.body.x+cameraHeight);
     float3 radiance=0;float trans=1,weightedDistance=0,weight=0;
     if(f.clouds.z>0&&end>start){
         float step=(end-start)/48.0f;
@@ -131,7 +129,7 @@ kernel void marchClouds(constant FrameUniforms &f [[buffer(0)]],constant uint &f
     float distance=weight>.001?weightedDistance/weight:(start+max(start,end))*.5;
     float4 color=float4(radiance,1-trans);
     if(f.environment.z>.5){
-        float3 toPrevious=(f.position.xyz-f.previousPosition.xyz)*planetRadius+ray*distance;
+        float3 toPrevious=(f.position.xyz-f.previousPosition.xyz)*f.body.x+ray*distance;
         float z=dot(toPrevious,f.previousForward.xyz);
         float2 oldUV=float2(.5+.5*dot(toPrevious,f.previousRight.xyz)/max(.01f,z)/(f.screen.z*f.screen.x/f.screen.y),.5-.5*dot(toPrevious,f.previousUp.xyz)/max(.01f,z)/f.screen.z);
         if(z>0&&all(oldUV>0)&&all(oldUV<1)){
@@ -236,9 +234,9 @@ fragment float4 exhaustFragment(ExhaustRaster in [[stage_in]],constant FrameUnif
         alpha*=.55+.45*smoothstep(.2f,.8f,turbulence);
     }
     // Attenuate only cloud between the camera and the jet, rather than clouds behind it.
-    if(f.environment.x*planetRadius<f.clouds.y+1000&&f.clouds.z>0){
+    if(f.environment.x*f.body.x<f.clouds.y+1000&&f.clouds.z>0){
         float lengthToJet=length(in.cameraRelative),optical=0;
-        float3 origin=f.position.xyz*planetRadius;
+        float3 origin=f.position.xyz*f.body.x;
         for(int i=0;i<4;++i)optical+=cloudDensity(origin+in.cameraRelative*((i+.5)/4.0f),f,noise)*lengthToJet*.25;
         alpha*=exp(-optical);
     }

@@ -5,7 +5,7 @@ file(COPY "${src}/Src/Vessel/DeltaGlider/Meshes/deltaglider_ns.msh" "${src}/Src/
 file(COPY "${src}/Src/Vessel/DeltaGlider/Textures/" DESTINATION "${dst}/Textures/DG")
 file(COPY "${src}/Src/Vessel/DeltaGlider/Textures2/dgmk4_1.dds" "${src}/Src/Vessel/DeltaGlider/Textures2/dgmk4_2_ns.dds" DESTINATION "${dst}/Textures/DG")
 file(COPY "${src}/Scenarios/Delta-glider/DG Mk4 in orbit.scn" DESTINATION "${dst}/Scenarios")
-file(COPY "${src}/Native/macOS/Shaders.metal" "${src}/Native/macOS/NativeVisuals.metal" "${src}/Native/macOS/VisualTypes.h" "${src}/LICENSE" DESTINATION "${dst}")
+file(COPY "${src}/Native/macOS/Shaders.metal" "${src}/Native/macOS/NativeVisuals.metal" "${src}/Native/macOS/SolarSystem.metal" "${src}/Native/macOS/VisualTypes.h" "${src}/LICENSE" DESTINATION "${dst}")
 file(COPY "${src}/Native/Assets/" DESTINATION "${dst}")
 
 file(COPY "${src}/Textures/generic/noise1.dds" DESTINATION "${dst}/Textures/generic")
@@ -21,3 +21,7 @@ foreach(texture IN LISTS base_textures)
         configure_file("${texture}" "${dst}/Textures/Base/${name}" COPYONLY)
     endif()
 endforeach()
+
+file(MAKE_DIRECTORY "${dst}/Ephemeris")
+file(GLOB vsop_files "${src}/Src/Celbody/Vsop87/Data/Vsop87B_*.dat")
+file(COPY ${vsop_files} "${src}/Src/Celbody/Moon/ELP82.dat" "${src}/Src/Celbody/Galsat/ephem_e15.dat" "${src}/Src/Celbody/Satsat/tass17.dat" DESTINATION "${dst}/Ephemeris")

@@ -8,4 +8,5 @@ struct ExhaustEmitter { Vector position,direction; double level,radius; ExhaustK
 std::vector<ExhaustEmitter> gliderExhaust(const Flight &flight);
 struct PlumeShape { double speed,lifetime,spread; };
 PlumeShape plumeShape(double altitude,ExhaustKind kind);
+PlumeShape plumeShape(const Flight &flight,ExhaustKind kind);
 }

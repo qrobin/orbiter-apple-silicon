@@ -1,6 +1,7 @@
 #include "Flight.h"
 #include "SolarSystem.h"
 #include "Surface.h"
+#include "Exhaust.h"
 #include <iostream>
 #include <fstream>
 #include <stdexcept>
@@ -44,5 +45,7 @@ int main(){try{
     f.position={sphereOfInfluence(BodyId::Moon,date)*1.1,0,0};f.updateReference();check(f.reference==BodyId::Earth,"Lunar escape returns to Earth reference");
     f.reference=BodyId::Moon;f.placeOnBody(.2,-.4,0);f.save(tmp);Flight landed;landed.load(tmp);check(landed.reference==BodyId::Moon&&landed.groundContact,"Landed Moon save/load");
     bool rejected=false;try{f.reference=BodyId::Jupiter;f.placeOnBody(0,0,0);}catch(...){rejected=true;}check(rejected,"Gas giants have no solid landing surface");
+    f.startOrbit(BodyId::Moon);auto lunarPlume=plumeShape(f,ExhaustKind::Main);auto vacuumPlume=plumeShape(1000000,ExhaustKind::Main);check(fabs(lunarPlume.spread-vacuumPlume.spread)<1e-12,"Lunar plume uses vacuum pressure");
+    for(BodyId id:{BodyId::Moon,BodyId::Mars}){Flight ground;ground.reference=id;ground.placeOnBody(.1,.2,0);ground.glider.parkingBrake=true;for(int i=0;i<500;++i)ground.advance(.01);check(!ground.impacted&&ground.altitude()>2.3&&ground.altitude()<2.7,std::string(body(id).name)+" body-specific resting ground contact");}
     std::filesystem::remove(tmp);std::cout<<checks<<" Solar System checks passed\n";
 }catch(const std::exception &e){std::cerr<<"After "<<checks<<" checks: "<<e.what()<<'\n';return 1;}}

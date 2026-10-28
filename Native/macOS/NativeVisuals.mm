@@ -75,8 +75,8 @@ static void visualCheck(id object,NSError *error){if(!object)@throw [NSException
     _weather=std::clamp((int)_weather,0,3);
     if(_weather!=lastWeather){historyValid=NO;lastWeather=_weather;}
     const simd_float4 presets[]={{1800,6500,0,0},{1800,6500,.48,0},{1400,6200,.78,.10},{1000,9000,.91,1}};
-    f->clouds=presets[_weather];
-    float moved=simd_length(simd_make_float3(f->position.x-lastFrame.position.x,f->position.y-lastFrame.position.y,f->position.z-lastFrame.position.z))*EarthRadius;
+    f->clouds=presets[_weather];if((int)f->surfaceColor.w!=(int)BodyId::Earth)f->clouds.z=0;
+    float moved=simd_length(simd_make_float3(f->position.x-lastFrame.position.x,f->position.y-lastFrame.position.y,f->position.z-lastFrame.position.z))*f->body.x;
     float aligned=simd_dot(simd_make_float3(f->forward.x,f->forward.y,f->forward.z),simd_make_float3(lastFrame.forward.x,lastFrame.forward.y,lastFrame.forward.z));
     if(moved>5000||aligned<.94)historyValid=NO;
     f->environment.z=historyValid?1:0;
@@ -112,7 +112,7 @@ static void visualCheck(id object,NSError *error){if(!object)@throw [NSException
     std::array<EmitterUniforms,32> jets{};NSUInteger count=0;
     auto world=[&](Vector v){return flight.right*v.x+flight.up*v.y+flight.forward*v.z;};
     for(const auto &jet:gliderExhaust(flight)){
-        if(count==jets.size())break;auto shape=plumeShape(flight.altitude(),jet.kind);int kind=(int)jet.kind;
+        if(count==jets.size())break;auto shape=plumeShape(flight,jet.kind);int kind=(int)jet.kind;
         double length=kind==0?12:kind==1?3:kind==2?6:.85;
         jets[count++]={visualVector(world(jet.position),jet.level),visualVector(world(jet.direction),jet.radius),{(float)kind,(float)length,(float)(shape.speed*.28),(float)shape.spread}};
     }
@@ -121,7 +121,7 @@ static void visualCheck(id object,NSError *error){if(!object)@throw [NSException
     EffectUniforms step{};step.clock={(float)(reset?0:dt),(float)fmod(flight.elapsed,4096.),(float)fmod(lastElapsed,4096.),(float)count};
     if(fmod(flight.elapsed,4096.)<fmod(lastElapsed,4096.))reset=true;
     step.translation=visualVector(translation,reset?1:0);step.velocity=visualVector(flight.velocity);step.offset=visualVector(offset);
-    step.gravity=visualVector(-flight.position.unit()*(Mu/(flight.position.length2())));
+    step.gravity=visualVector(-flight.position.unit()*(flight.gravityMu()/(flight.position.length2())));
     lastPosition=flight.position;lastElapsed=flight.elapsed;haveFlight=YES;
     id<MTLComputeCommandEncoder> e=[cb computeCommandEncoder];e.label=@"Thrust-driven GPU exhaust";[e setComputePipelineState:particleKernel];
     [e setBuffer:particleBuffer offset:0 atIndex:0];[e setBytes:jets.data() length:sizeof(jets) atIndex:1];[e setBytes:&step length:sizeof(step) atIndex:2];[e dispatchThreads:MTLSizeMake(4096,1,1) threadsPerThreadgroup:MTLSizeMake(64,1,1)];[e endEncoding];
