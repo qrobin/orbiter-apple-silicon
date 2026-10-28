@@ -19,9 +19,11 @@ using namespace native;
 static NSString *resource(NSString *p) { return [NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:p]; }
 static simd_float4 f4(const Vector &v,float w=0) { return {(float)v.x,(float)v.y,(float)v.z,w}; }
 static simd_float4x4 projection(float aspect,float t) {
-    float n=.2f,far=100000; simd_float4x4 m={};
+    // Reversed infinite depth preserves centimetre-scale ground overlays even
+    // when the visible Earth surface is kilometres from the camera.
+    float n=.2f; simd_float4x4 m={};
     m.columns[0]={1/(aspect*t),0,0,0}; m.columns[1]={0,1/t,0,0};
-    m.columns[2]={0,0,far/(n-far),-1}; m.columns[3]={0,0,n*far/(n-far),0}; return m;
+    m.columns[2]={0,0,0,-1}; m.columns[3]={0,0,n,0}; return m;
 }
 struct FrameUniforms { simd_float4x4 projection; simd_float4 right,up,forward,position,sun,screen,environment; };
 struct SwitchUniforms { simd_float4 pivotAngle,axisStart,range; };
@@ -225,7 +227,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     activeCockpitControl=-1;cockpitPitch=-.25;
     held.fill(false); yaw=-.55; pitch=.32; distance=43; helpVisible=false; orbitVisible=true;
     self.colorPixelFormat=MTLPixelFormatBGRA8Unorm_sRGB; self.depthStencilPixelFormat=MTLPixelFormatDepth32Float;
-    self.sampleCount=[device supportsTextureSampleCount:4]?4:1;
+    self.sampleCount=[device supportsTextureSampleCount:4]?4:1;self.clearDepth=0;
     self.preferredFramesPerSecond=120; self.framebufferOnly=NO; self.clearColor=MTLClearColorMake(0,0,0,1);
     self.delegate=self; inflight=dispatch_semaphore_create(3); queue=[device newCommandQueue];
     NSError *error=nil; NSString *source=[NSString stringWithContentsOfFile:resource(@"Shaders.metal") encoding:NSUTF8StringEncoding error:&error];
@@ -243,10 +245,10 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     pd.colorAttachments[0].destinationAlphaBlendFactor=MTLBlendFactorOneMinusSourceAlpha;
     meshPipeline=[device newRenderPipelineStateWithDescriptor:pd error:&error];
     if(!meshPipeline||!skyPipeline) @throw [NSException exceptionWithName:@"Metal pipeline error" reason:error.localizedDescription userInfo:nil];
-    MTLDepthStencilDescriptor *dd=[MTLDepthStencilDescriptor new]; dd.depthCompareFunction=MTLCompareFunctionLess; dd.depthWriteEnabled=YES;
+    MTLDepthStencilDescriptor *dd=[MTLDepthStencilDescriptor new]; dd.depthCompareFunction=MTLCompareFunctionGreater; dd.depthWriteEnabled=YES;
     depthState=[device newDepthStencilStateWithDescriptor:dd]; dd.depthCompareFunction=MTLCompareFunctionAlways; dd.depthWriteEnabled=NO;
     dd.depthWriteEnabled=YES;skyDepth=[device newDepthStencilStateWithDescriptor:dd];
-    dd.depthWriteEnabled=NO;dd.depthCompareFunction=MTLCompareFunctionLess; transparentDepth=[device newDepthStencilStateWithDescriptor:dd];
+    dd.depthWriteEnabled=NO;dd.depthCompareFunction=MTLCompareFunctionGreater; transparentDepth=[device newDepthStencilStateWithDescriptor:dd];
     textures=[NSMutableArray new];
     MTLTextureDescriptor *td=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm_sRGB width:1 height:1 mipmapped:NO];
     whiteTexture=[device newTextureWithDescriptor:td]; uint32_t white=0xffffffff;

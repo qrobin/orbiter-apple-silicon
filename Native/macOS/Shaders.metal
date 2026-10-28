@@ -109,5 +109,5 @@ fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buf
         float light=smoothstep(-.3,.4,dot(n,f.sun.xyz));
         sky+=float3(.10,.33,.75)*glow*light;
     }
-    return {float4(sky,1),1};
+    return {float4(sky,1),0};
 }
