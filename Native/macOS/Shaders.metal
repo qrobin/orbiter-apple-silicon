@@ -77,7 +77,8 @@ float4 ringMaterial(float3 point,float3 ray,float3 pole,float inner,float outer,
     return float4(c.rgb*(shadow?.09f:.35f+.65f*abs(dot(pole,sun))),optical);
 }
 fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buffer(1)]],
-    texture2d<float> map [[texture(0)]],texture2d<float> shadows [[texture(1)]],texture2d<float> rings [[texture(2)]]) {
+    texture2d<float> map [[texture(0)]],texture2d<float> shadows [[texture(1)]],texture2d<float> rings [[texture(2)]],
+    texture2d<float> oceanMask [[texture(3)]],texture2d<float> cloudMap [[texture(4)]],texture3d<float> oceanNoise [[texture(5)]]) {
     constexpr sampler s(filter::linear,mip_filter::linear,s_address::repeat,t_address::clamp_to_edge);
     float2 xy=in.uv*2-1;float3 ray=normalize(f.forward.xyz+f.right.xyz*xy.x*f.screen.z*(f.screen.x/f.screen.y)+f.up.xyz*xy.y*f.screen.z);
     float3 origin=f.position.xyz;float height=f.environment.x,radius=f.body.x;
@@ -96,6 +97,45 @@ fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buf
         float cloudShade=shadows.sample(s,in.position.xy/f.screen.xy).r;
         if(f.pole.w>0){float den=dot(f.sun.xyz,f.pole.xyz);float ts=-dot(n,f.pole.xyz)/(abs(den)>.0001?den:.0001f);float3 point=n+f.sun.xyz*ts;float r=length(point);if(ts>0&&r>f.pole.w&&r<f.equatorZ.w)cloudShade*=1-ringMaterial(point,ray,f.pole.xyz,f.pole.w,f.equatorZ.w,f.sun.xyz,rings).a*.85;}
         color=base*(.025+light*cloudShade)*day+base*.008*(1-day);
+        // Ocean detail is shaded, not displaced geometry. Filter waves whose
+        // wavelength is smaller than a pixel to prevent distant shimmer.
+        float waveFade=1-smoothstep(22000.0f,55000.0f,t*radius);
+        if(int(f.surfaceColor.w)==3&&waveFade>0){
+            float water=smoothstep(.35f,.75f,oceanMask.sample(s,uv).r)*waveFade;
+            if(water>.001f){
+                float regional=cloudMap.sample(s,uv).r;
+                float storm=f.weather.x>2.5&&f.weather.x<3.5?.9f:(f.weather.x>3.5?smoothstep(.38f,.86f,regional):0.0f);
+                float lon=(uv.x-.5f)*2*M_PI_F,lat=(.5f-uv.y)*M_PI_F;
+                float2 metres=float2(lon*cos(lat),lat)*radius;
+                // Long-scale changes in propagation break up perfectly parallel
+                // stripes and give wind-driven wave groups an irregular shape.
+                constexpr sampler noiseSampler(filter::linear,address::repeat);
+                float3 waterNoise=oceanNoise.sample(noiseSampler,float3(metres/12000.0f,f.environment.w/600.0f)).rgb;
+                float2 warped=metres+(waterNoise.rg-.5f)*460;
+                warped+=float2(sin(dot(metres,float2(.00041,.00076))),sin(dot(metres,float2(-.00069,.00033))))*45;
+                float2 directions[4]={float2(.96f,.28f),float2(.71f,-.70f),float2(.38f,.92f),float2(-.65f,.76f)};
+                float wavelengths[4]={640,240,90,34};float periods[4]={12,10,8,6};float weights[4]={.07,.055,.035,.025};
+                float2 slope=0;float crest=0;
+                for(int i=0;i<4;++i){
+                    float phase=dot(warped,directions[i])*(2*M_PI_F/wavelengths[i])-f.environment.w*(2*M_PI_F/periods[i]);
+                    float filter=1-smoothstep(.35f,1.0f,fwidth(phase));
+                    float wave=cos(phase)*weights[i]*filter*(.55+1.5*storm);
+                    slope+=directions[i]*wave;crest+=sin(phase)*weights[i]*filter*(i==0?1.0f:.25f);
+                }
+                float3 east=cross(n,f.pole.xyz);east=length(east)>.001f?normalize(east):normalize(f.equatorZ.xyz);
+                float3 north=normalize(cross(east,n));
+                float3 waveNormal=normalize(n-east*slope.x-north*slope.y);
+                float3 halfVector=normalize(f.sun.xyz-ray);
+                float glint=pow(max(0.0f,dot(waveNormal,halfVector)),storm>.5f?96.0f:220.0f);
+                float fresnelWater=pow(1-max(0.0f,dot(waveNormal,-ray)),5.0f);
+                float waveLight=max(0.0f,dot(waveNormal,f.sun.xyz));
+                float3 ocean=base*(.025+waveLight*cloudShade)*day+base*.008*(1-day);
+                ocean+=float3(.45,.55,.64)*(glint*.16f+fresnelWater*.15f)*day*cloudShade;
+                float foam=smoothstep(.048f,.073f,crest+(waterNoise.b-.5f)*.04f)*storm*.025f;
+                ocean=mix(ocean,float3(.5,.57,.58)*(.12+.88*day)*cloudShade,foam);
+                color=mix(color,ocean,water);
+            }
+        }
         if(f.body.w>1.5)color=base*12;
         float detail=1-.10*hash(floor(n*radius/2));color*=mix(1.0f,detail,exp(-max(0.0f,height)*radius/1800));
         float fresnel=pow(1-max(0.0f,dot(n,-ray)),4.0f);

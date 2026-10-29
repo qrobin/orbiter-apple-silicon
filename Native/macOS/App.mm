@@ -509,6 +509,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     [encoder setFragmentBytes:&uniforms length:sizeof(uniforms) atIndex:1]; [encoder setFragmentTexture:[solar textureForBody:flight.reference] atIndex:0];
     [encoder setFragmentTexture:solar.rings atIndex:2];
     [encoder setFragmentTexture:visuals.cloudShadows atIndex:1];
+    [encoder setFragmentTexture:[visuals oceanMask] atIndex:3];[encoder setFragmentTexture:[visuals satelliteClouds] atIndex:4];[encoder setFragmentTexture:visuals.cloudNoise atIndex:5];
     [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
     [encoder setDepthStencilState:depthState];
     [solar encodeBodies:encoder frame:uniforms flight:flight offset:offset];

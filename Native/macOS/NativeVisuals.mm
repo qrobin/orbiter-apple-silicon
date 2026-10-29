@@ -15,7 +15,7 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
     FrameUniforms lastFrame;
     double lastElapsed;
     NSInteger lastWeather;
-    id<MTLTexture> hdr,lit,depth,trailLayer,msaaColor,msaaDepth,earthCloudMap;
+    id<MTLTexture> hdr,lit,depth,trailLayer,msaaColor,msaaDepth,earthCloudMap,earthOceanMask;
     std::array<id<MTLTexture>,2> cloudHistory,cloudData,bloom;
     std::array<id<MTLBuffer>,3> smokeBuffers;
     ExhaustTrail exhaustTrail;
@@ -33,6 +33,9 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
     NSURL *cloudURL=[NSURL fileURLWithPath:[NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"earth-clouds.png"]];
     earthCloudMap=[loader newTextureWithContentsOfURL:cloudURL options:@{MTKTextureLoaderOptionSRGB:@NO,MTKTextureLoaderOptionGenerateMipmaps:@YES,MTKTextureLoaderOptionOrigin:MTKTextureLoaderOriginTopLeft} error:&error];
     visualCheck(earthCloudMap,error);
+    NSURL *oceanURL=[NSURL fileURLWithPath:[NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"earth-ocean-mask.png"]];
+    earthOceanMask=[loader newTextureWithContentsOfURL:oceanURL options:@{MTKTextureLoaderOptionSRGB:@NO,MTKTextureLoaderOptionGenerateMipmaps:@YES,MTKTextureLoaderOptionOrigin:MTKTextureLoaderOriginTopLeft} error:&error];
+    visualCheck(earthOceanMask,error);
     auto kernel=[&](NSString *name){id<MTLComputePipelineState> p=[gpu newComputePipelineStateWithFunction:[library newFunctionWithName:name] error:&error];visualCheck(p,error);return p;};
     noiseKernel=kernel(@"makeCloudNoise");shadowKernel=kernel(@"cloudShadowMap");cloudKernel=kernel(@"marchClouds");
     extractKernel=kernel(@"extractBloom");blurKernel=kernel(@"blurBloom");
@@ -188,6 +191,8 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
     MTLRenderPassDescriptor *pass=[MTLRenderPassDescriptor renderPassDescriptor];pass.colorAttachments[0].texture=drawable.texture;pass.colorAttachments[0].loadAction=MTLLoadActionDontCare;pass.colorAttachments[0].storeAction=MTLStoreActionStore;
     id<MTLRenderCommandEncoder> r=[cb renderCommandEncoderWithDescriptor:pass];r.label=@"Tone mapping at full output resolution";[r setRenderPipelineState:presentPipeline];[r setFragmentTexture:lit atIndex:0];[r setFragmentTexture:bloom[0] atIndex:1];[r drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];[r endEncoding];
 }
+- (id<MTLTexture>)satelliteClouds {return earthCloudMap;}
+- (id<MTLTexture>)oceanMask {return earthOceanMask;}
 - (NSUInteger)liveTrailPuffCount {return exhaustTrail.puffs().size();}
 - (NSString *)weatherName{return @[@"Clear",@"Scattered",@"Overcast",@"Storm",@"Regional"][_weather];}
 - (void)reset {historyValid=NO;haveFlight=NO;exhaustTrail.reset();}

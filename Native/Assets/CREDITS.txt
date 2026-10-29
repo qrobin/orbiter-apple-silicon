@@ -37,3 +37,9 @@ Clear: https://svs.gsfc.nasa.gov/vis/a000000/a003600/a003615/earth_noClouds.0330
 The underlying cloud composite is from multiple satellites on 2007-07-01; it is
 historical imagery, not live weather. Extracted with tools/extract_satellite_clouds.py.
 The corresponding earth-clouds.r8 stores the same opacity bytes for regional simulation.
+
+Earth ocean mask: inverted alpha channel from NASA's Scientific Visualization
+Studio Blue Marble land layer (SVS 4439), resampled to 4096 × 2048.
+https://svs.gsfc.nasa.gov/4439/
+https://svs.gsfc.nasa.gov/vis/a000000/a004400/a004439/flat_bluemarble_8192x4096.tif
+Generated with tools/extract_ocean_mask.py. Water surface detail is procedural.
