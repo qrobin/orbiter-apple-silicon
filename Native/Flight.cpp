@@ -74,9 +74,9 @@ bool Flight::assistActive(Assist mode) const {
 void Flight::toggleAssist(Assist mode) {
     if(mode==Assist::Free){clearAssist();return;}
     // The original nav computer permits KILL-R to coexist with HRLVL.
-    if(mode==Assist::KillRotation&&assist==Assist::HorizonLevel){killRotationWithLevel=!killRotationWithLevel;if(killRotationWithLevel)warp=1;return;}
+    if(mode==Assist::KillRotation&&assist==Assist::HorizonLevel){killRotationWithLevel=!killRotationWithLevel;if(killRotationWithLevel)return;}
     if(assist==mode){clearAssist();return;}
-    assist=mode;killRotationWithLevel=false;warp=1;
+    assist=mode;killRotationWithLevel=false;
 }
 void Flight::load(const std::filesystem::path &path) {
     std::ifstream file(path); if(!file) throw std::runtime_error("Cannot open scenario.");
@@ -354,8 +354,8 @@ void Flight::advance(double realSeconds,const Input &input) {
     if(paused||impacted||realSeconds<=0||!std::isfinite(realSeconds)) return;
     bool atmosphericFlight=(reference==BodyId::Earth?altitude()<120000:bodyAtmosphere(reference,altitude()).rho>1e-12)||(centralBody().solid&&altitude()<20);
     bool maneuver=assist==Assist::Maneuver||throttle>0||glider.hover>0||glider.hoverControl.holdActive||glider.retro>0||input.pitch||input.yaw||input.roll||input.translate||input.lateral||input.vertical||angularVelocity.length2()>1e-16;
-    if(warp>1&&centralBody().solid&&orbit().PeDist()<centralBody().radius+20){warp=1;atmosphericFlight=true;}
-    if(maneuver||atmosphericFlight) warp=1;
+    if(warp>1&&centralBody().solid&&orbit().PeDist()<centralBody().radius+20){atmosphericFlight=true;}
+    // if(maneuver||atmosphericFlight) warp=1;
     double dt=std::min(realSeconds,.1)*std::clamp(warp,1.0,MaximumTimeAcceleration);
     glider.elevator=-input.pitch;glider.rudder=input.yaw;glider.aileron=input.roll;
     glider.advance(dt,throttle,bodyAtmosphere(reference,altitude()).p);
