@@ -63,7 +63,7 @@ For a bounded render check, add `--body Moon`, `--body Mars`, `--body Jupiter` o
 
 The application now renders the 8K NASA Earth map, volumetric clouds, cloud shadows and exhaust directly in Metal. Choose **Weather → Regional** (the default), or select **Clear / Scattered / Overcast / Storm**; **F3** cycles the choices. Function keys may require Fn on Mac keyboards. Regional cloud coverage comes from a historical satellite composite, and winds, rain and lightning are procedural approximations, not live weather. Wind affects air-relative aerodynamics and exhaust drift.
 
-Earth's sky and aerial haze use an approximate wavelength-dependent Rayleigh/Mie scattering model with a brighter HDR Sun and atmospheric attenuation. The light model is an approximation, not a full multiple-scattering simulation.
+Earth's sky and aerial haze use an approximate wavelength-dependent Rayleigh/Mie scattering model with a brighter HDR Sun. The same air attenuates and adds scattered light over the Moon and other distant bodies. The light model is an approximation, not a full multiple-scattering simulation.
 
 The geographic ocean mask adds animated, wind-strength-dependent wave shading, sun glints and storm foam near the surface. Reproducible directional wave spectra supply irregular, mipmapped surface detail. Four independently moving bands approximate faster swells and slower chop, without a per-frame fluid simulation. It fades out at distance and filters subpixel waves to limit shimmer. These are shaded waves on the existing spherical surface, not displaced water geometry or a fluid simulation.
 

@@ -102,6 +102,11 @@ int main(){@autoreleasepool{
     auto sunVacuum=renderSun(false),sunInAir=renderSun(true);
     require(sunVacuum[0]>50&&sunInAir[0]>30,"The Sun emits bright HDR light");
     require(sunInAir[2]<sunVacuum[2]*.9f,"Atmospheric scattering attenuates sunlight more strongly at short wavelengths");
+    sunBody.pole.w=0;sunBody.light={0,0,1,1}; // Unlit hemisphere facing the camera.
+    auto darkMoonVacuum=renderSun(false),darkMoonDay=renderSun(true);
+    require(darkMoonDay[2]>darkMoonVacuum[2]+.05f&&darkMoonDay[2]>darkMoonDay[0],"The dark Moon is veiled by blue daylight air");
+    sunFrame.sun={0,0,-1,1};auto darkMoonNight=renderSun(true);
+    require(darkMoonNight[2]<darkMoonDay[2]*.2f,"The daylight veil fades at night");
     // Animated waves must appear over water and leave the land material still.
     f.position={1+5000.0f/6371010,0,0,0};f.environment={5000.0f/6371010,5000,0,1};
     f.forward={-1,0,0,0};f.right={0,0,1,0};f.up={0,1,0,0};f.sun={.8,.4,.447,1};f.weather={3,.8f,0,0};f.lightning.w=0;
