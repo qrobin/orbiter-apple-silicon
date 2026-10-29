@@ -972,12 +972,17 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
 - (BOOL)validateMenuItem:(NSMenuItem *)item {
     if(item.action==@selector(chooseNavProgram:)){item.state=(item.tag==6?flight.assist==Assist::Maneuver&&transxAlignDisplay==native::transx::Session::RouteDisplay:flight.assistActive(navButtonMode((int)item.tag)))?NSControlStateValueOn:NSControlStateValueOff;return YES;}
     if(item.action==@selector(chooseHudMode:)){item.state=flight.hud.mode==item.tag?NSControlStateValueOn:NSControlStateValueOff;return YES;}
+    if(item.action==@selector(chooseView:)){int selected=freeCamera.active?-1:cockpit?(panelView?2:1):0;item.state=selected==item.tag?NSControlStateValueOn:NSControlStateValueOff;return YES;}
     if(item.action==@selector(toggleBodyRotation:)){item.state=bodyRotationsPaused()?NSControlStateValueOn:NSControlStateValueOff;return YES;}
     if(item.action==@selector(toggleFreeCamera:)){item.state=freeCamera.active?NSControlStateValueOn:NSControlStateValueOff;return YES;}
+    if(item.action==@selector(toggleParkingBrake:)){item.state=flight.glider.parkingBrake?NSControlStateValueOn:NSControlStateValueOff;return YES;}
+    if(item.action==@selector(toggleHoverAttitude:)){item.state=flight.glider.hoverControl.attitudeMode==1?NSControlStateValueOn:NSControlStateValueOff;return YES;}
+    if(item.action==@selector(holdCurrentAltitude:)){item.state=flight.glider.hoverControl.holdActive&&flight.glider.hoverControl.holdMode==1?NSControlStateValueOn:NSControlStateValueOff;return YES;}
+    if(item.action==@selector(holdZeroVerticalSpeed:)){item.state=flight.glider.hoverControl.holdActive&&flight.glider.hoverControl.holdMode==2?NSControlStateValueOn:NSControlStateValueOff;return YES;}
     if(item.action==@selector(chooseExternalCamera:)){item.state=(NSInteger)externalCamera.mode==item.tag?NSControlStateValueOn:NSControlStateValueOff;return item.tag!=(NSInteger)ExternalCameraMode::GroundObserver||flight.centralBody().solid;}
     if(item.action==@selector(chooseCameraReference:)){bool to=item.tag<200;int index=(int)item.tag-(to?100:200);item.state=externalCamera.mode==(to?ExternalCameraMode::TargetTo:ExternalCameraMode::TargetFrom)&&(int)externalCamera.target==index?NSControlStateValueOn:NSControlStateValueOff;return YES;}
     if(item.action==@selector(toggleTransXMFD:)){item.state=transxMfd[std::clamp((int)item.tag,0,1)]?NSControlStateValueOn:NSControlStateValueOff;return YES;}
-    if(item.action==@selector(setWeather:))return flight.reference==BodyId::Earth;
+    if(item.action==@selector(setWeather:)){item.state=visuals.weather==item.tag?NSControlStateValueOn:NSControlStateValueOff;return flight.reference==BodyId::Earth;}
     return YES;
 }
 - (void)cycleWeather:(id)sender {visuals.weather=(visuals.weather+1)%5;flight.weatherPreset=(int)visuals.weather;status=[NSString stringWithFormat:@"Weather: %@ · F3 changes weather",[visuals weatherName]];self.hud.needsDisplay=YES;}
@@ -1084,35 +1089,46 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         [root addSubview:hud];self.window.contentView=root;
         NSMenu *main=[NSMenu new]; NSMenuItem *appItem=[NSMenuItem new]; [main addItem:appItem];
         NSMenu *app=[NSMenu new]; [app addItemWithTitle:@"Quit Orbiter" action:@selector(terminate:) keyEquivalent:@"q"]; appItem.submenu=app;
-        NSMenuItem *fileItem=[NSMenuItem new]; fileItem.title=@"File"; [main addItem:fileItem]; NSMenu *file=[NSMenu new]; fileItem.submenu=file;
-        NSMenuItem *open=[file addItemWithTitle:@"Open Scenario…" action:@selector(openScenario:) keyEquivalent:@"o"]; open.target=self.view;
-        NSMenuItem *save=[file addItemWithTitle:@"Save Scenario…" action:@selector(saveScenario:) keyEquivalent:@"s"]; save.target=self.view;
-        NSMenuItem *flightItem=[NSMenuItem new]; flightItem.title=@"Flight"; [main addItem:flightItem]; NSMenu *fm=[NSMenu new]; flightItem.submenu=fm;
-        NSMenuItem *pause=[fm addItemWithTitle:@"Pause / Resume" action:@selector(pauseFlight:) keyEquivalent:@""]; pause.target=self.view;
-        NSMenuItem *systems=[fm addItemWithTitle:@"Glider Systems…" action:@selector(showSystems:) keyEquivalent:@""]; systems.target=self.view;
-        NSArray *viewTitles=@[@"External View",@"3D Cockpit View",@"2D Instrument Panel View"];
-        for(int i=0;i<3;++i){NSMenuItem *item=[fm addItemWithTitle:viewTitles[i] action:@selector(chooseView:) keyEquivalent:@""];item.target=self.view;item.tag=i;}
-        NSMenuItem *surface=[fm addItemWithTitle:@"Cape Canaveral — Surface Flight" action:@selector(startSurface:) keyEquivalent:@""];surface.target=self.view;
+        NSMenuItem *fileItem=[NSMenuItem new];fileItem.title=@"File";[main addItem:fileItem];NSMenu *file=[NSMenu new];fileItem.submenu=file;
+        NSMenuItem *open=[file addItemWithTitle:@"Open Scenario…" action:@selector(openScenario:) keyEquivalent:@"o"];open.target=self.view;
+        NSMenuItem *save=[file addItemWithTitle:@"Save Scenario…" action:@selector(saveScenario:) keyEquivalent:@"s"];save.target=self.view;
+
+        NSMenuItem *flightItem=[NSMenuItem new];flightItem.title=@"Flight";[main addItem:flightItem];NSMenu *fm=[NSMenu new];flightItem.submenu=fm;
+        NSMenuItem *pause=[fm addItemWithTitle:@"Pause / Resume (Space)" action:@selector(pauseFlight:) keyEquivalent:@""];pause.target=self.view;
+        NSMenuItem *reset=[fm addItemWithTitle:@"Restart Flight" action:@selector(resetFlight:) keyEquivalent:@"r"];reset.target=self.view;
+        NSMenuItem *systems=[fm addItemWithTitle:@"Glider Systems… (M)" action:@selector(showSystems:) keyEquivalent:@""];systems.target=self.view;
+        [fm addItem:NSMenuItem.separatorItem];
         NSMenuItem *atmospheric=[fm addItemWithTitle:@"Atmospheric Flight" action:nil keyEquivalent:@""];NSMenu *flights=[NSMenu new];atmospheric.submenu=flights;
         NSArray<NSString *> *flightNames=@[@"Atlantic Ocean — Regional Weather",@"Hawaii — Sunset",@"Gulf of Mexico — Storm",@"Mediterranean — Clear Day"];
         for(int i=0;i<(int)flightNames.count;++i){NSMenuItem *item=[flights addItemWithTitle:flightNames[i] action:@selector(startAtmosphericFlight:) keyEquivalent:@""];item.target=self.view;item.tag=i;}
-        NSMenuItem *practice=[fm addItemWithTitle:@"Cape Canaveral — Hover Practice" action:@selector(startHoverPractice:) keyEquivalent:@""];practice.target=self.view;
-        NSMenuItem *hoverAtt=[fm addItemWithTitle:@"Toggle Hover Auto Attitude (F5)" action:@selector(toggleHoverAttitude:) keyEquivalent:@""];hoverAtt.target=self.view;
-        NSMenuItem *holdAlt=[fm addItemWithTitle:@"Hold Current Altitude (F6)" action:@selector(holdCurrentAltitude:) keyEquivalent:@""];holdAlt.target=self.view;
-        NSMenuItem *holdVS=[fm addItemWithTitle:@"Hold Zero Vertical Speed (F7)" action:@selector(holdZeroVerticalSpeed:) keyEquivalent:@""];holdVS.target=self.view;
         NSMenuItem *orbit=[fm addItemWithTitle:@"Earth Orbit" action:@selector(startOrbit:) keyEquivalent:@""];orbit.target=self.view;
-        NSMenuItem *park=[fm addItemWithTitle:@"Toggle Parking Brake" action:@selector(toggleParkingBrake:) keyEquivalent:@""];park.target=self.view;
+        NSMenuItem *surface=[fm addItemWithTitle:@"Cape Canaveral — Surface Flight" action:@selector(startSurface:) keyEquivalent:@""];surface.target=self.view;
+        NSMenuItem *practice=[fm addItemWithTitle:@"Cape Canaveral — Hover Practice" action:@selector(startHoverPractice:) keyEquivalent:@""];practice.target=self.view;
         NSMenuItem *demo=[fm addItemWithTitle:@"Mechanism Demonstration" action:@selector(demonstrateGlider:) keyEquivalent:@""];demo.target=self.view;
-        NSMenuItem *reset=[fm addItemWithTitle:@"Restart Flight" action:@selector(resetFlight:) keyEquivalent:@"r"]; reset.target=self.view;
-        NSMenuItem *help=[fm addItemWithTitle:@"Flight Controls" action:@selector(toggleHelp:) keyEquivalent:@"?"]; help.target=self.view;
+        [fm addItem:NSMenuItem.separatorItem];
+        NSMenuItem *hoverItem=[fm addItemWithTitle:@"Hover Controls" action:nil keyEquivalent:@""];NSMenu *hover=[NSMenu new];hoverItem.submenu=hover;
+        NSMenuItem *hoverAtt=[hover addItemWithTitle:@"Auto Attitude (F5)" action:@selector(toggleHoverAttitude:) keyEquivalent:@""];hoverAtt.target=self.view;
+        NSMenuItem *holdAlt=[hover addItemWithTitle:@"Hold Current Altitude (F6)" action:@selector(holdCurrentAltitude:) keyEquivalent:@""];holdAlt.target=self.view;
+        NSMenuItem *holdVS=[hover addItemWithTitle:@"Hold Zero Vertical Speed (F7)" action:@selector(holdZeroVerticalSpeed:) keyEquivalent:@""];holdVS.target=self.view;
+        NSMenuItem *park=[fm addItemWithTitle:@"Parking Brake (Option-W)" action:@selector(toggleParkingBrake:) keyEquivalent:@""];park.target=self.view;
+
         NSMenuItem *cameraItem=[NSMenuItem new];cameraItem.title=@"Camera";[main addItem:cameraItem];NSMenu *cameraMenu=[NSMenu new];cameraItem.submenu=cameraMenu;
+        NSMenuItem *cycle=[cameraMenu addItemWithTitle:@"Cycle Views (C)" action:@selector(cycleView:) keyEquivalent:@""];cycle.target=self.view;
+        NSArray<NSString *> *viewTitles=@[@"External View",@"3D Cockpit View",@"2D Instrument Panel View"];
+        for(int i=0;i<3;++i){NSMenuItem *item=[cameraMenu addItemWithTitle:viewTitles[i] action:@selector(chooseView:) keyEquivalent:@""];item.target=self.view;item.tag=i;}
+        [cameraMenu addItem:NSMenuItem.separatorItem];
         NSMenuItem *freeItem=[cameraMenu addItemWithTitle:@"Free Camera (F9)" action:@selector(toggleFreeCamera:) keyEquivalent:@""];freeItem.target=self.view;
         NSArray<NSString *> *cameraNames=@[@"Orbital Chase",@"Target-relative (F8)",@"Absolute Direction (F8)",@"Global Frame (F8)"];
         for(int i=0;i<4;++i){NSMenuItem *item=[cameraMenu addItemWithTitle:cameraNames[i] action:@selector(chooseExternalCamera:) keyEquivalent:@""];item.target=self.view;item.tag=i;}
+        NSMenuItem *ground=[cameraMenu addItemWithTitle:@"Ground Observer" action:@selector(chooseExternalCamera:) keyEquivalent:@""];ground.target=self.view;ground.tag=(NSInteger)ExternalCameraMode::GroundObserver;
         for(int to:{1,0}){NSMenuItem *parent=[cameraMenu addItemWithTitle:to?@"Target to…":@"Target from…" action:nil keyEquivalent:@""];NSMenu *refs=[NSMenu new];parent.submenu=refs;
             for(const auto &b:bodies()){NSMenuItem *item=[refs addItemWithTitle:[NSString stringWithUTF8String:b.name] action:@selector(chooseCameraReference:) keyEquivalent:@""];item.target=self.view;item.tag=(to?100:200)+(NSInteger)b.id;}}
-        NSMenuItem *ground=[cameraMenu addItemWithTitle:@"Ground Observer" action:@selector(chooseExternalCamera:) keyEquivalent:@""];ground.target=self.view;ground.tag=(NSInteger)ExternalCameraMode::GroundObserver;
+
         NSMenuItem *navItem=[NSMenuItem new];navItem.title=@"Navigation";[main addItem:navItem];NSMenu *nav=[NSMenu new];navItem.submenu=nav;
+        NSMenuItem *planner=[nav addItemWithTitle:@"TransX… (F4)" action:@selector(showNavigation:) keyEquivalent:@"t"];planner.keyEquivalentModifierMask=NSEventModifierFlagCommand|NSEventModifierFlagShift;planner.target=self.view;
+        NSMenuItem *routePlanner=[nav addItemWithTitle:@"Route Planner…" action:@selector(showRoutePlanner:) keyEquivalent:@"r"];routePlanner.keyEquivalentModifierMask=NSEventModifierFlagCommand|NSEventModifierFlagShift;routePlanner.target=self.view;
+        NSMenuItem *skip=[nav addItemWithTitle:@"Skip to 1 Day Before Burn" action:@selector(skipToBurn:) keyEquivalent:@""];skip.target=self.view;
+        [nav addItem:NSMenuItem.separatorItem];
         NSMenuItem *programs=[nav addItemWithTitle:@"RCS Programs" action:nil keyEquivalent:@""];NSMenu *programMenu=[NSMenu new];programs.submenu=programMenu;
         NSArray<NSString *> *programNames=@[@"Kill Rotation (K)",@"Retrograde (O)",@"Prograde (P)",@"Anti-normal (')",@"Normal (;)",@"Horizon Level (Option-L)",@"Align Selected Burn"];
         for(int i=0;i<7;++i){NSMenuItem *item=[programMenu addItemWithTitle:programNames[i] action:@selector(chooseNavProgram:) keyEquivalent:@""];item.target=self.view;item.tag=i;}
@@ -1121,11 +1137,12 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         for(int i=0;i<3;++i){NSMenuItem *item=[hudMenu addItemWithTitle:hudNames[i] action:@selector(chooseHudMode:) keyEquivalent:@""];item.target=self.view;item.tag=i+1;}
         NSMenuItem *colour=[hudMenu addItemWithTitle:@"Cycle HUD Colour (Option-Shift-H)" action:@selector(cycleHudColour:) keyEquivalent:@""];colour.target=self.view;
         for(int sign:{-1,1}){NSMenuItem *item=[hudMenu addItemWithTitle:sign<0?@"Decrease Brightness":@"Increase Brightness" action:@selector(adjustHudBrightness:) keyEquivalent:@""];item.target=self.view;item.tag=sign;}
-        NSMenuItem *planner=[nav addItemWithTitle:@"TransX… (F4)" action:@selector(showNavigation:) keyEquivalent:@"t"];planner.keyEquivalentModifierMask=NSEventModifierFlagCommand|NSEventModifierFlagShift;planner.target=self.view;
-        NSMenuItem *routePlanner=[nav addItemWithTitle:@"Route Planner…" action:@selector(showRoutePlanner:) keyEquivalent:@"r"];routePlanner.keyEquivalentModifierMask=NSEventModifierFlagCommand|NSEventModifierFlagShift;routePlanner.target=self.view;
-        NSMenuItem *skip=[nav addItemWithTitle:@"Skip to 1 Day Before Burn" action:@selector(skipToBurn:) keyEquivalent:@""];skip.target=self.view;
+        [nav addItem:NSMenuItem.separatorItem];
         for(int d=0;d<2;++d){NSMenuItem *item=[nav addItemWithTitle:d?@"TransX on Right MFD":@"TransX on Left MFD" action:@selector(toggleTransXMFD:) keyEquivalent:@""];item.target=self.view;item.tag=d;}
-        NSMenuItem *guide=[nav addItemWithTitle:@"TransX Quickstart…" action:@selector(showTransXGuide:) keyEquivalent:@""];guide.target=self.view;
+
+        NSMenuItem *weatherItem=[NSMenuItem new];weatherItem.title=@"Weather";[main addItem:weatherItem];NSMenu *weather=[NSMenu new];weatherItem.submenu=weather;
+        NSArray<NSString *> *presets=@[@"Clear",@"Scattered",@"Overcast",@"Storm",@"Regional"];
+        for(int i:{4,0,1,2,3}){NSMenuItem *item=[weather addItemWithTitle:presets[i] action:@selector(setWeather:) keyEquivalent:@""];item.target=self.view;item.tag=i;}
         NSMenuItem *solarItem=[NSMenuItem new];solarItem.title=@"Solar System";[main addItem:solarItem];NSMenu *system=[NSMenu new];solarItem.submenu=system;
         NSMenuItem *rotation=[system addItemWithTitle:@"Pause Body Rotation (F10)" action:@selector(toggleBodyRotation:) keyEquivalent:@""];rotation.target=self.view;[system addItem:NSMenuItem.separatorItem];
         for(const auto &b:bodies())if(b.id==BodyId::Sun||b.parent==BodyId::Sun){
@@ -1133,9 +1150,10 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
             NSMenuItem *orbit=[children addItemWithTitle:[NSString stringWithFormat:@"%s Orbit",b.name] action:@selector(startBodyOrbit:) keyEquivalent:@""];orbit.target=self.view;orbit.tag=(NSInteger)b.id;
             for(const auto &moon:bodies())if(b.id!=BodyId::Sun&&moon.id!=b.id&&moon.parent==b.id){NSMenuItem *item=[children addItemWithTitle:[NSString stringWithFormat:@"%s Orbit",moon.name] action:@selector(startBodyOrbit:) keyEquivalent:@""];item.target=self.view;item.tag=(NSInteger)moon.id;}
         }
-        NSMenuItem *weatherItem=[NSMenuItem new];weatherItem.title=@"Weather";[main addItem:weatherItem];NSMenu *weather=[NSMenu new];weatherItem.submenu=weather;
-        NSArray *presets=@[@"Clear",@"Scattered",@"Overcast",@"Storm",@"Regional"];
-        for(NSInteger i=0;i<5;++i){NSMenuItem *item=[weather addItemWithTitle:presets[i] action:@selector(setWeather:) keyEquivalent:@""];item.target=self.view;item.tag=i;}
+        NSMenuItem *helpItem=[NSMenuItem new];helpItem.title=@"Help";[main addItem:helpItem];NSMenu *helpMenu=[NSMenu new];helpItem.submenu=helpMenu;
+        NSMenuItem *help=[helpMenu addItemWithTitle:@"Flight Controls (F1)" action:@selector(toggleHelp:) keyEquivalent:@"?"];help.target=self.view;
+        NSMenuItem *guide=[helpMenu addItemWithTitle:@"TransX Quickstart…" action:@selector(showTransXGuide:) keyEquivalent:@""];guide.target=self.view;
+        NSApp.helpMenu=helpMenu;
         if([NSProcessInfo.processInfo.arguments containsObject:@"--transx"])[self.view ensureTransX];
         if(self.view->navigationTarget>=0)[self.view prepareNavigation:(BodyId)self.view->navigationTarget];
         NSApp.mainMenu=main; [self.window center]; [self.window makeKeyAndOrderFront:nil]; [NSApp activateIgnoringOtherApps:YES];
