@@ -15,7 +15,7 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
     FrameUniforms lastFrame;
     double lastElapsed;
     NSInteger lastWeather;
-    id<MTLTexture> hdr,lit,depth,trailLayer,msaaColor,msaaDepth,earthCloudMap,earthOceanMask,earthOceanWaves;
+    id<MTLTexture> hdr,lit,depth,trailLayer,msaaColor,msaaDepth,earthCloudMap,earthOceanMask,earthOceanWaves,earthOceanWaveDetail;
     std::array<id<MTLTexture>,2> cloudHistory,cloudData,bloom;
     std::array<id<MTLBuffer>,3> smokeBuffers;
     ExhaustTrail exhaustTrail;
@@ -39,6 +39,9 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
     NSURL *waveURL=[NSURL fileURLWithPath:[NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"earth-waves.png"]];
     earthOceanWaves=[loader newTextureWithContentsOfURL:waveURL options:@{MTKTextureLoaderOptionSRGB:@NO,MTKTextureLoaderOptionGenerateMipmaps:@YES,MTKTextureLoaderOptionOrigin:MTKTextureLoaderOriginTopLeft} error:&error];
     visualCheck(earthOceanWaves,error);
+    NSURL *detailURL=[NSURL fileURLWithPath:[NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"earth-waves-detail.png"]];
+    earthOceanWaveDetail=[loader newTextureWithContentsOfURL:detailURL options:@{MTKTextureLoaderOptionSRGB:@NO,MTKTextureLoaderOptionGenerateMipmaps:@YES,MTKTextureLoaderOptionOrigin:MTKTextureLoaderOriginTopLeft} error:&error];
+    visualCheck(earthOceanWaveDetail,error);
     auto kernel=[&](NSString *name){id<MTLComputePipelineState> p=[gpu newComputePipelineStateWithFunction:[library newFunctionWithName:name] error:&error];visualCheck(p,error);return p;};
     noiseKernel=kernel(@"makeCloudNoise");shadowKernel=kernel(@"cloudShadowMap");cloudKernel=kernel(@"marchClouds");
     extractKernel=kernel(@"extractBloom");blurKernel=kernel(@"blurBloom");
@@ -197,6 +200,7 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
 - (id<MTLTexture>)satelliteClouds {return earthCloudMap;}
 - (id<MTLTexture>)oceanMask {return earthOceanMask;}
 - (id<MTLTexture>)oceanWaves {return earthOceanWaves;}
+- (id<MTLTexture>)oceanWaveDetail {return earthOceanWaveDetail;}
 - (NSUInteger)liveTrailPuffCount {return exhaustTrail.puffs().size();}
 - (NSString *)weatherName{return @[@"Clear",@"Scattered",@"Overcast",@"Storm",@"Regional"][_weather];}
 - (void)reset {historyValid=NO;haveFlight=NO;exhaustTrail.reset();}

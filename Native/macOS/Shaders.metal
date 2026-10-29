@@ -121,7 +121,7 @@ AirLight earthAirLight(constant Frame &f,float3 ray,float maximumDistance){
 }
 fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buffer(1)]],
     texture2d<float> map [[texture(0)]],texture2d<float> shadows [[texture(1)]],texture2d<float> rings [[texture(2)]],
-    texture2d<float> oceanMask [[texture(3)]],texture2d<float> cloudMap [[texture(4)]],texture2d<float> oceanWaves [[texture(5)]]) {
+    texture2d<float> oceanMask [[texture(3)]],texture2d<float> cloudMap [[texture(4)]],texture2d<float> oceanWaves [[texture(5)]],texture2d<float> oceanDetail [[texture(6)]]) {
     constexpr sampler s(filter::linear,mip_filter::linear,s_address::repeat,t_address::clamp_to_edge);
     float2 xy=in.uv*2-1;float3 ray=normalize(f.forward.xyz+f.right.xyz*xy.x*f.screen.z*(f.screen.x/f.screen.y)+f.up.xyz*xy.y*f.screen.z);
     float3 origin=f.position.xyz;float height=f.environment.x,radius=f.body.x;
@@ -155,14 +155,16 @@ fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buf
                 float storm=f.weather.x>2.5&&f.weather.x<3.5?.9f:(f.weather.x>3.5?smoothstep(.72f,.97f,regional):0.0f);
                 float lon=(uv.x-.5f)*2*M_PI_F,lat=(.5f-uv.y)*M_PI_F;
                 float2 metres=float2(lon*cos(lat),lat)*radius;
-                // A directional ocean spectrum supplies many irregular wave
-                // scales at once. Mipmaps filter distant waves; two advected
-                // samples produce motion without a per-pixel FFT or ray march.
+                // Four independently moving spectral bands approximate
+                // deep-water dispersion: long swells travel faster than chop.
+                // Integer daily cycles keep motion continuous when time wraps.
                 constexpr sampler waveSampler(filter::linear,mip_filter::linear,address::repeat);
                 float time=f.environment.w/86400.0f;
-                float3 longWave=oceanWaves.sample(waveSampler,metres/16000.0f+float2(24,7)*time).rgb;
-                float3 shortWave=oceanWaves.sample(waveSampler,metres/8000.0f+float2(-17,33)*time).rgb;
-                float2 slope=((longWave.rg-.5f)*.52f+(shortWave.rg-.5f)*.20f)*(.55+1.5*storm);
+                float3 swell=oceanWaves.sample(waveSampler,metres/16000.0f+float2(200,32)*time).rgb;
+                float3 waves=oceanWaves.sample(waveSampler,metres/8000.0f+float2(.27,.61)+float2(280,55)*time).rgb;
+                float3 chop=oceanDetail.sample(waveSampler,metres/16000.0f+float2(.41,.18)+float2(96,24)*time).rgb;
+                float3 ripples=oceanDetail.sample(waveSampler,metres/8000.0f+float2(.72,.38)+float2(130,-12)*time).rgb;
+                float2 slope=((swell.rg-.5f)*.42f+(waves.rg-.5f)*.25f+(chop.rg-.5f)*.18f+(ripples.rg-.5f)*.10f)*(.55+1.5*storm);
                 float3 east=cross(n,f.pole.xyz);east=length(east)>.001f?normalize(east):normalize(f.equatorZ.xyz);
                 float3 north=normalize(cross(east,n));
                 float3 waveNormal=normalize(n-east*slope.x-north*slope.y);
@@ -172,7 +174,7 @@ fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buf
                 float waveLight=max(0.0f,dot(waveNormal,f.sun.xyz));
                 float3 ocean=base*(.025+waveLight*cloudShade)*day+base*.008*(1-day);
                 ocean+=float3(.45,.55,.64)*(glint*.16f+fresnelWater*.15f)*day*cloudShade;
-                float crest=longWave.b*.7f+shortWave.b*.3f;
+                float crest=swell.b*.35f+waves.b*.25f+chop.b*.25f+ripples.b*.15f;
                 float foam=smoothstep(.60f,.78f,crest)*smoothstep(.04f,.17f,length(slope))*storm*.08f;
                 ocean=mix(ocean,float3(.5,.57,.58)*(.12+.88*day)*cloudShade,foam);
                 color=mix(color,ocean,water);

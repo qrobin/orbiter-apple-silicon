@@ -9,6 +9,7 @@
 - (id<MTLTexture>)satelliteClouds;
 - (id<MTLTexture>)oceanMask;
 - (id<MTLTexture>)oceanWaves;
+- (id<MTLTexture>)oceanWaveDetail;
 @property(nonatomic,readonly) NSUInteger cloudWidth,cloudHeight,emitterCount;
 @property(nonatomic,readonly) MTLRenderPassDescriptor *scenePass;
 - (instancetype)initWithDevice:(id<MTLDevice>)device library:(id<MTLLibrary>)library queue:(id<MTLCommandQueue>)queue samples:(NSUInteger)samples;

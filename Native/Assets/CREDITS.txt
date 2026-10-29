@@ -45,4 +45,5 @@ Studio Blue Marble land layer (SVS 4439), resampled to 4096 × 2048.
 https://svs.gsfc.nasa.gov/4439/
 https://svs.gsfc.nasa.gov/vis/a000000/a004400/a004439/flat_bluemarble_8192x4096.tif
 Generated with tools/extract_ocean_mask.py. Water surface detail is procedural;
-earth-waves.png is generated locally by tools/generate_ocean_spectrum.py.
+earth-waves.png and earth-waves-detail.png are generated locally by
+tools/generate_ocean_spectrum.py.
