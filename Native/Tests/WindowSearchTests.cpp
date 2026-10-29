@@ -47,5 +47,12 @@ int main(){try{
     check(session.createRoute(BodyId::Mars,changed,error),error);session.stepWindowSearch(1);
     check(session.windowSearchStatus().state==transx::SearchState::Failed&&session.routeMatches(changed),
           "Changing the shared TransX route cancels the stale search");
+    for(auto target:{BodyId::Venus,BodyId::Jupiter}){
+        transx::Route next;check(session.createRoute(target,next,error),error);check(session.beginWindowSearch(next,error),error);
+        for(int i=0;i<1000&&session.windowSearchStatus().state==transx::SearchState::Running;++i)session.stepWindowSearch(64);
+        auto found=session.windowSearchStatus();
+        check(found.state==transx::SearchState::Complete&&found.missDistance<sphereOfInfluence(target,found.arrivalMJD),
+              std::string("Verified encounter for ")+body(target).name+": "+found.message);
+    }
     std::cout<<"window search checks passed\n";
 }catch(const std::exception &error){std::cerr<<error.what()<<'\n';return 1;}}

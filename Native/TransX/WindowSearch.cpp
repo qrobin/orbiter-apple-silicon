@@ -103,7 +103,19 @@ struct WindowSearch::Impl {
         Candidate candidate{date,duration};VECTOR3 p,v,q,w;vectors(origin,date,p,v);targetVectors(date+duration/Day,q,w);
         auto transfer=lambert(p,q,duration,origin.getgmplanet(),origin.getplanevector());if(!transfer)return candidate;
         double departure=length(transfer->departure-v),arrival=length(transfer->arrival-w);
-        if(eject){double r=flight.position.length(),mu=flight.gravityMu();departure=sqrt(departure*departure+2*mu/r)-sqrt(mu/r);}
+        if(eject){
+            // Rank windows using the actual parking-orbit plane and velocity,
+            // not an ideal circular orbit that may hide a large plane change.
+            double period=parking.gettimeorbit(),start=std::max(now+600/Day,date-period/(2*Day));
+            VECTOR3 excess=transfer->departure-v;departure=std::numeric_limits<double>::infinity();
+            for(int i=0;i<24;++i){VECTOR3 pp,pv;vectors(parking,start+period*i/(24*Day),pp,pv);
+                auto desired=escapeVelocity(pp,excess,flight.gravityMu());if(!desired)continue;
+                OrbitElements escaping;escaping.init(pp,*desired,0,flight.gravityMu());
+                if(escaping.isvalid()&&escaping.geteccentricity()>1&&
+                   (dotp(pp,*desired)>=0||escaping.getpedistance()>safeOrbitRadius(flight.reference)))
+                    departure=std::min(departure,length(*desired-pv));
+            }
+        }
         candidate.cost=departure+captureDV(targetId,arrival);return candidate;
     }
     void refine(){
@@ -124,7 +136,9 @@ struct WindowSearch::Impl {
         VECTOR3 incoming=transfer->arrival-w,normal=unit(origin.getplanevector());
         VECTOR3 side=unit(crossp(incoming,normal));
         if(!finite(side)||length(side)<.5){error="Could not establish a safe arrival direction.";return;}
-        double radius=std::max(parkingRadius(targetId),body(targetId).radius*1.2);
+        // Keep a generous margin for patched-conic and barycenter errors,
+        // especially at the giant planets where focusing is strong.
+        double radius=std::max(parkingRadius(targetId)*2,body(targetId).radius*3);
         double impact=radius*sqrt(1+2*body(targetId).mu()/(radius*std::max(1.,dotp(incoming,incoming))));
         q+=side*impact;
         transfer=lambert(p,q,duration,origin.getgmplanet(),origin.getplanevector());
