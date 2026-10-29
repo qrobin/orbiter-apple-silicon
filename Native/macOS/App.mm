@@ -1005,8 +1005,13 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
 }
 - (void)scrollWheel:(NSEvent *)event {
     if(smokeFrames)return;
-    if(cockpit)cockpitCamera.zoom(event.scrollingDeltaY);
-    else externalCamera.zoom(event.scrollingDeltaY);
+    if(cockpit&&!panelView){
+        NSPoint point=[self convertPoint:event.locationInWindow fromView:nil];NSRect bounds=self.bounds;
+        double aspect=bounds.size.width/std::max(1.,bounds.size.height);
+        double x=2*(point.x-bounds.origin.x)/std::max(1.,bounds.size.width)-1;
+        double y=2*(point.y-bounds.origin.y)/std::max(1.,bounds.size.height)-1;
+        cockpitCamera.zoomAt(event.scrollingDeltaY,x,y,aspect,cockpitYaw,cockpitPitch);
+    }else if(!cockpit)externalCamera.zoom(event.scrollingDeltaY);
 }
 @end
 #include "GliderPanel.inc"

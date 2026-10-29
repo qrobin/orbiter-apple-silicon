@@ -54,13 +54,24 @@ void OrbitCamera::drag(double horizontalPoints,double verticalPoints){
 }
 void OrbitCamera::zoom(double scrollPoints){
     if(!std::isfinite(scrollPoints))return;
-    if(mode==ExternalCameraMode::GroundObserver){groundFov=std::clamp(groundFov*exp(std::clamp(scrollPoints*.025,-30.,30.)),.001*RAD,100*RAD);return;}
-    distance=std::clamp(distance*exp(std::clamp(scrollPoints*.025,-30.,30.)),14.,MaxExternalCameraDistance);
+    if(mode==ExternalCameraMode::GroundObserver){groundFov=std::clamp(groundFov*exp(std::clamp(-scrollPoints*.025,-30.,30.)),.001*RAD,100*RAD);return;}
+    distance=std::clamp(distance*exp(std::clamp(-scrollPoints*.025,-30.,30.)),14.,MaxExternalCameraDistance);
 }
 double OrbitCamera::tanHalfFov()const{return tan((mode==ExternalCameraMode::GroundObserver?groundFov:50*RAD)*.5);}
 void CockpitCamera::zoom(double scrollPoints){
     if(!std::isfinite(scrollPoints))return;
-    fov=std::clamp(fov*exp(std::clamp(scrollPoints*.025,-30.,30.)),15*RAD,85*RAD);
+    fov=std::clamp(fov*exp(std::clamp(-scrollPoints*.025,-30.,30.)),15*RAD,85*RAD);
+}
+void CockpitCamera::zoomAt(double scrollPoints,double x,double y,double aspect,double &yaw,double &pitch){
+    if(!std::isfinite(scrollPoints)||!std::isfinite(x)||!std::isfinite(y)||!std::isfinite(aspect)||aspect<=0)return;
+    x=std::clamp(x,-1.,1.);y=std::clamp(y,-1.,1.);
+    Vector anchor=ray(yaw,pitch,x,y,aspect);double oldFov=fov;zoom(scrollPoints);if(fov==oldFov)return;
+    double a=x*tanHalfFov()*aspect,b=y*tanHalfFov();
+    double vertical=std::clamp(anchor.y*sqrt(1+a*a+b*b)/sqrt(1+b*b),-1.,1.);
+    double newPitch=asin(vertical)-atan(b);
+    pitch=std::clamp(newPitch,-1.1,1.1);
+    double c=cos(pitch)-b*sin(pitch);
+    yaw=std::clamp(std::remainder(atan2(anchor.x,anchor.z)-atan2(a,c),Pi2),-2.5,2.5);
 }
 double CockpitCamera::tanHalfFov() const {return tan(fov*.5);}
 Vector CockpitCamera::ray(double yaw,double pitch,double normalizedX,double normalizedY,double aspect) const {

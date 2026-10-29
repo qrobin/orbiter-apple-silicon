@@ -15,15 +15,25 @@ int main(){try {
     check(fabs(full.pitch-17*RAD-.225)<1e-12,"Vertical sensitivity and direction match native");
     OrbitCamera fractional;double before=fractional.yaw;fractional.drag(.125,0);check(fractional.yaw>before,"Subpixel motion is not discarded");
     fractional.drag(0,10000);check(fractional.pitch==1.35,"Upper native pitch stop");fractional.drag(0,-10000);check(fractional.pitch==-1.35,"Lower native pitch stop");
-    full.zoom(5);check(fabs(full.distance-43*exp(.125))<1e-10,"Continuous native zoom response");
-    full.zoom(-100000);check(full.distance==14,"Near distance stop");full.zoom(100000);check(full.distance==MaxExternalCameraDistance,"Far distance stop allows viewing kilometre-scale trails");
+    full.zoom(5);check(fabs(full.distance-43*exp(-.125))<1e-10,"Continuous native zoom response");
+    full.zoom(100000);check(full.distance==14,"Near distance stop");full.zoom(-100000);check(full.distance==MaxExternalCameraDistance,"Far distance stop allows viewing kilometre-scale trails");
     CockpitCamera cockpit,steps;check(fabs(cockpit.fov-50*RAD)<1e-12,"Original cockpit field of view");
-    Vector edge=cockpit.ray(0,0,1,0,16./9);cockpit.zoom(-10);for(int i=0;i<10;++i)steps.zoom(-1);
+    Vector edge=cockpit.ray(0,0,1,0,16./9);cockpit.zoom(10);for(int i=0;i<10;++i)steps.zoom(1);
     check(fabs(cockpit.fov-steps.fov)<1e-12,"Cockpit zoom is independent of event batching");
     check(cockpit.ray(0,0,1,0,16./9).x<edge.x,"Zoom narrows cockpit picking rays with the image");
     check(cockpit.ray(0,0,0,0,16./9).dist(Vector(0,0,1))<1e-12,"Center cockpit ray follows the view direction");
-    cockpit.zoom(-100000);check(cockpit.fov==15*RAD,"Cockpit maximum zoom");
-    cockpit.zoom(100000);check(cockpit.fov==85*RAD,"Cockpit minimum zoom");
+    cockpit.zoom(100000);check(cockpit.fov==15*RAD,"Cockpit maximum zoom");
+    cockpit.zoom(-100000);check(cockpit.fov==85*RAD,"Cockpit minimum zoom");
+    CockpitCamera cursor;double yaw=.3,pitch=-.25;Vector anchored=cursor.ray(yaw,pitch,.55,.3,16./9);
+    cursor.zoomAt(10,.55,.3,16./9,yaw,pitch);
+    check(cursor.ray(yaw,pitch,.55,.3,16./9).dist(anchored)<1e-12,"Cockpit zoom preserves the sight line under the cursor");
+    cursor.zoomAt(-10,.55,.3,16./9,yaw,pitch);
+    check(cursor.ray(yaw,pitch,.55,.3,16./9).dist(anchored)<1e-12&&fabs(yaw-.3)<1e-12&&fabs(pitch+.25)<1e-12,"Zooming back restores the original cockpit direction");
+    for(double x:{-.7,0.,.7})for(double y:{-.6,0.,.6}){
+        CockpitCamera c;double heading=-.4,elevation=.25;Vector beforeRay=c.ray(heading,elevation,x,y,1.6);
+        c.zoomAt(4,x,y,1.6,heading,elevation);
+        check(c.ray(heading,elevation,x,y,1.6).dist(beforeRay)<1e-12,"Cursor anchoring works in every screen quadrant");
+    }
     double fov=cockpit.fov;cockpit.zoom(std::numeric_limits<double>::quiet_NaN());check(cockpit.fov==fov,"Invalid scroll is ignored");
     Flight flight;OrbitCamera camera;auto expected=camera.offset(flight);
     flight.align(Vector(-1,3,.5));check((camera.offset(flight)-expected).length()<1e-8,"Orbital chase camera does not roll with vessel attitude");
@@ -51,7 +61,7 @@ int main(){try {
     check(tracking.setMode(ExternalCameraMode::TargetTo,ship,BodyId::Earth),"Target-to reference body is available");
     Vector toward=-ship.position.unit();check(dotp(-tracking.offset(ship).unit(),toward)>.999999,"Target-to points at the reference body");
     auto locked=tracking.offset(ship);tracking.drag(100,100);check(tracking.offset(ship).dist(locked)<1e-9,"Target-to direction stays locked while dragging");
-    tracking.zoom(5);check(tracking.offset(ship).length()>locked.length(),"Target-to camera still zooms");
+    tracking.zoom(-5);check(tracking.offset(ship).length()>locked.length(),"Target-to camera still zooms");
     tracking.setMode(ExternalCameraMode::TargetFrom,ship,BodyId::Earth);check(dotp(-tracking.offset(ship).unit(),toward)<-.999999,"Target-from looks away from the reference body");
     check(!tracking.setMode(ExternalCameraMode::TargetTo,ship,BodyId::Mars),"A distant reference requires ephemerides");
     loadEphemerides(std::filesystem::path(ORBITER_TEST_DATA)/"Src/Celbody");
@@ -69,7 +79,7 @@ int main(){try {
     check(fabs(lat-ground.groundLatitude)<1e-9&&fabs(remainder(lon-ground.groundLongitude,Pi2))<1e-9,"Ground observer rotates with its body");
     shifted=landed;shifted.changeReference(BodyId::Sun);
     check(ground.offset(shifted).dist(ground.offset(landed))<.01,"Ground observer remains attached when the ship changes reference body");
-    double oldLat=ground.groundLatitude,oldLon=ground.groundLongitude,oldFov=ground.groundFov;ground.drag(10,10);ground.zoom(-20);
+    double oldLat=ground.groundLatitude,oldLon=ground.groundLongitude,oldFov=ground.groundFov;ground.drag(10,10);ground.zoom(20);
     check(ground.groundLatitude!=oldLat&&ground.groundLongitude!=oldLon&&ground.groundFov<oldFov,"Ground drag moves the site and scroll zooms the lens");
     Flight gas;gas.startOrbit(BodyId::Jupiter);check(!ground.setMode(ExternalCameraMode::GroundObserver,gas,BodyId::Jupiter),"Ground observer rejects bodies with no solid surface");
     std::cout<<checks<<" camera checks passed\n";

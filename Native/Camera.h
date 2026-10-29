@@ -22,6 +22,8 @@ struct OrbitCamera {
 struct CockpitCamera {
     double fov=50*RAD;
     void zoom(double scrollPoints);
+    // Keep the line of sight under the cursor fixed while changing FOV.
+    void zoomAt(double scrollPoints,double normalizedX,double normalizedY,double aspect,double &yaw,double &pitch);
     double tanHalfFov() const;
     Vector ray(double yaw,double pitch,double normalizedX,double normalizedY,double aspect) const;
 };
