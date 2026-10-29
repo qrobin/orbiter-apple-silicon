@@ -35,6 +35,12 @@ double updateGlassWetness(double wetness,double rain,double airspeed,double dt){
     double rate=target>wetness?.5:.035+airspeed*.0002;
     return target+(wetness-target)*exp(-rate*dt);
 }
+Vector glassRunoffVelocity(const Vector &airRelative,const Vector &radial,const Vector &right,const Vector &up,const Vector &forward){
+    // Liquid advances in the direction of the air and gravity, slowly
+    // compared with the air itself. Return metres/second in the ship frame.
+    Vector velocity=-airRelative*.0012-radial.unit()*.003;
+    return {dotp(velocity,right),dotp(velocity,up),dotp(velocity,forward)};
+}
 WeatherSample earthWeather(const Vector &position,double mjd,int preset,bool effects){
     WeatherSample result;if(preset<=0||!std::isfinite(mjd)||position.length2()<1)return result;
     double lat,lon;bodyCoordinates(BodyId::Earth,position,mjd,0,lat,lon);

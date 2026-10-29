@@ -312,29 +312,22 @@ float4 rainBead(float2 uv,float probability,uint salt,float stretch){
     return float4(body,slope,rim);
 }
 fragment float4 rainGlassFragment(RainRaster in [[stage_in]],constant FrameUniforms &f [[buffer(1)]],
-                                   constant float4x4 &model [[buffer(2)]],texture2d<float> scene [[texture(0)]]){
+                                   constant float4x4 &model [[buffer(2)]],constant float4 &runoff [[buffer(3)]],texture2d<float> scene [[texture(0)]]){
     if(f.weather.z<=.01f)discard_fragment();
     float3 localNormal=normalize(in.normal);float side=smoothstep(.38f,.76f,abs(localNormal.x));
     float sideSign=in.local.x<0?-1.0f:1.0f;
     float2 surface=float2(mix(in.local.x,in.local.z*sideSign,side),in.local.y+in.local.z*.35f);
-    float3 gravity=-normalize(f.position.xyz),wind=-f.weatherWind.xyz;
-    float3 down=float3(dot(gravity,model[0].xyz),dot(gravity,model[1].xyz),dot(gravity,model[2].xyz));
-    float3 air=float3(dot(wind,model[0].xyz),dot(wind,model[1].xyz),dot(wind,model[2].xyz));
-    down-=localNormal*dot(down,localNormal);
-    air-=localNormal*dot(air,localNormal);
-    float2 flow=float2(mix(down.x,down.z*sideSign,side),down.y+down.z*.35f)*14;
-    flow+=float2(mix(air.x,air.z*sideSign,side),air.y+air.z*.35f);
-    flow=length(flow)>.01f?normalize(flow):float2(0,-1);
-    float2 across=float2(flow.y,-flow.x);
     float airspeed=length(f.weatherWind.xyz),airflow=smoothstep(5.0f,200.0f,airspeed);
     float4 beads=rainBead(surface*78.0f,f.weather.z*mix(.58f,.22f,airflow),101u,1.0f);
-    float speed=clamp(.18f+length(air)*.055f,.18f,25.0f);
-    float2 moving=float2(dot(surface,across),dot(surface,flow))*60.0f;
-    moving.y-=f.environment.w*speed;
+    // Integrate motion on the CPU: multiplying absolute time by the current
+    // speed makes droplets jump backwards whenever the aircraft slows down.
+    float3 alongGlass=runoff.xyz-localNormal*dot(runoff.xyz,localNormal);
+    float2 drift=float2(mix(alongGlass.x,alongGlass.z*sideSign,side),alongGlass.y+alongGlass.z*.35f);
+    float2 moving=(surface-drift)*60.0f;
     float4 running=rainBead(moving,f.weather.z*mix(.10f,.35f,airflow),809u,mix(1.0f,.68f,airflow));
     float body=max(beads.x,running.x),rim=max(beads.w,running.w);
     if(body<.004f&&rim<.004f)discard_fragment();
-    float2 gradient=beads.yz+across*running.y+flow*running.z;
+    float2 gradient=beads.yz+running.yz;
     float3 axisX=mix(model[0].xyz,model[2].xyz*sideSign,side);
     float3 axisY=model[1].xyz+model[2].xyz*.35f;
     float3 displacement=axisX*gradient.x+axisY*gradient.y;

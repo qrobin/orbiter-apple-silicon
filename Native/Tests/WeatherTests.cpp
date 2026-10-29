@@ -23,6 +23,10 @@ int main(){try{
     check(wet>.5&&drying>0&&drying<wet,"Cockpit glass gets wet in rain and dries gradually afterwards");
     check(updateGlassWetness(wet,0,100,0)==wet&&updateGlassWetness(wet,0,250,5)<drying,"Paused wetness is stable and faster airflow clears water sooner");
     check(updateGlassWetness(0,1,250,30)<updateGlassWetness(0,1,0,30)*.5,"Fast flight reduces water accumulation even in continuing rain");
+    Vector fastFlow=glassRunoffVelocity({0,0,250},{0,1,0},{1,0,0},{0,1,0},{0,0,1});
+    Vector slowFlow=glassRunoffVelocity({0,0,50},{0,1,0},{1,0,0},{0,1,0},{0,0,1});
+    Vector displacement=fastFlow*10,afterSlowdown=displacement+slowFlow;
+    check(fastFlow.z<slowFlow.z&&slowFlow.z<0&&afterSlowdown.z<displacement.z,"Runoff continues downwind when the aircraft slows down");
     check(fabs(dotp(storm.wind,dryPosition.unit()))<1e-8,"Weather wind follows the local surface");
     bool sawLightning=false;
     for(int i=0;i<3800;++i){

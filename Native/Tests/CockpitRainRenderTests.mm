@@ -2,6 +2,7 @@
 #import <Metal/Metal.h>
 #include "VisualTypes.h"
 #include "Mesh.h"
+#include "Weather.h"
 #include <cmath>
 #include <cstring>
 #include <iostream>
@@ -38,6 +39,7 @@ int main(){@autoreleasepool{try{
     auto render=[&](float rain,float time,bool occluded,float yaw,float speed=80){
         FrameUniforms f{};f.right={cosf(yaw),0,-sinf(yaw),0};f.up={0,1,0,0};f.forward={sinf(yaw),0,cosf(yaw),0};
         f.position={0,1,0,0};f.sun={0,1,0,1};f.weather={3,.9f,rain,0};f.weatherWind={0,0,speed,0};f.environment.w=time;f.screen={width,height,.466f,0};
+        Vector flow=glassRunoffVelocity({0,0,speed},{0,1,0},{1,0,0},{0,1,0},{0,0,1})*time;simd_float4 runoff={(float)flow.x,(float)flow.y,(float)flow.z,0};
         f.projection.columns[0]={1/.466f,0,0,0};f.projection.columns[1]={0,1/.466f,0,0};f.projection.columns[2]={0,0,0,-1};f.projection.columns[3]={0,0,.2f,0};
         id<MTLCommandBuffer> cb=[queue commandBuffer];id<MTLBlitCommandEncoder> blit=[cb blitCommandEncoder];
         [blit copyFromTexture:scene sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0,0,0) sourceSize:MTLSizeMake(width,height,1) toTexture:output destinationSlice:0 destinationLevel:0 destinationOrigin:MTLOriginMake(0,0,0)];[blit endEncoding];
@@ -45,7 +47,7 @@ int main(){@autoreleasepool{try{
         pass.depthAttachment.texture=depth;pass.depthAttachment.loadAction=MTLLoadActionClear;pass.depthAttachment.clearDepth=occluded?1:0;pass.depthAttachment.storeAction=MTLStoreActionStore;
         id<MTLRenderCommandEncoder> e=[cb renderCommandEncoderWithDescriptor:pass];[e setRenderPipelineState:pipeline];[e setDepthStencilState:depthState];[e setCullMode:MTLCullModeNone];
         [e setVertexBuffer:vertices offset:0 atIndex:0];[e setVertexBytes:&f length:sizeof(f) atIndex:1];[e setVertexBytes:&model length:sizeof(model) atIndex:2];
-        [e setFragmentBytes:&f length:sizeof(f) atIndex:1];[e setFragmentBytes:&model length:sizeof(model) atIndex:2];[e setFragmentTexture:scene atIndex:0];
+        [e setFragmentBytes:&f length:sizeof(f) atIndex:1];[e setFragmentBytes:&model length:sizeof(model) atIndex:2];[e setFragmentBytes:&runoff length:sizeof(runoff) atIndex:3];[e setFragmentTexture:scene atIndex:0];
         [e drawIndexedPrimitives:MTLPrimitiveTypeTriangle indexCount:glass.indices.size() indexType:MTLIndexTypeUInt32 indexBuffer:indices indexBufferOffset:0];[e endEncoding];
         [cb commit];[cb waitUntilCompleted];check(cb.error==nil,"Cockpit rain render failed");
         std::vector<uint8_t> pixels(width*height*4);[output getBytes:pixels.data() bytesPerRow:width*4 fromRegion:MTLRegionMake2D(0,0,width,height) mipmapLevel:0];return pixels;
