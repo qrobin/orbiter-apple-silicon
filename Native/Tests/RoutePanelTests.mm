@@ -55,6 +55,9 @@ using namespace native;
 - (void)refresh;
 - (void)updateControls;
 - (void)createRoute:(id)sender;
+- (void)addStop:(id)sender;
+- (void)clearStops:(id)sender;
+- (void)findWindow:(id)sender;
 - (void)applyTransfer:(id)sender;
 - (void)applyBurn:(id)sender;
 - (void)align:(id)sender;
@@ -129,6 +132,23 @@ int main(){@autoreleasepool {try{
     check(view->flight.assist==Assist::Maneuver&&view->transxAlignDisplay==transx::Session::RouteDisplay,"Align engages departure RCS guidance");
     check(view->flight.fuel==fuel&&view->flight.throttle==throttle,"The planner never commands the main engines");
     [panel release:nil];check(view->flight.assist==Assist::Free,"Release turns off maneuver alignment");
+    [destination selectItemWithTag:(NSInteger)BodyId::Mars];[panel addStop:nil];[panel updateControls];
+    check(view->transxSession->routeMatches(route),"Adding a draft stop does not replace the active route");
+    [destination selectItemWithTag:(NSInteger)BodyId::Jupiter];[panel createRoute:nil];[panel updateControls];
+    transx::Route multi;check(view->transxSession->currentRoute(multi)&&multi.waypoints.size()==2&&
+        multi.waypoints[0]==BodyId::Mars&&multi.waypoints[1]==BodyId::Jupiter,"The panel creates a multi-destination TransX route");
+    [panel findWindow:nil];[panel updateControls];
+    check(view->transxSession->windowSearchStatus().state==transx::SearchState::Running&&!destination.enabled&&!fields[5].enabled,
+          "Searching shows an active state and protects the plan from panel edits");
+    [panel findWindow:nil];[panel updateControls];
+    check(view->transxSession->windowSearchStatus().state==transx::SearchState::Idle&&destination.enabled,
+          "The search can be cancelled without replacing the route");
+    [panel findWindow:nil];
+    for(int i=0;i<1000&&view->transxSession->windowSearchStatus().state==transx::SearchState::Running;++i)view->transxSession->stepWindowSearch(64);
+    [panel updateControls];
+    check(view->transxSession->windowSearchStatus().state==transx::SearchState::Complete&&view->transxSession->routeMatches(multi),
+          "The panel applies a verified first encounter and preserves later stages");
+    check(view->transxSession->stageTiming(1,clock)&&clock.secondsToBurn>0,"The optimized burn has a future countdown");
     NSString *preview=NSProcessInfo.processInfo.environment[@"ORBITER_ROUTE_PREVIEW"];
     if(preview.length){
         [panel updateControls];[doc layoutSubtreeIfNeeded];

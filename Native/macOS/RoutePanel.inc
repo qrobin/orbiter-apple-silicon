@@ -3,11 +3,13 @@
     __weak FlightView *flightView;
     native::transx::Route route;
     BOOL hasRoute,transferDirty,burnDirty;
+    native::transx::SearchState lastSearchState;
     double lastValuesRefresh;
     NSPopUpButton *destination,*graphChoice,*steps;
     NSTextField *origin,*path,*message,*transferNote,*burnNote,*approach,*approachDetail;
     NSMutableArray<NSTextField *> *transferFields,*burnFields;
-    NSButton *applyTransfer,*estimate,*applyBurn,*align,*release,*transferTime,*burnTime;
+    NSMutableArray<NSNumber *> *draftStops;
+    NSButton *addStop,*clearStops,*create,*findWindow,*applyTransfer,*estimate,*applyBurn,*align,*release,*transferTime,*burnTime;
     TransXCanvas *canvas;
 }
 - (instancetype)initWithFlightView:(FlightView *)view {
@@ -15,7 +17,8 @@
         styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable|NSWindowStyleMaskUtilityWindow
         backing:NSBackingStoreBuffered defer:NO];
     self=[super initWithWindow:panel];if(!self)return nil;
-    flightView=view;panel.title=@"Route Planner";panel.floatingPanel=YES;panel.releasedWhenClosed=NO;
+    flightView=view;draftStops=[NSMutableArray new];lastSearchState=native::transx::SearchState::Idle;
+    panel.title=@"Route Planner";panel.floatingPanel=YES;panel.releasedWhenClosed=NO;
     panel.appearance=[NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
     NSScrollView *scroll=[[NSScrollView alloc] initWithFrame:NSMakeRect(0,0,860,744)];
     scroll.hasVerticalScroller=YES;scroll.autohidesScrollers=YES;
@@ -42,8 +45,9 @@
     }
     [destination selectItemWithTag:(NSInteger)(view->flight.reference==BodyId::Mars?BodyId::Earth:BodyId::Mars)];
     [destination setAccessibilityLabel:@"Route destination"];[doc addSubview:destination];
-    button(@"Create route",@selector(createRoute:),502,77,136);
-    auto replace=label(@"Replaces the shared TransX plan",646,82,180,22,11);replace.textColor=NSColor.secondaryLabelColor;
+    addStop=button(@"Add stop",@selector(addStop:),492,77,102);
+    clearStops=button(@"Clear stops",@selector(clearStops:),596,77,108);
+    create=button(@"Create route",@selector(createRoute:),706,77,120);
     path=label(@"Choose a destination to begin.",18,122,810,24,13);path.font=[NSFont systemFontOfSize:13 weight:NSFontWeightMedium];
     message=label(@"",18,150,810,36,12);message.textColor=NSColor.secondaryLabelColor;
 
@@ -59,8 +63,9 @@
         [doc addSubview:field];[transferFields addObject:field];
     }
     transferTime=button(@"In 1 h",@selector(setTime:),151,279,58);transferTime.frame=NSMakeRect(151,279,58,20);transferTime.tag=0;
-    applyTransfer=button(@"Apply transfer",@selector(applyTransfer:),18,400,140);
-    estimate=button(@"Use Hohmann estimate",@selector(estimate:),164,400,205);
+    applyTransfer=button(@"Apply transfer",@selector(applyTransfer:),18,400,128);
+    estimate=button(@"Hohmann estimate",@selector(estimate:),148,400,136);
+    findWindow=button(@"Find 1st window",@selector(findWindow:),286,400,132);
 
     heading(@"Step burn",18,455,170);
     steps=[[NSPopUpButton alloc] initWithFrame:NSMakeRect(195,451,221,28) pullsDown:NO];steps.target=self;steps.action=@selector(changeStep:);
@@ -80,7 +85,7 @@
     applyBurn=button(@"Apply burn",@selector(applyBurn:),18,651,126);
     align=button(@"Align with RCS",@selector(align:),150,651,140);
     release=button(@"Release",@selector(release:),296,651,102);
-    auto burnHelp=label(@"The transfer path and departure burn are separate TransX plans. Adjust the burn to match the escape plan.",18,691,410,48,11);
+    auto burnHelp=label(@"Window search matches the departure burn to the transfer. Manual edits may need further tuning.",18,691,410,48,11);
     burnHelp.textColor=NSColor.secondaryLabelColor;
 
     heading(@"TransX view",462,200,180);
@@ -124,8 +129,10 @@
     FlightView *v=flightView;if(!v||!v->transxSession)return;
     auto &session=*v->transxSession;
     origin.stringValue=[NSString stringWithFormat:@"From: %s · MJD %.4f",v->flight.centralBody().name,v->flight.mjd+v->flight.elapsed/86400.];
-    for(NSMenuItem *item in destination.itemArray)item.enabled=item.tag!=(NSInteger)v->flight.reference;
-    if(destination.selectedItem.tag==(NSInteger)v->flight.reference){
+    auto search=session.windowSearchStatus();BOOL searching=search.state==native::transx::SearchState::Running;
+    BodyId previous=draftStops.count?(BodyId)draftStops.lastObject.integerValue:v->flight.reference;
+    for(NSMenuItem *item in destination.itemArray)item.enabled=item.tag!=(NSInteger)previous;
+    if(destination.selectedItem.tag==(NSInteger)previous){
         for(NSMenuItem *item in destination.itemArray)if(item.enabled){[destination selectItem:item];break;}
     }
     if(hasRoute&&!session.routeMatches(route)){
@@ -146,13 +153,27 @@
         if(!session.stageInfo(i,info)||![[steps itemAtIndex:i-1].title isEqualToString:[NSString stringWithFormat:@"Step %d · %s",i,body(info.reference).name]]){rebuildSteps=true;break;}}
     if(rebuildSteps){[steps removeAllItems];for(int i=1;i<=count;++i){native::transx::StageInfo info;if(!session.stageInfo(i,info))continue;
         [steps addItemWithTitle:[NSString stringWithFormat:@"Step %d · %s",i,body(info.reference).name]];steps.lastItem.tag=i;}}
-    if(stage>0)[steps selectItemWithTag:stage];steps.enabled=hasRoute&&count>0;
-    path.stringValue=hasRoute?[self routeName]:@"Choose a destination to begin.";
-    BOOL transferAvailable=hasRoute&&route.ejectStage>0;
+    if(stage>0)[steps selectItemWithTag:stage];steps.enabled=hasRoute&&count>0&&!searching;
+    if(draftStops.count){
+        NSMutableString *draft=[NSMutableString stringWithFormat:@"Draft: %s",v->flight.centralBody().name];
+        for(NSNumber *stop in draftStops)[draft appendFormat:@"  →  %s",body((BodyId)stop.integerValue).name];
+        [draft appendString:@"  →  choose destination"];path.stringValue=draft;
+    }else path.stringValue=hasRoute?[self routeName]:@"Choose a destination to begin.";
+    destination.enabled=addStop.enabled=create.enabled=!searching;clearStops.enabled=!searching&&draftStops.count>0;
+    BOOL transferAvailable=hasRoute&&route.ejectStage>0&&!searching;
     for(NSTextField *field in transferFields)field.enabled=transferAvailable;
-    for(NSTextField *field in burnFields)field.enabled=hasRoute;
-    applyTransfer.enabled=transferAvailable;transferTime.enabled=transferAvailable;applyBurn.enabled=hasRoute;burnTime.enabled=hasRoute;
-    estimate.enabled=hasRoute&&route.targetStage>0&&(route.ejectStage>0||(route.targetStage==1&&session.selectedStage()==1));
+    for(NSTextField *field in burnFields)field.enabled=hasRoute&&!searching;
+    applyTransfer.enabled=transferAvailable;transferTime.enabled=transferAvailable;applyBurn.enabled=hasRoute&&!searching;burnTime.enabled=hasRoute&&!searching;
+    estimate.enabled=!searching&&hasRoute&&route.targetStage>0&&(route.ejectStage>0||(route.targetStage==1&&session.selectedStage()==1));
+    findWindow.enabled=searching||(hasRoute&&route.targetStage>0);findWindow.title=searching?@"Cancel search":@"Find 1st window";
+    if(searching)message.stringValue=[NSString stringWithFormat:@"Searching the first encounter for low fuel use… %.0f%%",search.progress*100];
+    else if(search.state!=lastSearchState){
+        if(search.state==native::transx::SearchState::Complete){
+            session.selectStage(1);stage=1;[steps selectItemWithTag:1];transferDirty=burnDirty=NO;lastValuesRefresh=0;
+            message.stringValue=[NSString stringWithFormat:@"First encounter applied · departure Δv %.0f m/s · estimated capture Δv %.0f m/s. Later steps need separate plans.",search.departureDV,search.captureDV];
+        }else if(search.state==native::transx::SearchState::Failed)message.stringValue=transxString(search.message);
+    }
+    lastSearchState=search.state;
     graphChoice.enabled=hasRoute;canvas.hidden=!hasRoute;
     [graphChoice itemAtIndex:1].enabled=hasRoute&&route.legs.front().escape;
     if(![graphChoice itemAtIndex:graphChoice.indexOfSelectedItem].enabled)[graphChoice selectItemAtIndex:0];
@@ -187,7 +208,7 @@
     native::transx::Approach result;
     if(session.routeApproach(route,result)){
         const auto &leg=*std::find_if(route.legs.begin(),route.legs.end(),[](const auto &item){return !item.escape;});
-        NSString *source=result.source==1?@"transfer plan":result.source==2?@"burn maneuver":@"current orbit only";
+        NSString *source=result.source==1?@"transfer plan":result.source==2?@"burn maneuver":@"inherited orbit";
         approach.stringValue=[NSString stringWithFormat:@"%s closest approach",body(leg.next).name];
         approachDetail.stringValue=[NSString stringWithFormat:@"%@ · %.0f km from center\nMJD %.4f · relative speed %.0f m/s\nTransX estimate; tune and verify before burning.",source,result.distance/1000.,result.mjd,result.relativeSpeed];
     }else{
@@ -196,20 +217,47 @@
     }
     native::transx::BurnTiming timing;int selected=session.selectedStage();
     burnNote.stringValue=session.stageTiming(selected,timing)?[NSString stringWithFormat:@"%@\n%@",burnTimingText(selected,timing),selected==1?@"Burn duration assumes full main thrust.":@"Align when this step becomes the current stage."]:@"Set this step's maneuver to show the burn countdown and duration.";
-    VECTOR3 direction;align.enabled=selected==1&&v->flight.rcs>0&&v->flight.assist!=Assist::Maneuver&&session.maneuverDirectionForStage(selected,direction);
+    VECTOR3 direction;align.enabled=!searching&&selected==1&&v->flight.rcs>0&&v->flight.assist!=Assist::Maneuver&&session.maneuverDirectionForStage(selected,direction);
     release.enabled=v->flight.assist==Assist::Maneuver;
+}
+- (void)addStop:(id)sender {
+    if(!flightView)return;BodyId stop=(BodyId)destination.selectedItem.tag;
+    BodyId previous=draftStops.count?(BodyId)draftStops.lastObject.integerValue:flightView->flight.reference;
+    if(stop==previous){message.stringValue=@"Choose a different body for the next stop.";return;}
+    [draftStops addObject:@((NSInteger)stop)];
+    message.stringValue=@"Stop added. Choose another stop or the final destination, then create the route.";
+    [self updateControls];
+}
+- (void)clearStops:(id)sender {
+    [draftStops removeAllObjects];message.stringValue=@"Stops cleared. Choose a destination to create a route.";[self updateControls];
 }
 - (void)createRoute:(id)sender {
     FlightView *v=flightView;if(!v||!v->transxSession)return;
     native::transx::Route next;std::string error;
-    if(!v->transxSession->createRoute((BodyId)destination.selectedItem.tag,next,error)){
+    std::vector<BodyId> waypoints;for(NSNumber *stop in draftStops)waypoints.push_back((BodyId)stop.integerValue);
+    waypoints.push_back((BodyId)destination.selectedItem.tag);
+    if(!v->transxSession->createRoute(waypoints,next,error)){
         message.stringValue=transxString(error);[self refresh];return;
     }
     if(v->flight.assist==Assist::Maneuver)v->flight.clearAssist();v->transxAlignDisplay=-1;
+    v->transxSession->cancelWindowSearch();[draftStops removeAllObjects];
     route=std::move(next);hasRoute=YES;transferDirty=burnDirty=NO;lastValuesRefresh=0;
     [graphChoice selectItemAtIndex:0];
-    message.stringValue=@"TransX stages created. Tune the transfer and departure burn; no engine burn is automatic.";
+    message.stringValue=@"TransX stages created. Find the first window or edit each step; engine burns remain manual.";
     [self refresh];[v.navigationPanel refresh];
+}
+- (void)findWindow:(id)sender {
+    FlightView *v=flightView;if(!v||!v->transxSession||!hasRoute)return;
+    if(v->transxSession->windowSearchStatus().state==native::transx::SearchState::Running){
+        v->transxSession->cancelWindowSearch();message.stringValue=@"Search cancelled; the existing TransX plan was kept.";
+    }else{
+        std::string error;
+        if(!v->transxSession->beginWindowSearch(route,error)){message.stringValue=transxString(error);return;}
+        if(v->flight.assist==Assist::Maneuver&&v->transxAlignDisplay==native::transx::Session::RouteDisplay){
+            v->flight.clearAssist();v->transxAlignDisplay=-1;
+        }
+    }
+    [self updateControls];
 }
 - (void)applyValues:(BOOL)departure {
     FlightView *v=flightView;if(!v||!hasRoute)return;

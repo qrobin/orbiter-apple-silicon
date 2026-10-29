@@ -112,6 +112,7 @@
 - (void)showNavigation:(id)sender {[self ensureTransX];if(!self.navigationPanel)self.navigationPanel=[[TransXPanel alloc] initWithFlightView:self];[self clearInput];[self.navigationPanel showWindow:nil];[self.navigationPanel.window makeKeyAndOrderFront:nil];}
 - (void)updateNavigation {
     if(!transxSession)return;transxSession->tick();
+    if(transxSession->windowSearchStatus().state==native::transx::SearchState::Running)transxSession->stepWindowSearch(12);
     if(flight.assist==Assist::Maneuver&&transxAlignDisplay>=0){VECTOR3 target;
         bool valid=flight.reference==transxAlignBody&&(transxAlignDisplay==native::transx::Session::RouteDisplay?transxSession->maneuverDirectionForStage(1,target):transxSession->maneuverDirection(transxAlignDisplay,target));
         if(valid)flight.maneuverDirection={target.x,target.y,target.z};else{flight.assist=Assist::Free;transxAlignDisplay=-1;}
