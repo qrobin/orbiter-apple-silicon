@@ -56,14 +56,41 @@ bool Flight::setHoverHold(int mode,double target) {
        (mode!=1&&mode!=2)||(mode==1&&(target<0||target>120000))||(mode==2&&fabs(target)>20))return false;
     auto &h=glider.hoverControl;h.holdMode=mode;
     if(mode==1)h.altitudeTarget=target;else h.verticalSpeedTarget=target;
-    h.holdActive=true;h.resetFeedback();clearAssist();
+    h.holdActive=true;h.resetFeedback();atmospheric.cancel();clearAssist();
     if(!h.attitudeMode)h.attitudeMode=1;
     return true;
 }
 void Flight::setHoverThrottle(double level) {
     glider.hover=std::clamp(level,0.,1.);glider.hoverControl.holdActive=false;glider.hoverControl.resetFeedback();
+    if(glider.hover>0)atmospheric.cancel();
+}
+void Flight::setMainThrottle(double level) {
+    throttle=std::clamp(level,0.,1.);atmospheric.active[1]=false;atmospheric.speedInitialized=false;
+}
+bool Flight::atmosphericAvailable() const {
+    double speed=airRelativeVelocity().length(),rho=bodyAtmosphere(reference,altitude()).rho;
+    return centralBody().solid&&!impacted&&!groundContact&&glider.hover<=.001&&altitude()>50&&speed>80&&.5*rho*speed*speed>500;
+}
+void Flight::captureAtmosphericTarget(int channel) {
+    if(channel<0||channel>3)return;
+    atmospheric.target[channel]=channel==0?altitude():channel==1?airRelativeVelocity().length():channel==2?bank():heading();
+}
+bool Flight::setAtmosphericTarget(int channel,double target) {
+    if(channel<0||channel>3||!std::isfinite(target))return false;
+    if((channel==0&&(target<50||target>100000))||(channel==1&&(target<80||target>2000))||
+       (channel==2&&fabs(target)>60*RAD)||(channel==3&&(target<0||target>=Pi2)))return false;
+    atmospheric.target[channel]=target;return true;
+}
+bool Flight::setAtmosphericHold(int channel,bool enabled) {
+    if(channel<0||channel>3)return false;
+    if(!enabled){atmospheric.active[channel]=false;if(channel==2)atmospheric.active[3]=false;if(channel==1)atmospheric.speedInitialized=false;return true;}
+    if(!atmosphericAvailable()||!setAtmosphericTarget(channel,atmospheric.target[channel])||(channel==1&&fuel<=0))return false;
+    clearAssist();glider.hoverControl.holdActive=false;glider.hoverControl.resetFeedback();
+    atmospheric.active[channel]=true;if(channel==3)atmospheric.active[2]=true;
+    if(channel==1)atmospheric.speedInitialized=false;return true;
 }
 void Flight::cutEngines() {
+    atmospheric.active[1]=false;atmospheric.speedInitialized=false;
     throttle=glider.hover=glider.retro=0;glider.mainLevel=glider.hoverLevel=glider.retroLevel=0;
     glider.hoverControl.holdActive=false;glider.hoverControl.resetFeedback();glider.hoverControl.levels.fill(0);
 }
@@ -76,7 +103,7 @@ void Flight::toggleAssist(Assist mode) {
     // The original nav computer permits KILL-R to coexist with HRLVL.
     if(mode==Assist::KillRotation&&assist==Assist::HorizonLevel){killRotationWithLevel=!killRotationWithLevel;if(killRotationWithLevel)return;}
     if(assist==mode){clearAssist();return;}
-    assist=mode;killRotationWithLevel=false;
+    atmospheric.cancel();assist=mode;killRotationWithLevel=false;
 }
 void Flight::load(const std::filesystem::path &path) {
     std::ifstream file(path); if(!file) throw std::runtime_error("Cannot open scenario.");
@@ -217,6 +244,45 @@ void Flight::coast(double dt) {
         for(int i=0;i<steps;++i) step(dt/steps,{});
     } else e.PosVel(position,velocity,elapsed+dt);
 }
+// The altitude/slope and bank/heading modes follow the structure of the
+// original Delta-glider aap.lua. Gains and moment feed-forward are adapted to
+// the reduced native force model; control forces still come from the airfoils.
+void Flight::updateAtmosphericControl(double dt) {
+    auto &ap=atmospheric;if(!ap.engaged())return;
+    if(!atmosphericAvailable()){ap.cancel();return;}
+    Vector air=airRelativeVelocity();double speed=air.length(),height=altitude();
+    auto atmosphere=bodyAtmosphere(reference,height);double q=.5*atmosphere.rho*speed*speed;
+    double gravity=gravityMu()/position.length2(),bankAngle=bank();
+    if(ap.active[0]){
+        double lift=std::clamp(mass()*gravity/(q*90*std::max(.4,cos(bankAngle))),0.,.65);
+        double aoaTarget=Rad(-2+17*lift/.7);
+        double slopeTarget=std::clamp((ap.target[0]-height)*.01*RAD,-20*RAD,30*RAD);
+        double targetPitch=std::clamp(slopeTarget+aoaTarget,-25*RAD,35*RAD);
+        double aoa=atan2(-dotp(air,up),dotp(air,forward)),cl,cm,cd;
+        verticalLift(aoa,mach,&cl,&cm,&cd);
+        double feedforward=450*cm/(1.4*1.7*7.2)-glider.trim*.3/1.4;
+        glider.elevator=std::clamp(1.4*(targetPitch-pitch())+2*angularVelocity.x+feedforward,-1.,1.);
+    }
+    if(ap.active[2]){
+        double target=ap.target[2];
+        if(ap.active[3]){
+            double error=std::remainder(ap.target[3]-heading(),Pi2);
+            double desiredRate=std::clamp(error*.06,-.025,.025);
+            target=std::clamp(atan(speed*desiredRate/gravity),-25*RAD,25*RAD);
+            glider.rudder=std::clamp((desiredRate-angularVelocity.y)*4+desiredRate*.8,-1.,1.);
+        }
+        double error=std::remainder(target-bankAngle,Pi2);
+        glider.aileron=std::clamp(-error-1.5*angularVelocity.z,-1.,1.);
+    }
+    if(ap.active[1]){
+        if(fuel<=0){ap.active[1]=false;ap.speedInitialized=false;}
+        else {
+            double acceleration=ap.speedInitialized?(speed-ap.previousSpeed)/dt:0;
+            ap.previousSpeed=speed;ap.speedInitialized=true;
+            throttle=std::clamp(throttle+((ap.target[1]-speed)*.01-acceleration*.035)*dt,0.,1.);
+        }
+    }
+}
 void Flight::step(double dt,const Input &input) {
     auto &hover=glider.hoverControl;
     if(fuel<=0||altitude()>120000){hover.holdActive=false;hover.resetFeedback();}
@@ -270,6 +336,7 @@ void Flight::step(double dt,const Input &input) {
     if(hover.attitudeMode&&glider.hover>0&&altitude()<120000&&assist==Assist::Free)control.x=control.z=0;
     glider.rcsRotation=control; glider.rcsTranslation=translation;
     glider.elevator=std::clamp(-input.pitch,-1.,1.); glider.rudder=input.yaw; glider.aileron=input.roll;
+    updateAtmosphericControl(dt);
     // Original DG thruster locations, directions and easy-model vacuum ratings.
     Vector force,torque;
     auto engine=[&](Vector position,Vector direction,double thrust) {
@@ -351,8 +418,11 @@ void Flight::step(double dt,const Input &input) {
 }
 void Flight::advance(double realSeconds,const Input &input) {
     if(paused||impacted||realSeconds<=0||!std::isfinite(realSeconds)) return;
+    if(assist!=Assist::Free&&atmospheric.engaged())atmospheric.cancel();
+    if(input.pitch)atmospheric.active[0]=false;
+    if(input.roll||input.yaw){atmospheric.active[2]=false;atmospheric.active[3]=false;}
     bool atmosphericFlight=(reference==BodyId::Earth?altitude()<120000:bodyAtmosphere(reference,altitude()).rho>1e-12)||(centralBody().solid&&altitude()<20);
-    bool maneuver=assist==Assist::Maneuver||throttle>0||glider.hover>0||glider.hoverControl.holdActive||glider.retro>0||input.pitch||input.yaw||input.roll||input.translate||input.lateral||input.vertical||angularVelocity.length2()>1e-16;
+    bool maneuver=atmospheric.engaged()||assist==Assist::Maneuver||throttle>0||glider.hover>0||glider.hoverControl.holdActive||glider.retro>0||input.pitch||input.yaw||input.roll||input.translate||input.lateral||input.vertical||angularVelocity.length2()>1e-16;
     if(warp>1&&centralBody().solid&&orbit().PeDist()<centralBody().radius+20){atmosphericFlight=true;}
     // if(maneuver||atmosphericFlight) warp=1;
     double dt=std::min(realSeconds,.1)*std::clamp(warp,1.0,MaximumTimeAcceleration);

@@ -459,8 +459,8 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     }
     if(held[30]) flight.setHoverThrottle(flight.glider.hover+dt*.35);
     if(held[33]) flight.setHoverThrottle(flight.glider.hover-dt*.35);
-    if(held[24]||held[69]) flight.throttle=std::min(1.,flight.throttle+dt*.4);
-    if(held[27]||held[78]) flight.throttle=std::max(0.,flight.throttle-dt*.4);
+    if(held[24]||held[69]) flight.setMainThrottle(flight.throttle+dt*.4);
+    if(held[27]||held[78]) flight.setMainThrottle(flight.throttle-dt*.4);
     if((input.pitch||input.yaw||input.roll)&&flight.glider.rcsMode!=2) flight.clearAssist();
     if(smokeFrames&&rcsDemo){input.pitch=.3;input.yaw=-.15;input.roll=.2;flight.clearAssist();}
     if(activeCockpitControl==62){flight.hud.adjustBrightness(activeCockpitDirection*dt*.3);self.hud.needsDisplay=YES;}
@@ -937,7 +937,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     else if(hit.action==31) g.trim=std::clamp(g.trim+(hit.v>.5?.1:-.1),-1.,1.);
     else if(hit.action==32) g.gimbalPitch=std::clamp(g.gimbalPitch+(hit.v>.5?.1:-.1),-1.,1.);
     else if(hit.action==33) g.gimbalYaw=std::clamp(g.gimbalYaw+(hit.v>.5?.1:-.1),-1.,1.);
-    else if(hit.action==34) {flight.throttle=std::clamp(1-hit.v,0.,1.);activeCockpitControl=34;}
+    else if(hit.action==34) {flight.setMainThrottle(1-hit.v);activeCockpitControl=34;}
     else if(hit.action==35) {flight.setHoverThrottle(std::clamp(hit.v,0.,1.));activeCockpitControl=35;}
     else if(hit.action==40) {g.hoverControl.attitudeMode=std::clamp(g.hoverControl.attitudeMode+(hit.u>.5?1:-1),0,2);}
     else if(hit.action>=41&&hit.action<=43) {
@@ -968,7 +968,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     if(activeCockpitControl==34||activeCockpitControl==35) {
         double &level=activeCockpitControl==34?flight.throttle:flight.glider.hover;
         double value=std::clamp(level-deltaY*.01,0.,1.);
-        if(activeCockpitControl==35)flight.setHoverThrottle(value);else level=value;return;
+        if(activeCockpitControl==35)flight.setHoverThrottle(value);else flight.setMainThrottle(value);return;
     }
     if(activeCockpitControl>=40) {
         auto &h=flight.glider.hoverControl;

@@ -9,6 +9,9 @@
     NSMutableArray<NSButton *> *mechanismButtons,*switches;
     NSMutableArray<NSTextField *> *mechanismValues,*engineValues;
     NSMutableArray<NSSlider *> *engineSliders;
+    NSMutableArray<NSTextField *> *airTargets;
+    NSMutableArray<NSButton *> *airHolds;
+    NSTextField *airReadout;
     NSTextField *summary,*pressure,*thermal,*warning;
     NSButton *parkingBrake,*holdButton;
     NSSegmentedControl *hoverAttitude,*holdMode;
@@ -31,7 +34,7 @@
     panel.releasedWhenClosed=NO;
     NSScrollView *scroll=[[NSScrollView alloc] initWithFrame:NSMakeRect(0,0,440,690)];
     scroll.hasVerticalScroller=YES; scroll.autohidesScrollers=YES;
-    FlippedGliderDocument *doc=[[FlippedGliderDocument alloc] initWithFrame:NSMakeRect(0,0,420,1866)];
+    FlippedGliderDocument *doc=[[FlippedGliderDocument alloc] initWithFrame:NSMakeRect(0,0,420,2126)];
     scroll.documentView=doc; panel.contentView=scroll;
     mechanismButtons=[NSMutableArray new]; mechanismValues=[NSMutableArray new];
     engineSliders=[NSMutableArray new]; engineValues=[NSMutableArray new]; switches=[NSMutableArray new];
@@ -101,6 +104,22 @@
     holdButton=[NSButton buttonWithTitle:@"Engage Altitude Hold" target:self action:@selector(toggleHoverHold:)];
     holdButton.frame=NSMakeRect(18,322,384,30);[doc addSubview:holdButton];
     hoverReadout=label(@"",18,365,384,11);hoverReadout.frame=NSMakeRect(18,365,384,64);hoverReadout.maximumNumberOfLines=3;
+    // Keep atmospheric controls at the top of the common systems window so
+    // they are reachable from all three camera views.
+    for(NSView *item in doc.subviews)if(item!=summary){NSRect frame=item.frame;frame.origin.y+=260;item.frame=frame;}
+    section(@"Atmospheric stabilization",44);
+    airTargets=[NSMutableArray new];airHolds=[NSMutableArray new];
+    NSArray *airLabels=@[@"Altitude (m)",@"Airspeed (m/s)",@"Bank (°)",@"Heading (°)"];
+    for(int i=0;i<4;++i){
+        CGFloat y=77+i*39;label(airLabels[i],18,y+4,106);
+        NSTextField *field=[NSTextField textFieldWithString:@"0"];field.frame=NSMakeRect(124,y,87,26);field.tag=i;field.target=self;field.action=@selector(changeAirTarget:);
+        NSNumberFormatter *formatter=[NSNumberFormatter new];formatter.numberStyle=NSNumberFormatterDecimalStyle;formatter.maximumFractionDigits=1;
+        formatter.minimum=i==0?@50:i==1?@80:i==2?@(-60):@0;formatter.maximum=i==0?@100000:i==1?@2000:i==2?@60:@360;
+        field.formatter=formatter;[field setAccessibilityLabel:[NSString stringWithFormat:@"%@ target",airLabels[i]]];[doc addSubview:field];[airTargets addObject:field];
+        NSButton *hold=[NSButton checkboxWithTitle:@"Hold" target:self action:@selector(toggleAirHold:)];hold.frame=NSMakeRect(220,y,67,26);hold.tag=i;[hold setAccessibilityLabel:[NSString stringWithFormat:@"Hold %@",airLabels[i]]];[doc addSubview:hold];[airHolds addObject:hold];
+        NSButton *capture=[NSButton buttonWithTitle:@"Use current" target:self action:@selector(captureAirTarget:)];capture.frame=NSMakeRect(292,y,110,26);capture.tag=i;[capture setAccessibilityLabel:[NSString stringWithFormat:@"Capture current %@",airLabels[i]]];[doc addSubview:capture];
+    }
+    airReadout=label(@"",18,237,384,11);airReadout.frame=NSMakeRect(18,237,384,61);airReadout.maximumNumberOfLines=3;
     [self refresh:nil];
     refreshTimer=[NSTimer scheduledTimerWithTimeInterval:.2 target:self selector:@selector(refresh:) userInfo:nil repeats:YES];
     [panel center]; return self;
@@ -116,6 +135,16 @@
     }
     double values[]={f.throttle,g.hover,g.retro,g.mainBalance,g.gimbalPitch,g.gimbalYaw,g.hoverBalance,g.trim};
     for(size_t i=0;i<8;++i) { engineSliders[i].doubleValue=values[i]; engineValues[i].stringValue=[NSString stringWithFormat:@"%+.0f%%",values[i]*100]; }
+    auto &ap=f.atmospheric;
+    if(!ap.targetsInitialized){for(int i=0;i<4;++i)f.captureAtmosphericTarget(i);ap.targetsInitialized=true;}
+    bool available=f.atmosphericAvailable();
+    for(int i=0;i<4;++i){
+        if(!airTargets[i].currentEditor)airTargets[i].doubleValue=i>=2?Deg(ap.target[i]):ap.target[i];
+        airHolds[i].state=ap.active[i]?NSControlStateValueOn:NSControlStateValueOff;
+        airHolds[i].enabled=ap.active[i]||(available&&(i!=1||f.fuel>0));
+        airTargets[i].enabled=!(i==2&&ap.active[3]);
+    }
+    airReadout.stringValue=[NSString stringWithFormat:@"Now: %.0f m · %.0f m/s airspeed · %.0f° bank · %.0f° heading\n%@",f.altitude(),f.airRelativeVelocity().length(),Deg(f.bank()),Deg(f.heading()),available?@"Manual pitch/roll/yaw or throttle releases the related hold.":@"Requires airspeed above 80 m/s, sufficient air density, and hover engines off."];
     auto &h=g.hoverControl;
     hoverAttitude.selectedSegment=h.attitudeMode;
     hoverPitch.enabled=hoverBank.enabled=h.attitudeMode==2;
@@ -149,7 +178,21 @@
 - (void)changeEngine:(NSSlider *)sender {
     auto &f=flightView->flight; auto &g=f.glider;
     double *values[]={&f.throttle,&g.hover,&g.retro,&g.mainBalance,&g.gimbalPitch,&g.gimbalYaw,&g.hoverBalance,&g.trim};
-    if(sender.tag==1)f.setHoverThrottle(sender.doubleValue);else *values[sender.tag]=sender.doubleValue; [self refresh:nil];
+    if(sender.tag==0)f.setMainThrottle(sender.doubleValue);else if(sender.tag==1)f.setHoverThrottle(sender.doubleValue);else *values[sender.tag]=sender.doubleValue; [self refresh:nil];
+}
+- (void)changeAirTarget:(NSTextField *)sender {
+    auto &f=flightView->flight;int channel=(int)sender.tag;double value=sender.doubleValue;
+    if(channel>=2)value=Rad(value);if(channel==3&&value>=Pi2)value=0;
+    if(!f.setAtmosphericTarget(channel,value))flightView->status=@"Invalid atmospheric hold target";
+    [self refresh:nil];
+}
+- (void)captureAirTarget:(NSButton *)sender {flightView->flight.captureAtmosphericTarget((int)sender.tag);[self refresh:nil];}
+- (void)toggleAirHold:(NSButton *)sender {
+    auto &f=flightView->flight;int channel=(int)sender.tag;bool enabled=sender.state==NSControlStateValueOn;
+    if(enabled){double value=airTargets[channel].doubleValue;if(channel>=2)value=Rad(value);if(channel==3&&value>=Pi2)value=0;
+        if(!f.setAtmosphericTarget(channel,value)){flightView->status=@"Invalid atmospheric hold target";[self refresh:nil];return;}}
+    if(!f.setAtmosphericHold(channel,enabled))flightView->status=@"Atmospheric hold requires a valid target, airspeed and atmosphere, with hover engines off";
+    [self refresh:nil];
 }
 - (void)changeHoverAttitude:(NSSegmentedControl *)sender {flightView->flight.glider.hoverControl.attitudeMode=(int)sender.selectedSegment;[self refresh:nil];}
 - (void)changeHoverAngle:(NSSlider *)sender {

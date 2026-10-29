@@ -90,7 +90,7 @@
 }
 - (void)applyThrottleAt:(NSPoint)p {
     Flight &f=self.flightView->flight;
-    if(activeAction==300){double y=std::clamp(p.y-131.,0.,157.);f.throttle=y<=108?1-y/108:0;f.glider.retro=y>=125?(y-125)/32:0;}
+    if(activeAction==300){double y=std::clamp(p.y-131.,0.,157.);f.setMainThrottle(y<=108?1-y/108:0);f.glider.retro=y>=125?(y-125)/32:0;}
     else if(activeAction==301)f.setHoverThrottle(1-std::clamp((p.y-313.)/116.,0.,1.));
     self.needsDisplay=YES;
 }

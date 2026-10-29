@@ -4,6 +4,7 @@
 #include "Glider.h"
 #include "Hud.h"
 #include "Weather.h"
+#include <array>
 #include <string>
 #include <filesystem>
 namespace native {
@@ -15,10 +16,20 @@ struct Input { double pitch=0, yaw=0, roll=0, translate=0, lateral=0, vertical=0
 enum class Assist { Free, Prograde, Retrograde, Normal, AntiNormal, HorizonLevel, KillRotation, Maneuver };
 // Physical button order in the original VC: KILL-R, RET-G, PRO-G, NML−, NML+, HRLVL.
 Assist navButtonMode(int button);
+// Targets: altitude (m), airspeed (m/s), bank and heading (radians).
+struct AtmosphericControl {
+    std::array<bool,4> active{};
+    std::array<double,4> target{};
+    bool targetsInitialized=false,speedInitialized=false;
+    double previousSpeed=0;
+    bool engaged() const {return active[0]||active[1]||active[2]||active[3];}
+    void cancel() {active.fill(false);speedInitialized=false;}
+};
 class Flight {
 public:
     Glider glider;
     Hud hud;
+    AtmosphericControl atmospheric;
     BodyId reference=BodyId::Earth;
     bool automaticReferenceChanges=false;
     int weatherPreset=0;
@@ -44,6 +55,11 @@ public:
     void advance(double realSeconds, const Input &input={});
     bool setHoverHold(int mode,double target);
     void setHoverThrottle(double level);
+    void setMainThrottle(double level);
+    bool atmosphericAvailable() const;
+    void captureAtmosphericTarget(int channel);
+    bool setAtmosphericTarget(int channel,double target);
+    bool setAtmosphericHold(int channel,bool enabled);
     void cutEngines();
     void toggleAssist(Assist mode);
     void clearAssist();
@@ -63,5 +79,6 @@ public:
 private:
     void coast(double dt);
     void step(double dt,const Input &input);
+    void updateAtmosphericControl(double dt);
 };
 }

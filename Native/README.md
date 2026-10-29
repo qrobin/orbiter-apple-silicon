@@ -87,6 +87,14 @@ Choose **Flight → Cape Canaveral — Surface Flight** to start parked at the o
 
 The HUD and left cockpit display automatically show surface altitude, ground-relative speed, vertical speed, heading, pitch and bank below 120 km. The external orbit diagram becomes a surface attitude indicator. Select **Flight → Earth Orbit** to return to the orbital starting scenario. **Command-R** restarts the scenario most recently selected or opened.
 
+## Atmospheric flight
+
+Choose **Flight → Atlantic Ocean — Atmospheric Flight** for a 5 km, 250 m/s airborne start. Press **M** to open Delta-glider Systems from any view. At the top, set an altitude (metres), airspeed (m/s), bank or heading (degrees), then check **Hold**. **Use current** captures the current value. Heading hold uses bank control and the rudder; turn it off to use a separate bank target. Press Return after editing a target or enable its hold to apply it.
+
+The holds use the aircraft's elevator, ailerons, rudder and main throttle; they do not use RCS propellant. Manual pitch releases altitude hold; manual roll or yaw releases bank and heading hold. Changing main throttle releases airspeed hold, and **X** cuts the engines and releases airspeed hold. Engaging an RCS navigation program or hover thrust releases the atmospheric holds. Holds require an airborne vessel, at least 80 m/s airspeed, sufficient air density and hover engines off. They can be limited by stalls, control authority, engine power or fuel; they are not saved with a scenario.
+
+The control modes follow the original Delta-glider atmospheric autopilot's altitude, speed, bank and heading structure, with gains and moment feedback adapted to this port's reduced flight model. They are tested in the bundled ocean scenario, including procedural storm wind, but are not a full validation of the original Orbiter flight model.
+
 ## Hover practice
 
 Choose **Flight → Cape Canaveral — Hover Practice** for a low-fuel launch that automatically climbs to 100 m and holds altitude. It uses the same engine forces and propellant budget as manual flight; it is not a scripted animation. The controllers do not hold horizontal position or heading, so some drift is expected.
@@ -117,6 +125,7 @@ The right cockpit MFD displays hover state while hover controls are enabled. The
 | Retro engines | Original two 34 kN engines with original slightly tilted thrust vectors and mounting points |
 | Hover engines | Three independent engine levels, original thrust distribution and manual fore/aft balance; real force, torque and propellant use |
 | Hover controls | Automatic/manual attitude targets; altitude and vertical-speed hold; limits, manual override, original cockpit controls/readouts and scenario persistence |
+| Atmospheric stabilization | Airspeed, altitude, bank and heading holds using the glider control surfaces and main throttle; available from M in any view |
 | RCS | Six-axis translation and three-axis rotation, original torque magnitudes and normalized moments of inertia, fuel-limited jets, off/rotation/translation modes |
 | Attitude assists | Original six RCS programs, finite torque and fuel use at normal speed; prograde and retrograde put the planet on the left and right respectively. Nav programs can operate with the manual RCS dial off. |
 | HUD | Orbit, surface and docking selection, brightness and four colours from cockpit controls or the Navigation menu; docking displays no target until docking targets are supported |

@@ -84,6 +84,17 @@ target_link_libraries(EarthRenderTests PRIVATE "-framework Cocoa" "-framework Me
 add_test(NAME Native.EarthMetal COMMAND EarthRenderTests)
 set_tests_properties(Native.EarthMetal PROPERTIES SKIP_RETURN_CODE 77)
 
+add_executable(AtmosphericPanelTests Tests/AtmosphericPanelTests.mm)
+target_compile_options(AtmosphericPanelTests PRIVATE -fobjc-arc)
+target_compile_definitions(AtmosphericPanelTests PRIVATE ORBITER_TEST_DATA="${PROJECT_SOURCE_DIR}")
+target_link_libraries(AtmosphericPanelTests PRIVATE OrbiterFlightCore "-framework Cocoa")
+add_test(NAME Native.AtmosphericPanel COMMAND AtmosphericPanelTests)
+
+add_executable(AtmosphericControlTests Tests/AtmosphericControlTests.cpp)
+target_link_libraries(AtmosphericControlTests PRIVATE OrbiterFlightCore)
+target_compile_definitions(AtmosphericControlTests PRIVATE ORBITER_TEST_DATA="${PROJECT_SOURCE_DIR}")
+add_test(NAME Native.AtmosphericControl COMMAND AtmosphericControlTests)
+
 add_executable(WeatherTests Tests/WeatherTests.cpp)
 target_link_libraries(WeatherTests PRIVATE OrbiterFlightCore)
 target_compile_definitions(WeatherTests PRIVATE ORBITER_TEST_DATA="${PROJECT_SOURCE_DIR}")
