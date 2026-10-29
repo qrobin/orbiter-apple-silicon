@@ -41,13 +41,24 @@ fragment float4 meshFragment(Raster in [[stage_in]],constant Frame &f [[buffer(1
     float3 normal=normalize(in.normal);
     if(dot(normal,-in.world)<0) normal=-normal;
     float lit=max(0.0f,dot(normal,f.sun.xyz))*f.sun.w;
+    float cloudShade=1;
     if(f.environment.y<f.clouds.y&&f.clouds.z>0){
         float2 shadowUV=in.position.xy/f.screen.xy;
-        lit*=shadows.sample(s,shadowUV).r;
+        cloudShade=shadows.sample(s,shadowUV).r;lit*=cloudShade;
     }
     float3 view=normalize(-in.world);
     float spec=pow(max(0.0f,dot(normal,normalize(f.sun.xyz+view))),40.0f)*.18*f.sun.w;
     float3 color=albedo.rgb*(.025+.175*f.sun.w+o.options.y+lit*.8)+spec;
+    // A low-cost hemispheric fill approximates sunlight scattered back down
+    // by cloud cover; it softens shadows without making clouds emit at night.
+    if(int(f.surfaceColor.w)==3&&f.clouds.z>0){
+        float mu=dot(normalize(f.position.xyz),f.sun.xyz);
+        float day=smoothstep(-.08f,.16f,mu)*f.sun.w;
+        float below=1-smoothstep(f.clouds.y,f.clouds.y+6000.0f,f.environment.y);
+        float cloudFill=f.clouds.z*below*day*(.035f+.085f*(1-cloudShade));
+        float3 tint=mix(float3(1,.58,.35),float3(.80,.87,1),smoothstep(.02f,.3f,mu));
+        color+=albedo.rgb*tint*cloudFill*(.5f+.5f*max(0.0f,dot(normal,normalize(f.position.xyz))));
+    }
     return float4(color,albedo.a);
 }
 vertex SkyRaster skyVertex(uint id [[vertex_id]]) {
@@ -145,6 +156,11 @@ fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buf
         float cloudShade=shadows.sample(s,in.position.xy/f.screen.xy).r;
         if(f.pole.w>0){float den=dot(f.sun.xyz,f.pole.xyz);float ts=-dot(n,f.pole.xyz)/(abs(den)>.0001?den:.0001f);float3 point=n+f.sun.xyz*ts;float r=length(point);if(ts>0&&r>f.pole.w&&r<f.equatorZ.w)cloudShade*=1-ringMaterial(point,ray,f.pole.xyz,f.pole.w,f.equatorZ.w,f.sun.xyz,rings).a*.85;}
         color=base*(.025+light*cloudShade)*day+base*.008*(1-day);
+        if(earth&&f.clouds.z>0){
+            float cloudFill=f.clouds.z*day*f.sun.w*(.025f+.07f*(1-cloudShade));
+            float3 tint=mix(float3(1,.58,.35),float3(.8,.87,1),smoothstep(.02f,.3f,dot(n,f.sun.xyz)));
+            color+=base*tint*cloudFill;
+        }
         // Ocean detail is shaded, not displaced geometry. Filter waves whose
         // wavelength is smaller than a pixel to prevent distant shimmer.
         float waveFade=1-smoothstep(22000.0f,55000.0f,t*radius);
@@ -173,6 +189,7 @@ fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buf
                 float fresnelWater=pow(1-max(0.0f,dot(waveNormal,-ray)),5.0f);
                 float waveLight=max(0.0f,dot(waveNormal,f.sun.xyz));
                 float3 ocean=base*(.025+waveLight*cloudShade)*day+base*.008*(1-day);
+                if(f.clouds.z>0){float3 tint=mix(float3(1,.58,.35),float3(.8,.87,1),smoothstep(.02f,.3f,dot(n,f.sun.xyz)));ocean+=base*tint*f.clouds.z*day*f.sun.w*(.025f+.07f*(1-cloudShade));}
                 ocean+=float3(.45,.55,.64)*(glint*.16f+fresnelWater*.15f)*day*cloudShade;
                 float crest=swell.b*.35f+waves.b*.25f+chop.b*.25f+ripples.b*.15f;
                 float foam=smoothstep(.60f,.78f,crest)*smoothstep(.04f,.17f,length(slope))*storm*.08f;

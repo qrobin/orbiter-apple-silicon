@@ -133,7 +133,9 @@ kernel void marchClouds(constant FrameUniforms &f [[buffer(0)]],constant uint &f
             float t=start+(i+jitter)*step;float3 p=origin+ray*t;
             float density=cloudDensity(p,f,noise,region);if(density<.000002)continue;
             float lighting=cloudSunTransmittance(p,f,noise,region);
-            float3 light=ambient+sunlight*day*(lighting*(.30+.23*phase)+pow(lighting,.4f)*.17);
+            // Multiple-scattering approximation: sunlight transmitted through
+            // dense cloud continues to illuminate its interior and edges.
+            float3 light=ambient+sunlight*day*(lighting*(.30+.23*phase)+pow(lighting,.4f)*.22);
             float extinction=1-exp(-density*step),contribution=trans*extinction;
             radiance+=light*contribution;weightedDistance+=t*contribution;weight+=contribution;
             trans*=1-extinction;if(trans<.012)break;
@@ -212,28 +214,39 @@ fragment float4 compositeClouds(SkyRaster in [[stage_in]],constant FrameUniforms
         }else cloud*=1-orbital;
     }
     float3 color=scene.sample(s,uv).rgb*(1-cloud.a)+cloud.rgb;
-    // Precipitation uses two sparse, moving layers in camera space. Its slant
-    // follows the apparent air motion, while regional weather controls density.
+    // Directional light scattered through gaps near the Sun. This reuses the
+    // resolved cloud opacity instead of adding another volume march.
+    if(f.clouds.z>0&&cameraHeight<f.clouds.y+9000){
+        float sunHeight=dot(normalize(f.position.xyz),f.sun.xyz);
+        float day=smoothstep(-.08f,.12f,sunHeight)*f.sun.w;
+        float forwardGlow=pow(max(0.0f,dot(ray,f.sun.xyz)),18.0f);
+        float3 warm=mix(float3(1.0,.47,.20),float3(.85,.91,1.0),smoothstep(.02f,.3f,sunHeight));
+        color+=warm*forwardGlow*(1-cloud.a)*f.clouds.z*day*.12f;
+    }
+    // Two sparse, short streak layers approximate nearby falling water. Fade
+    // against close geometry so rain does not paint over the cockpit panel.
     if(f.weather.z>.01f && cameraHeight<f.clouds.y+1500){
         float3 falling=-f.weatherWind.xyz-normalize(f.position.xyz)*12.0f;
         float2 direction=float2(dot(falling,f.right.xyz),-dot(falling,f.up.xyz));
         direction=length(direction)>1?normalize(direction):float2(.12,1);
         float2 across=float2(direction.y,-direction.x);
-        float speed=clamp(length(falling)*.015f,1.0f,5.0f),rain=0;
+        float speed=clamp(length(falling)*.012f,.5f,4.0f),rain=0;
         for(int layer=0;layer<2;++layer){
-            float scale=layer==0?1.0f:1.55f;
-            float2 coord=float2(dot(in.position.xy,across)/30.0f,dot(in.position.xy,direction)/65.0f)*scale;
-            coord.y-=f.environment.w*speed*(layer==0?2.1f:3.0f);
+            float scale=layer==0?1.0f:1.45f;
+            float2 coord=float2(dot(in.position.xy,across)/55.0f,dot(in.position.xy,direction)/75.0f)*scale;
+            coord.y-=f.environment.w*speed*(layer==0?1.5f:2.2f);
             float2 cell=floor(coord),local=fract(coord)-.5f;
             uint seed=uint(int(cell.x)*1973+int(cell.y)*9277+layer*26699);
             float random=visualRandom(seed);
-            float enabled=step(random,f.weather.z*.42f);
-            float streak=(1-smoothstep(.015f,.05f,abs(local.x+(visualRandom(seed+73)-.5f)*.65f)));
-            streak*=1-smoothstep(.25f,.48f,abs(local.y));
-            rain=max(rain,enabled*streak*(layer==0?.17f:.11f));
+            float enabled=step(random,f.weather.z*.23f);
+            local-=float2(visualRandom(seed+73)-.5f,visualRandom(seed+181)-.5f)*.55f;
+            float halfLength=mix(.045f,.17f,visualRandom(seed+239))*mix(.7f,1.3f,saturate(speed/4));
+            float streak=(1-smoothstep(.012f,.035f,abs(local.x)))*(1-smoothstep(halfLength*.65f,halfLength,abs(local.y)));
+            rain=max(rain,enabled*streak*mix(.035f,.085f,visualRandom(seed+359)));
         }
         float day=smoothstep(-.15f,.15f,dot(normalize(f.position.xyz),f.sun.xyz));
-        color=mix(color,float3(.62,.70,.78)*(.2+.8*day),rain);
+        rain*=smoothstep(2.0f,18.0f,geometry);
+        color=mix(color,float3(.65,.72,.8)*(.08+.68*day),rain);
     }
     // A short-lived world-anchored bolt. Screen-space distances give a thin,
     // bright channel and a broad flash without another volume march.

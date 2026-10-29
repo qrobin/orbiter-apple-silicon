@@ -40,10 +40,10 @@ int main(){@autoreleasepool{
     FrameUniforms f{};f.right={1,0,0,0};f.up={0,1,0,0};f.forward={0,0,-1,0};f.position={0,0,3,0};f.sun={0,0,1,1};
     f.screen={(float)width,(float)height,.39f,0};f.environment={2,12742020,0,0};f.body={6371010,1,13000,0};f.haze={.1,.33,.75,78000};
     f.equatorX={1,0,0,1};f.pole={0,1,0,0};f.equatorZ={0,0,1,0};f.surfaceColor={.48,.46,.43,3};
-    id<MTLTexture> surfaceMask=ocean,activeCloudMap=cloudMap;
+    id<MTLTexture> surfaceMask=ocean,activeCloudMap=cloudMap,activeShadow=white,activeEarth=earth;
     auto render=[&](float coverage){f.clouds={1800,6500,coverage,0};id<MTLCommandBuffer> cb=[queue commandBuffer];
         MTLRenderPassDescriptor *pass=[MTLRenderPassDescriptor renderPassDescriptor];pass.colorAttachments[0].texture=scene;pass.colorAttachments[0].loadAction=MTLLoadActionClear;pass.colorAttachments[0].storeAction=MTLStoreActionStore;pass.depthAttachment.texture=depth;pass.depthAttachment.loadAction=MTLLoadActionClear;pass.depthAttachment.clearDepth=0;pass.depthAttachment.storeAction=MTLStoreActionStore;
-        id<MTLRenderCommandEncoder> e=[cb renderCommandEncoderWithDescriptor:pass];[e setDepthStencilState:depthState];[e setRenderPipelineState:sky];[e setFragmentBytes:&f length:sizeof(f) atIndex:1];[e setFragmentTexture:earth atIndex:0];[e setFragmentTexture:white atIndex:1];[e setFragmentTexture:white atIndex:2];[e setFragmentTexture:surfaceMask atIndex:3];[e setFragmentTexture:activeCloudMap atIndex:4];[e setFragmentTexture:oceanWaves atIndex:5];[e setFragmentTexture:oceanDetail atIndex:6];[e drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];[e endEncoding];
+        id<MTLRenderCommandEncoder> e=[cb renderCommandEncoderWithDescriptor:pass];[e setDepthStencilState:depthState];[e setRenderPipelineState:sky];[e setFragmentBytes:&f length:sizeof(f) atIndex:1];[e setFragmentTexture:activeEarth atIndex:0];[e setFragmentTexture:activeShadow atIndex:1];[e setFragmentTexture:white atIndex:2];[e setFragmentTexture:surfaceMask atIndex:3];[e setFragmentTexture:activeCloudMap atIndex:4];[e setFragmentTexture:oceanWaves atIndex:5];[e setFragmentTexture:oceanDetail atIndex:6];[e drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];[e endEncoding];
         pass=[MTLRenderPassDescriptor renderPassDescriptor];pass.colorAttachments[0].texture=output;pass.colorAttachments[0].loadAction=MTLLoadActionClear;pass.colorAttachments[0].storeAction=MTLStoreActionStore;
         e=[cb renderCommandEncoderWithDescriptor:pass];[e setRenderPipelineState:composite];[e setFragmentBytes:&f length:sizeof(f) atIndex:0];[e setFragmentTexture:scene atIndex:0];[e setFragmentTexture:zero atIndex:1];[e setFragmentTexture:data atIndex:2];[e setFragmentTexture:depth atIndex:3];[e setFragmentTexture:activeCloudMap atIndex:4];[e setFragmentTexture:cloudNoise atIndex:5];[e drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];[e endEncoding];[cb commit];[cb waitUntilCompleted];
         if(cb.error)fprintf(stderr,"Render error: %s\n",cb.error.localizedDescription.UTF8String);require(cb.error==nil,"Earth render failed");std::vector<unsigned char> pixels(width*height*4);[output getBytes:pixels.data() bytesPerRow:width*4 fromRegion:MTLRegionMake2D(0,0,width,height) mipmapLevel:0];return pixels;};
@@ -85,10 +85,21 @@ int main(){@autoreleasepool{
     f.weather={3,.8f,0,0};f.lightning={18000,0,-5000,0};
     auto dry=render(.91f);f.weather.z=1;auto rainy=render(.91f);
     size_t drops=0;for(size_t i=0;i<rainy.size();i+=4)if(abs(int(rainy[i])-int(dry[i]))>3)++drops;
-    require(drops>100,"Rain must become visible in a local storm");
+    require(drops>100&&drops<width*height/10,"Rain is visible without covering the view in dense stripes");
     f.lightning.w=1;auto lightning=render(.91f);size_t flashes=0;
     for(size_t i=0;i<lightning.size();i+=4)if(int(lightning[i])>int(rainy[i])+8)++flashes;
     require(flashes>100,"Lightning must illuminate the local storm view");
+    // A cloud-shadowed surface receives a modest amount of scattered daylight,
+    // but the same cloud cover must not light the surface at night.
+    f.position={0,0,1+5000.0f/6371010,0};f.environment={5000.0f/6371010,5000,0,1};
+    f.forward={0,0,-1,0};f.right={1,0,0,0};f.up={0,1,0,0};f.sun={0,0,1,1};f.weather={0,0,0,0};f.lightning.w=0;
+    activeShadow=zero;surfaceMask=zero;activeEarth=white;auto unfilled=render(0),filled=render(.9);
+    size_t fillPixels=0;int maxFill=0;for(size_t i=0;i<filled.size();i+=4){int delta=int(filled[i])-int(unfilled[i]);maxFill=std::max(maxFill,delta);if(delta>2)++fillPixels;}
+    printf("Cloud fill: %zu pixels, maximum %d\n",fillPixels,maxFill);
+    require(fillPixels>1000,"Sunlit clouds add diffuse illumination to the shaded ground");
+    f.sun={0,0,-1,1};auto darkClear=render(0),darkCloud=render(.9);
+    size_t nightFill=0;for(size_t i=0;i<darkCloud.size();i+=4)if(int(darkCloud[i])>int(darkClear[i])+2)++nightFill;
+    require(nightFill<100,"Clouds do not emit daylight at night");activeShadow=white;surfaceMask=ocean;activeEarth=earth;
     // Render the real celestial shader in HDR so the Sun's brightness and
     // atmospheric attenuation are checked before display tone mapping.
     MTLRenderPipelineDescriptor *sunDescriptor=[MTLRenderPipelineDescriptor new];sunDescriptor.vertexFunction=[library newFunctionWithName:@"celestialVertex"];sunDescriptor.fragmentFunction=[library newFunctionWithName:@"celestialFragment"];sunDescriptor.colorAttachments[0].pixelFormat=MTLPixelFormatRGBA32Float;sunDescriptor.depthAttachmentPixelFormat=MTLPixelFormatDepth32Float;
