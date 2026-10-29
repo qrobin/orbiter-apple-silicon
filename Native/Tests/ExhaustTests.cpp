@@ -3,6 +3,7 @@
 #include "SolarSystem.h"
 #include <algorithm>
 #include <limits>
+#include <set>
 #include <iostream>
 #include <stdexcept>
 using namespace native;
@@ -43,6 +44,8 @@ int main(){try {
     check(trail.puffs().size()>1000&&trail.puffs().size()<ExhaustTrail::capacity,"Atmospheric engines leave a bounded continuous trail");
     double length=0;for(const auto &p:trail.puffs())length=std::max(length,p.position.dist(aircraft.position));
     check(length>20000,"A moving craft leaves many kilometres of world-anchored trail");
+    auto segments=trail.segments(aircraft);check(segments.size()>1000,"Exhaust samples form continuous per-nozzle volumes");
+    for(const auto &s:segments)check(s.stream>0&&s.nozzle<2&&s.start.radius>0&&s.end.radius>0,"Every segment retains its nozzle and valid physical volume");
     check(trail.puffs().front().age>100&&trail.puffs().back().age<1,"Old puffs persist and new puffs are emitted");
     auto young=trail.puffs().front();young.age=0;auto old=young;old.age=120;
     check(exhaustTrailRadius(old)>exhaustTrailRadius(young)+20,"Smoke broadens as it disperses in the atmosphere");
@@ -55,8 +58,22 @@ int main(){try {
     aircraft.position={EarthRadius+400000,0,0};aircraft.glider.mainLevel=1;trail.reset();
     for(int i=0;i<120;++i){aircraft.position+=aircraft.velocity*.1;trail.update(aircraft,.1);}
     check(!trail.puffs().empty()&&std::all_of(trail.puffs().begin(),trail.puffs().end(),[](const auto &p){return p.vacuum;}),"Vacuum produces a thin expanding gas plume rather than atmospheric smoke");
+    segments=trail.segments(aircraft);Vector nozzle=aircraft.position+aircraft.forward*(-8.043);
+    for(const auto &s:segments){
+        check(dotp(s.start.position-nozzle,aircraft.forward)<.1&&dotp(s.end.position-nozzle,aircraft.forward)<.1,"Vacuum plume geometry cannot extend ahead of the nozzle");
+        check(dotp((s.end.position-s.start.position).unit(),aircraft.forward)>.98,"Neighbouring vacuum emissions follow a coherent nozzle path");
+    }
     auto gas=trail.puffs().front();gas.age=10;check(exhaustTrailRadius(gas)>100,"Rarefied gas expands into a broad plume");
     length=0;for(const auto &p:trail.puffs())length=std::max(length,p.position.dist(aircraft.position));check(length>10000,"Vacuum exhaust expands for many kilometres behind a sustained burn");
+    aircraft.glider.mainLevel=0;for(int i=0;i<10;++i){aircraft.position+=aircraft.velocity*.1;trail.update(aircraft,.1);}
+    aircraft.glider.mainLevel=1;for(int i=0;i<20;++i){aircraft.position+=aircraft.velocity*.1;trail.update(aircraft,.1);}
+    segments=trail.segments(aircraft);std::set<uint64_t> streams;double longest=0;
+    for(const auto &s:segments){streams.insert(s.stream);longest=std::max(longest,s.start.position.dist(s.end.position));}
+    check(streams.size()==4&&longest<400,"Cutting and restarting the engines never bridges the gap between burns");
+    Flight turning;turning.position={EarthRadius+400000,0,0};turning.velocity={0,0,250};turning.align({0,0,1});turning.glider.mainLevel=1;
+    ExhaustTrail turnTrail;turnTrail.update(turning,.1);turning.align({1,0,0});turnTrail.update(turning,.3);
+    std::vector<Vector> directions;for(const auto &p:turnTrail.puffs())if(p.nozzle==0&&p.vacuum)directions.push_back((p.velocity-turning.velocity).unit());
+    check(directions.size()>=2&&dotp(directions[0],directions[1])<.98,"Emissions interpolate the nozzle direction as the spacecraft turns");
     aircraft.glider.mainLevel=0;trail.update(aircraft,25);check(trail.puffs().empty(),"The vacuum plume fades after engine shutdown");
     aircraft.glider.mainLevel=1;
     double low=0,high=150000;for(int i=0;i<40;++i){double mid=(low+high)*.5;if(earthAtmosphere(mid).p/101325.>3e-4)low=mid;else high=mid;}
@@ -70,5 +87,13 @@ int main(){try {
     check(std::abs((int)trail.puffs().size()-(int)fine.puffs().size())<=2,"Trail emission is independent of frame rate");
     check(trail.puffs().front().position.dist(fine.puffs().front().position)<30,"Trail positions interpolate across frames");
     fine.reset();check(fine.puffs().empty(),"Scenario reset clears the old trail");
+    Flight weather;weather.position={EarthRadius+5000,0,0};weather.velocity={0,0,250};weather.glider.mainLevel=1;
+    ExhaustTrail changing;for(int i=0;i<200;++i){weather.position+=weather.velocity;changing.update(weather,1,i>=20&&i<30?0:1);}
+    double widest=0;for(const auto &s:changing.segments(weather))widest=std::max(widest,s.start.position.dist(s.end.position));
+    check(widest<200,"Expired samples cannot create a false bridge across a gap in the trail");
+    Flight io;io.reference=BodyId::Io;io.position={io.centralBody().radius+113000,0,0};io.velocity={0,0,1487};io.align(io.velocity);io.clearAssist();io.throttle=1;
+    ExhaustTrail ioTrail;for(int i=0;i<250;++i){io.advance(.1);ioTrail.update(io,.1);}
+    auto ioSegments=ioTrail.segments(io);check(ioSegments.size()>100,"An Io engine burn creates connected vacuum volumes");
+    for(const auto &s:ioSegments){Vector tip=io.position-io.forward*8.043;check(dotp(s.start.position-tip,io.forward)<1&&dotp(s.end.position-tip,io.forward)<1,"Io burn leaves no spurious volume in front of the ship");}
     std::cout<<checks<<" exhaust checks passed\n";
 }catch(const std::exception &e){std::cerr<<e.what()<<'\n';return 1;}}

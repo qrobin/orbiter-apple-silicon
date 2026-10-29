@@ -7,24 +7,22 @@
 using namespace native;
 static simd_float4 visualVector(Vector v,float w=0){return {(float)v.x,(float)v.y,(float)v.z,w};}
 static void visualCheck(id object,NSError *error){if(!object)@throw [NSException exceptionWithName:@"Metal visual pipeline error" reason:error.localizedDescription?:@"Unable to allocate a Metal resource" userInfo:nil];}
-struct SmokeDraw {ParticleUniforms particle;float depth;};
+struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
 @interface NativeVisuals () {
     id<MTLDevice> gpu;
-    NSUInteger samples,width,height,historyIndex,frameIndex;
+    NSUInteger samples,width,height,trailWidth,trailHeight,historyIndex,frameIndex;
     BOOL historyValid,haveFlight;
     FrameUniforms lastFrame;
-    Vector lastPosition;
     double lastElapsed;
     NSInteger lastWeather;
-    id<MTLTexture> hdr,lit,depth,msaaColor,msaaDepth;
+    id<MTLTexture> hdr,lit,depth,trailLayer,msaaColor,msaaDepth;
     std::array<id<MTLTexture>,2> cloudHistory,cloudData,bloom;
-    id<MTLBuffer> particleBuffer;
     std::array<id<MTLBuffer>,3> smokeBuffers;
     ExhaustTrail exhaustTrail;
     std::vector<SmokeDraw> visibleSmoke;
-    id<MTLComputePipelineState> noiseKernel,shadowKernel,cloudKernel,particleKernel,extractKernel,blurKernel;
-    id<MTLRenderPipelineState> compositePipeline,flamePipeline,particlePipeline,smokePipeline,presentPipeline;
-    id<MTLDepthStencilState> effectDepth,flameDepth;
+    id<MTLComputePipelineState> noiseKernel,shadowKernel,cloudKernel,extractKernel,blurKernel;
+    id<MTLRenderPipelineState> compositePipeline,flamePipeline,smokePipeline,trailCompositePipeline,presentPipeline;
+    id<MTLDepthStencilState> flameDepth;
 }
 @end
 @implementation NativeVisuals
@@ -33,27 +31,25 @@ struct SmokeDraw {ParticleUniforms particle;float depth;};
     NSError *error=nil;
     auto kernel=[&](NSString *name){id<MTLComputePipelineState> p=[gpu newComputePipelineStateWithFunction:[library newFunctionWithName:name] error:&error];visualCheck(p,error);return p;};
     noiseKernel=kernel(@"makeCloudNoise");shadowKernel=kernel(@"cloudShadowMap");cloudKernel=kernel(@"marchClouds");
-    particleKernel=kernel(@"updateExhaust");extractKernel=kernel(@"extractBloom");blurKernel=kernel(@"blurBloom");
+    extractKernel=kernel(@"extractBloom");blurKernel=kernel(@"blurBloom");
     auto pipeline=[&](NSString *vertex,NSString *fragment,MTLPixelFormat format,BOOL depthEnabled,int blend){
         MTLRenderPipelineDescriptor *p=[MTLRenderPipelineDescriptor new];p.vertexFunction=[library newFunctionWithName:vertex];p.fragmentFunction=[library newFunctionWithName:fragment];
         p.colorAttachments[0].pixelFormat=format;
         if(depthEnabled)p.depthAttachmentPixelFormat=MTLPixelFormatDepth32Float;
-        if(blend){p.colorAttachments[0].blendingEnabled=YES;p.colorAttachments[0].sourceRGBBlendFactor=MTLBlendFactorSourceAlpha;p.colorAttachments[0].destinationRGBBlendFactor=blend==1?MTLBlendFactorOne:MTLBlendFactorOneMinusSourceAlpha;p.colorAttachments[0].sourceAlphaBlendFactor=MTLBlendFactorZero;p.colorAttachments[0].destinationAlphaBlendFactor=MTLBlendFactorOne;}
+        if(blend){p.colorAttachments[0].blendingEnabled=YES;p.colorAttachments[0].sourceRGBBlendFactor=blend==3?MTLBlendFactorOne:MTLBlendFactorSourceAlpha;p.colorAttachments[0].destinationRGBBlendFactor=blend==1?MTLBlendFactorOne:MTLBlendFactorOneMinusSourceAlpha;p.colorAttachments[0].sourceAlphaBlendFactor=blend==2?MTLBlendFactorOne:MTLBlendFactorZero;p.colorAttachments[0].destinationAlphaBlendFactor=blend==2?MTLBlendFactorOneMinusSourceAlpha:MTLBlendFactorOne;}
         id<MTLRenderPipelineState> result=[gpu newRenderPipelineStateWithDescriptor:p error:&error];visualCheck(result,error);return result;
     };
     compositePipeline=pipeline(@"skyVertex",@"compositeClouds",MTLPixelFormatRGBA16Float,NO,NO);
     flamePipeline=pipeline(@"flameVertex",@"flameFragment",MTLPixelFormatRGBA16Float,YES,YES);
-    particlePipeline=pipeline(@"particleVertex",@"exhaustFragment",MTLPixelFormatRGBA16Float,YES,YES);
-    smokePipeline=pipeline(@"smokeVertex",@"smokeFragment",MTLPixelFormatRGBA16Float,YES,2);
+    smokePipeline=pipeline(@"trailVolumeVertex",@"trailVolumeFragment",MTLPixelFormatRGBA16Float,NO,2);
+    trailCompositePipeline=pipeline(@"skyVertex",@"compositeTrail",MTLPixelFormatRGBA16Float,NO,3);
     presentPipeline=pipeline(@"skyVertex",@"toneMap",MTLPixelFormatBGRA8Unorm_sRGB,NO,NO);
-    MTLDepthStencilDescriptor *ds=[MTLDepthStencilDescriptor new];ds.depthCompareFunction=MTLCompareFunctionGreater;ds.depthWriteEnabled=NO;effectDepth=[gpu newDepthStencilStateWithDescriptor:ds];
-    ds.depthCompareFunction=MTLCompareFunctionAlways;flameDepth=[gpu newDepthStencilStateWithDescriptor:ds];
+    MTLDepthStencilDescriptor *ds=[MTLDepthStencilDescriptor new];ds.depthCompareFunction=MTLCompareFunctionAlways;ds.depthWriteEnabled=NO;flameDepth=[gpu newDepthStencilStateWithDescriptor:ds];
     MTLTextureDescriptor *n=[MTLTextureDescriptor new];n.textureType=MTLTextureType3D;n.width=n.height=n.depth=128;n.pixelFormat=MTLPixelFormatRGBA8Unorm;n.storageMode=MTLStorageModePrivate;n.usage=MTLTextureUsageShaderRead|MTLTextureUsageShaderWrite;
     _cloudNoise=[gpu newTextureWithDescriptor:n];visualCheck(_cloudNoise,nil);
     _cloudShadows=[self texture:MTLPixelFormatR8Unorm width:512 height:256 usage:MTLTextureUsageShaderRead|MTLTextureUsageShaderWrite];
-    particleBuffer=[gpu newBufferWithLength:4096*sizeof(ParticleUniforms) options:MTLResourceStorageModeShared];visualCheck(particleBuffer,nil);
-    for(auto &buffer:smokeBuffers){buffer=[gpu newBufferWithLength:ExhaustTrail::capacity*sizeof(ParticleUniforms) options:MTLResourceStorageModeShared];visualCheck(buffer,nil);}
-    visibleSmoke.reserve(ExhaustTrail::capacity);
+    for(auto &buffer:smokeBuffers){buffer=[gpu newBufferWithLength:(ExhaustTrail::capacity+64)*sizeof(TrailSegmentUniforms) options:MTLResourceStorageModeShared];visualCheck(buffer,nil);}
+    visibleSmoke.reserve(ExhaustTrail::capacity+64);
     id<MTLCommandBuffer> cb=[queue commandBuffer];id<MTLComputeCommandEncoder> e=[cb computeCommandEncoder];[e setComputePipelineState:noiseKernel];[e setTexture:_cloudNoise atIndex:0];[e dispatchThreads:MTLSizeMake(128,128,128) threadsPerThreadgroup:MTLSizeMake(4,4,4)];[e endEncoding];[cb commit];[cb waitUntilCompleted];
     if(cb.error)@throw [NSException exceptionWithName:@"Cloud noise generation failed" reason:cb.error.localizedDescription userInfo:nil];
     return self;
@@ -68,6 +64,9 @@ struct SmokeDraw {ParticleUniforms particle;float depth;};
         hdr=[self texture:MTLPixelFormatRGBA16Float width:w height:h usage:MTLTextureUsageRenderTarget|MTLTextureUsageShaderRead];
         lit=[self texture:MTLPixelFormatRGBA16Float width:w height:h usage:MTLTextureUsageRenderTarget|MTLTextureUsageShaderRead];
         depth=[self texture:MTLPixelFormatDepth32Float width:w height:h usage:MTLTextureUsageRenderTarget|MTLTextureUsageShaderRead];
+        float trailScale=std::min(.5f,1080.f/std::max(1.f,(float)w));
+        trailWidth=std::max(1ul,(NSUInteger)ceil(w*trailScale));trailHeight=std::max(1ul,(NSUInteger)ceil(h*trailScale));
+        trailLayer=[self texture:MTLPixelFormatRGBA16Float width:trailWidth height:trailHeight usage:MTLTextureUsageRenderTarget|MTLTextureUsageShaderRead];
         if(samples>1){
             MTLTextureDescriptor *d=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA16Float width:w height:h mipmapped:NO];
             d.textureType=MTLTextureType2DMultisample;d.sampleCount=samples;d.storageMode=MTLStorageModePrivate;d.usage=MTLTextureUsageRenderTarget;
@@ -126,29 +125,16 @@ struct SmokeDraw {ParticleUniforms particle;float depth;};
         double vacuum=std::clamp((shape.spread-(kind==3?.10:.035))/(kind==3?.3:.10),0.,1.);length*=1+vacuum*1.2;
         jets[count++]={visualVector(world(jet.position),jet.level),visualVector(world(jet.direction),jet.radius),{(float)kind,(float)length,(float)(shape.speed*.28),(float)shape.spread}};
     }
-    _emitterCount=count;double dt=haveFlight?flight.elapsed-lastElapsed:0;Vector translation=haveFlight?lastPosition-flight.position:Vector(0,0,0);
+    _emitterCount=count;double dt=haveFlight?flight.elapsed-lastElapsed:0;
     const double humidity[]={.25,.5,.75,.95};exhaustTrail.update(flight,dt,humidity[std::clamp((int)_weather,0,3)]);
-    bool reset=!haveFlight||dt<0||dt>.25||translation.length()>5000;
-    EffectUniforms step{};step.clock={(float)(reset?0:dt),(float)fmod(flight.elapsed,4096.),(float)fmod(lastElapsed,4096.),(float)count};
-    if(fmod(flight.elapsed,4096.)<fmod(lastElapsed,4096.))reset=true;
-    step.translation=visualVector(translation,reset?1:0);step.velocity=visualVector(flight.velocity);step.offset=visualVector(offset);
-    step.gravity=visualVector(-flight.position.unit()*(flight.gravityMu()/(flight.position.length2())));
-    lastPosition=flight.position;lastElapsed=flight.elapsed;haveFlight=YES;
-    id<MTLComputeCommandEncoder> e=[cb computeCommandEncoder];e.label=@"Thrust-driven GPU exhaust";[e setComputePipelineState:particleKernel];
-    [e setBuffer:particleBuffer offset:0 atIndex:0];[e setBytes:jets.data() length:sizeof(jets) atIndex:1];[e setBytes:&step length:sizeof(step) atIndex:2];[e dispatchThreads:MTLSizeMake(4096,1,1) threadsPerThreadgroup:MTLSizeMake(64,1,1)];[e endEncoding];
-    MTLRenderPassDescriptor *pass=[MTLRenderPassDescriptor renderPassDescriptor];pass.colorAttachments[0].texture=lit;pass.colorAttachments[0].loadAction=MTLLoadActionLoad;pass.colorAttachments[0].storeAction=MTLStoreActionStore;
-    pass.depthAttachment.texture=depth;pass.depthAttachment.loadAction=MTLLoadActionLoad;pass.depthAttachment.storeAction=MTLStoreActionStore;
-    id<MTLRenderCommandEncoder> r=[cb renderCommandEncoderWithDescriptor:pass];r.label=@"Nozzle flame cores and soft particles";[r setDepthStencilState:effectDepth];[r setCullMode:MTLCullModeNone];
-    [r setVertexBytes:&f length:sizeof(f) atIndex:0];[r setVertexBytes:&step length:sizeof(step) atIndex:1];[r setFragmentBytes:&f length:sizeof(f) atIndex:0];[r setFragmentTexture:depth atIndex:0];[r setFragmentTexture:_cloudNoise atIndex:1];
-    if(count){[r setDepthStencilState:flameDepth];[r setRenderPipelineState:flamePipeline];[r setVertexBytes:jets.data() length:sizeof(jets) atIndex:2];[r drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6 instanceCount:count];}
-    [r setDepthStencilState:effectDepth];
-    [r setRenderPipelineState:particlePipeline];[r setVertexBuffer:particleBuffer offset:0 atIndex:2];[r drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6 instanceCount:4096];[r endEncoding];
+    EffectUniforms step{};step.clock={(float)dt,(float)fmod(flight.elapsed,4096.),0,(float)count};step.offset=visualVector(offset);
+    lastElapsed=flight.elapsed;haveFlight=YES;
     visibleSmoke.clear();std::array<Vector,BodyCount> centers{};std::array<bool,BodyCount> cached{};
     double date=flight.mjd+flight.elapsed/86400;Vector currentCenter;
     auto direction=[](simd_float4 v){return Vector(v.x,v.y,v.z);};
     Vector cameraForward=direction(f.forward),cameraRight=direction(f.right),cameraUp=direction(f.up);
     double aspect=f.screen.x/std::max(1.f,f.screen.y);
-    for(const auto &p:exhaustTrail.puffs()){
+    for(const auto &p:exhaustTrail.segments(flight)){
         Vector center;
         if(p.body!=flight.reference){
             if(!ephemeridesReady())continue;
@@ -156,26 +142,45 @@ struct SmokeDraw {ParticleUniforms particle;float depth;};
             if(!cached[index]){if(!cached[(size_t)flight.reference]){currentCenter=bodyState(flight.reference,date).position;cached[(size_t)flight.reference]=true;}centers[index]=bodyState(p.body,date).position-currentCenter;cached[index]=true;}
             center=centers[index];
         }
-        Vector relative=center+p.position-flight.position-offset;double z=dotp(relative,cameraForward);
-        double physicalSize=exhaustTrailRadius(p),size=physicalSize,extent=size+p.halfLength;
-        if(z+extent<.2||fabs(dotp(relative,cameraRight))>std::max(0.,z)*f.screen.z*aspect+extent||fabs(dotp(relative,cameraUp))>std::max(0.,z)*f.screen.z+extent)continue;
-        // Preserve subpixel trails at a distance without changing their world position.
-        size=std::max(size,std::max(0.,z)*f.screen.z*1.5/std::max(1.f,f.screen.y));
-        double age=std::clamp(p.age/p.lifetime,0.,1.);
-        double dispersion=p.vacuum?1/(1+p.age*.035):(.55+.45*(1-exp(-p.age/3)))*(.5+.5*sqrt(p.radius/physicalSize));
-        double opacity=p.opacity*pow(1-age,1.35)*dispersion;
-        ParticleUniforms u{visualVector(relative,age),visualVector(p.axis,p.halfLength),{(float)size,(float)opacity,(float)p.seed,p.vacuum?1.f:0.f}};
+        Vector start=center+p.start.position-flight.position-offset,end=center+p.end.position-flight.position-offset;
+        Vector midpoint=(start+end)*.5;double z=dotp(midpoint,cameraForward),extent=(start-end).length()*.5+std::max(p.start.radius,p.end.radius);
+        if(z+extent<.2||fabs(dotp(midpoint,cameraRight))>std::max(0.,z)*f.screen.z*aspect+extent||fabs(dotp(midpoint,cameraUp))>std::max(0.,z)*f.screen.z+extent)continue;
+        double footprint=std::max(0.,z)*f.screen.z*1.2/std::max(1.f,f.screen.y);
+        double r0=std::max(p.start.radius,footprint),r1=std::max(p.end.radius,footprint);
+        double o0=p.start.opacity*std::min(1.,p.start.radius/r0),o1=p.end.opacity*std::min(1.,p.end.radius/r1);
+        constexpr double noiseScale=64.;
+        Vector phase{std::remainder(p.start.position.x,noiseScale)/noiseScale,std::remainder(p.start.position.y,noiseScale)/noiseScale,std::remainder(p.start.position.z,noiseScale)/noiseScale};
+        TrailSegmentUniforms u{visualVector(start,r0),visualVector(end,r1),{(float)o0,(float)o1,(float)p.start.age,(float)p.end.age},visualVector(phase,p.vacuum?1:0)};
         visibleSmoke.push_back({u,(float)z});
     }
+    if(!count&&visibleSmoke.empty())return;
     if(!visibleSmoke.empty()){
         std::sort(visibleSmoke.begin(),visibleSmoke.end(),[](const SmokeDraw &a,const SmokeDraw &b){return a.depth>b.depth;});
-        id<MTLBuffer> buffer=smokeBuffers[frameIndex%smokeBuffers.size()];auto *draw=(ParticleUniforms *)buffer.contents;
-        for(size_t i=0;i<visibleSmoke.size();++i)draw[i]=visibleSmoke[i].particle;
-        id<MTLRenderCommandEncoder> smoke=[cb renderCommandEncoderWithDescriptor:pass];smoke.label=@"Long-lived atmospheric exhaust trails";
-        [smoke setDepthStencilState:effectDepth];[smoke setCullMode:MTLCullModeNone];[smoke setRenderPipelineState:smokePipeline];
-        [smoke setVertexBytes:&f length:sizeof(f) atIndex:0];[smoke setVertexBuffer:buffer offset:0 atIndex:1];
-        [smoke setFragmentBytes:&f length:sizeof(f) atIndex:0];[smoke setFragmentTexture:depth atIndex:0];[smoke setFragmentTexture:_cloudNoise atIndex:1];
-        [smoke drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6 instanceCount:visibleSmoke.size()];[smoke endEncoding];
+        id<MTLBuffer> buffer=smokeBuffers[frameIndex%smokeBuffers.size()];auto *draw=(TrailSegmentUniforms *)buffer.contents;
+        for(size_t i=0;i<visibleSmoke.size();++i)draw[i]=visibleSmoke[i].segment;
+        FrameUniforms trailFrame=f;trailFrame.screen.x=(float)trailWidth;trailFrame.screen.y=(float)trailHeight;
+        MTLRenderPassDescriptor *volumePass=[MTLRenderPassDescriptor renderPassDescriptor];volumePass.colorAttachments[0].texture=trailLayer;
+        volumePass.colorAttachments[0].loadAction=MTLLoadActionClear;volumePass.colorAttachments[0].clearColor=MTLClearColorMake(0,0,0,0);volumePass.colorAttachments[0].storeAction=MTLStoreActionStore;
+        id<MTLRenderCommandEncoder> r=[cb renderCommandEncoderWithDescriptor:volumePass];r.label=@"World-space exhaust meshes";
+        [r setCullMode:MTLCullModeNone];[r setVertexBytes:&trailFrame length:sizeof(trailFrame) atIndex:0];[r setFragmentBytes:&trailFrame length:sizeof(trailFrame) atIndex:0];
+        [r setFragmentTexture:depth atIndex:0];[r setFragmentTexture:_cloudNoise atIndex:1];
+        [r setRenderPipelineState:smokePipeline];[r setVertexBuffer:buffer offset:0 atIndex:1];[r setVertexTexture:_cloudNoise atIndex:0];
+        [r drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:12*18 instanceCount:visibleSmoke.size()];
+        [r endEncoding];
+        MTLRenderPassDescriptor *blendPass=[MTLRenderPassDescriptor renderPassDescriptor];blendPass.colorAttachments[0].texture=lit;
+        blendPass.colorAttachments[0].loadAction=MTLLoadActionLoad;blendPass.colorAttachments[0].storeAction=MTLStoreActionStore;
+        id<MTLRenderCommandEncoder> composite=[cb renderCommandEncoderWithDescriptor:blendPass];composite.label=@"Depth-aware exhaust reconstruction";
+        [composite setRenderPipelineState:trailCompositePipeline];[composite setFragmentTexture:trailLayer atIndex:0];[composite setFragmentTexture:depth atIndex:1];
+        [composite drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];[composite endEncoding];
+    }
+    if(count){
+        MTLRenderPassDescriptor *flamePass=[MTLRenderPassDescriptor renderPassDescriptor];flamePass.colorAttachments[0].texture=lit;flamePass.colorAttachments[0].loadAction=MTLLoadActionLoad;flamePass.colorAttachments[0].storeAction=MTLStoreActionStore;
+        flamePass.depthAttachment.texture=depth;flamePass.depthAttachment.loadAction=MTLLoadActionLoad;flamePass.depthAttachment.storeAction=MTLStoreActionStore;
+        id<MTLRenderCommandEncoder> r=[cb renderCommandEncoderWithDescriptor:flamePass];r.label=@"Nozzle flame cores";
+        [r setDepthStencilState:flameDepth];[r setCullMode:MTLCullModeNone];[r setRenderPipelineState:flamePipeline];
+        [r setVertexBytes:&f length:sizeof(f) atIndex:0];[r setVertexBytes:&step length:sizeof(step) atIndex:1];[r setVertexBytes:jets.data() length:sizeof(jets) atIndex:2];
+        [r setFragmentBytes:&f length:sizeof(f) atIndex:0];[r setFragmentTexture:depth atIndex:0];[r setFragmentTexture:_cloudNoise atIndex:1];
+        [r drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6 instanceCount:count];[r endEncoding];
     }
 }
 - (void)encodePresent:(id<MTLCommandBuffer>)cb drawable:(id<CAMetalDrawable>)drawable {
@@ -185,7 +190,6 @@ struct SmokeDraw {ParticleUniforms particle;float depth;};
     MTLRenderPassDescriptor *pass=[MTLRenderPassDescriptor renderPassDescriptor];pass.colorAttachments[0].texture=drawable.texture;pass.colorAttachments[0].loadAction=MTLLoadActionDontCare;pass.colorAttachments[0].storeAction=MTLStoreActionStore;
     id<MTLRenderCommandEncoder> r=[cb renderCommandEncoderWithDescriptor:pass];r.label=@"Tone mapping at full output resolution";[r setRenderPipelineState:presentPipeline];[r setFragmentTexture:lit atIndex:0];[r setFragmentTexture:bloom[0] atIndex:1];[r drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];[r endEncoding];
 }
-- (NSUInteger)liveParticleCount {NSUInteger n=0;const auto *p=(const ParticleUniforms *)particleBuffer.contents;for(int i=0;i<4096;++i)if(p[i].positionAge.w>=0&&p[i].positionAge.w<p[i].velocityLife.w)++n;return n;}
 - (NSUInteger)liveTrailPuffCount {return exhaustTrail.puffs().size();}
 - (NSString *)weatherName{return @[@"Clear",@"Scattered",@"Overcast",@"Storm"][_weather];}
 - (void)reset {historyValid=NO;haveFlight=NO;exhaustTrail.reset();}

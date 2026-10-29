@@ -71,11 +71,8 @@ static void advect(ExhaustTrailPuff &p,double dt){
         double r=p.position.length();Vector gravity=p.position*(-b.mu()/(r*r*r));
         p.position+=p.velocity*dt+gravity*(dt*dt*.5);p.velocity+=gravity*dt;p.age+=dt;return;
     }
-    Vector radial=p.position.unit(),lateral=crossp(p.axis,radial);
-    if(lateral.length2()<1e-12)lateral=crossp(b.pole(),radial);
-    if(lateral.length2()<1e-12)lateral=b.equatorZ();else lateral.unify();
-    // Small differences in the local air motion gradually spread neighbouring puffs.
-    Vector air=atmosphericVelocity(p.body,p.position)+radial*(2.5*exp(-p.age/15))+lateral*((p.seed-.5)*.48);
+    Vector radial=p.position.unit();
+    Vector air=atmosphericVelocity(p.body,p.position)+radial*(2.5*exp(-p.age/15));
     // Hot exhaust rapidly mixes into ambient air, then drifts with the atmosphere.
     double damping=exp(-2*dt);Vector relative=p.velocity-air;
     p.position+=air*dt+relative*((1-damping)*.5);
@@ -87,9 +84,14 @@ static void advect(ExhaustTrailPuff &p,double dt){
 }
 double exhaustTrailRadius(const ExhaustTrailPuff &p){
     double age=std::max(0.,p.age);
-    return p.radius+(p.vacuum?age*12:sqrt(age)*1.1+age*.12);
+    return p.radius+(p.vacuum?age*130:sqrt(age)*1.8+age*.20);
 }
-void ExhaustTrail::reset(){particles.clear();history={};haveBody=false;serial=0;}
+double exhaustTrailOpacity(const ExhaustTrailPuff &p){
+    double age=std::clamp(p.age/p.lifetime,0.,1.),growth=exhaustTrailRadius(p);
+    double dilution=p.vacuum?sqrt(p.radius/growth)/sqrt(1+p.age*.03):.65+.35*sqrt(p.radius/growth);
+    return p.opacity*pow(1-age,1.35)*dilution;
+}
+void ExhaustTrail::reset(){particles.clear();history={};haveBody=false;nextStream=0;}
 void ExhaustTrail::update(const Flight &f,double dt,double humidity){
     if(!std::isfinite(dt)||dt<=0)return;
     humidity=std::isfinite(humidity)?std::clamp(humidity,0.,1.):.5;
@@ -106,35 +108,52 @@ void ExhaustTrail::update(const Flight &f,double dt,double humidity){
     for(const auto &jet:gliderExhaust(f)){
         if(jet.id>=history.size())continue;
         active[jet.id]=true;auto &h=history[jet.id];Vector position=f.position+world(jet.position),direction=world(jet.direction);
-        if(!h.active){h.position=position;h.remainder=0;h.active=true;}
+        if(!h.active){h.position=position;h.direction=direction;h.velocity=f.velocity;h.remainder=0;h.active=true;}
+        bool medium[2]={ambient>0,rarefied>0};
+        for(int i=0;i<2;++i){if(medium[i]&&!h.mediumActive[i]){h.stream[i]=++nextStream;h.sequence[i]=0;}h.mediumActive[i]=medium[i];}
         double interval=jet.kind==ExhaustKind::Rcs?.30:.15;
         double pending=h.remainder+dt;int emitted=0;
         while(pending>=interval&&emitted<256){
             pending-=interval;++emitted;double fraction=std::clamp((dt-pending)/dt,0.,1.);
             Vector origin=h.position+(position-h.position)*fraction;
+            Vector firingDirection=h.direction+(direction-h.direction)*fraction;
+            if(firingDirection.length2()<1e-12)firingDirection=direction;else firingDirection.unify();
+            Vector firingVelocity=h.velocity+(f.velocity-h.velocity)*fraction;
             auto append=[&](bool vacuum,double weight){
-                Vector air=vacuum?Vector{}:atmosphericVelocity(f.reference,origin),motion=f.velocity-air;
                 double exhaustSpeed=vacuum?(jet.kind==ExhaustKind::Rcs?900:1600):(jet.kind==ExhaustKind::Rcs?40:120);
-                Vector axis=vacuum?direction:motion.length2()>1?motion.unit():direction;
-                uint32_t hash=++serial*747796405u+2891336453u;hash=((hash>>((hash>>28u)+4u))^hash)*277803737u;hash=(hash>>22u)^hash;
-                double seed=(hash&0xffffffu)/16777215.;
-                Vector base=crossp(direction,fabs(direction.y)<.9?Vector(0,1,0):Vector(1,0,0)).unit();
-                Vector lateral=base*cos(seed*Pi2)+crossp(direction,base)*sin(seed*Pi2);
-                Vector birth=origin+lateral*(jet.radius*.35*seed);
                 double life=vacuum?(jet.kind==ExhaustKind::Rcs?8:24):(jet.kind==ExhaustKind::Rcs?35:jet.kind==ExhaustKind::Main?240:180)*(.7+.6*humidity);
-                double size=jet.radius*(jet.kind==ExhaustKind::Rcs?1.8:3.5)+.4;
-                double opacity=weight*(vacuum?sqrt(jet.level)*(jet.kind==ExhaustKind::Rcs?.025:.065):ambient*(.55+.45*humidity)*sqrt(jet.level)*(jet.kind==ExhaustKind::Rcs?.08:.22));
-                double halfLength=std::max(size,(vacuum?exhaustSpeed:motion.length())*interval*.65+size);
-                ExhaustTrailPuff puff{f.reference,birth,f.velocity+direction*exhaustSpeed+lateral*(vacuum?30:10),axis,0,life,size,opacity,halfLength,seed,vacuum};
+                double opacity=weight*(vacuum?sqrt(jet.level)*(jet.kind==ExhaustKind::Rcs?.025:.12):ambient*(.55+.45*humidity)*sqrt(jet.level)*(jet.kind==ExhaustKind::Rcs?.12:.55));
+                int mediumIndex=vacuum?1:0;
+                ExhaustTrailPuff puff{f.reference,origin,firingVelocity+firingDirection*exhaustSpeed,0,life,jet.radius,opacity,h.stream[mediumIndex],h.sequence[mediumIndex]++,jet.id,vacuum};
                 advect(puff,pending);if(puff.age<puff.lifetime)particles.push_back(puff);
             };
             if(ambient>0)append(false,1);
             if(rarefied>0)append(true,rarefied);
         }
-        h.position=position;h.remainder=std::fmod(pending,interval);
+        h.position=position;h.direction=direction;h.velocity=f.velocity;h.remainder=std::fmod(pending,interval);
     }
     for(size_t i=0;i<history.size();++i)if(!active[i])history[i]={};
     if(particles.size()>capacity)particles.erase(particles.begin(),particles.begin()+(particles.size()-capacity));
+}
+std::vector<ExhaustTrailSegment> ExhaustTrail::segments(const Flight &f)const{
+    std::vector<ExhaustTrailSegment> result;result.reserve(particles.size()+64);
+    std::array<const ExhaustTrailPuff*,64> last{};
+    auto point=[](const ExhaustTrailPuff &p){return ExhaustTrailPoint{p.position,exhaustTrailRadius(p),exhaustTrailOpacity(p),p.age};};
+    for(const auto &p:particles){
+        size_t index=p.nozzle*2+(p.vacuum?1:0);if(index>=last.size())continue;
+        auto prior=last[index];
+        if(prior&&prior->stream==p.stream&&prior->sequence+1==p.sequence&&prior->body==p.body&&prior->position.dist(p.position)>.001)
+            result.push_back({p.body,point(*prior),point(p),p.stream,p.nozzle,p.vacuum});
+        last[index]=&p;
+    }
+    for(const auto &jet:gliderExhaust(f))if(jet.id<history.size()){
+        const auto &h=history[jet.id];if(!h.active)continue;
+        for(int medium=0;medium<2;++medium){
+            auto p=last[jet.id*2+medium];if(!p||!h.mediumActive[medium]||p->stream!=h.stream[medium]||p->sequence+1!=h.sequence[medium]||p->body!=f.reference||p->position.dist(h.position)<=.001)continue;
+            result.push_back({p->body,point(*p),{h.position,jet.radius,p->opacity,0},p->stream,p->nozzle,p->vacuum});
+        }
+    }
+    return result;
 }
 
 }
