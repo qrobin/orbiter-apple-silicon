@@ -113,6 +113,7 @@ struct GpuGroup { id<MTLBuffer> vertices,indices; NSUInteger count; size_t mater
 - (void)resetFlight:(id)sender;
 - (void)demonstrateGlider:(id)sender;
 - (void)startSurface:(id)sender;
+- (void)startOceanFlight:(id)sender;
 - (void)startOrbit:(id)sender;
 - (void)startHoverPractice:(id)sender;
 - (void)toggleHoverHold:(id)sender;
@@ -747,6 +748,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     restartBody=-1;restartScenario=resource(@"Scenarios/Cape Canaveral native.scn");[self resetFlight:nil];
     externalCamera.setMode(ExternalCameraMode::OrbitalChase,flight,flight.reference);externalCamera.yaw=-.55;externalCamera.pitch=.22;externalCamera.distance=43;[self setViewMode:0];
 }
+- (void)startOceanFlight:(id)sender {restartBody=-1;restartScenario=resource(@"Scenarios/Atlantic Ocean flight.scn");[self resetFlight:nil];[self setViewMode:1];}
 - (void)startOrbit:(id)sender {restartBody=-1;restartScenario=resource(@"Scenarios/DG Mk4 in orbit.scn");[self resetFlight:nil];}
 - (void)startHoverPractice:(id)sender {
     restartBody=-1;restartScenario=resource(@"Scenarios/Cape Canaveral hover.scn");[self resetFlight:nil];
@@ -1010,6 +1012,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         NSArray *viewTitles=@[@"External View",@"3D Cockpit View",@"2D Instrument Panel View"];
         for(int i=0;i<3;++i){NSMenuItem *item=[fm addItemWithTitle:viewTitles[i] action:@selector(chooseView:) keyEquivalent:@""];item.target=self.view;item.tag=i;}
         NSMenuItem *surface=[fm addItemWithTitle:@"Cape Canaveral — Surface Flight" action:@selector(startSurface:) keyEquivalent:@""];surface.target=self.view;
+        NSMenuItem *ocean=[fm addItemWithTitle:@"Atlantic Ocean — Atmospheric Flight" action:@selector(startOceanFlight:) keyEquivalent:@""];ocean.target=self.view;
         NSMenuItem *practice=[fm addItemWithTitle:@"Cape Canaveral — Hover Practice" action:@selector(startHoverPractice:) keyEquivalent:@""];practice.target=self.view;
         NSMenuItem *hoverAtt=[fm addItemWithTitle:@"Toggle Hover Auto Attitude (F5)" action:@selector(toggleHoverAttitude:) keyEquivalent:@""];hoverAtt.target=self.view;
         NSMenuItem *holdAlt=[fm addItemWithTitle:@"Hold Current Altitude (F6)" action:@selector(holdCurrentAltitude:) keyEquivalent:@""];holdAlt.target=self.view;
