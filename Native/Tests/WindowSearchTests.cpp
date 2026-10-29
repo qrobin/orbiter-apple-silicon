@@ -54,5 +54,20 @@ int main(){try{
         check(found.state==transx::SearchState::Complete&&found.missDistance<sphereOfInfluence(target,found.arrivalMJD),
               std::string("Verified encounter for ")+body(target).name+": "+found.message);
     }
+    transx::Route multi;check(session.createRoute(std::vector<BodyId>{BodyId::Mars,BodyId::Jupiter},multi,error),error);
+    flight.startOrbit(BodyId::Sun);for(int i=0;i<256;++i)session.tick();
+    flight.startOrbit(BodyId::Mars);for(int i=0;i<256;++i)session.tick();
+    transx::Route onward;check(session.currentRoute(onward)&&onward.origin==BodyId::Mars&&onward.destination==BodyId::Jupiter&&
+        onward.ejectStage==2&&session.routeMatches(onward),"The remaining leg survives the original TransX stage transition");
+    transx::RouteValues ejection{flight.mjd+20,2700,100,-80},roundTrip;
+    check(session.setRouteValues(onward,false,ejection)&&session.routeValues(onward,false,roundTrip)&&
+        fabs(roundTrip.prograde-ejection.prograde)<1e-6&&fabs(roundTrip.outward-ejection.outward)<1e-6&&
+        fabs(roundTrip.plane-ejection.plane)<1e-6,"Sling Direct ejection values round trip through the shared plan");
+    check(session.beginWindowSearch(onward,error),error);
+    for(int i=0;i<1000&&session.windowSearchStatus().state==transx::SearchState::Running;++i)session.stepWindowSearch(64);
+    auto onwardResult=session.windowSearchStatus();
+    check(onwardResult.state==transx::SearchState::Complete&&session.routeMatches(onward)&&
+        onwardResult.missDistance<sphereOfInfluence(BodyId::Jupiter,onwardResult.arrivalMJD),
+        std::string("Search the next leg after entering Mars orbit: ")+onwardResult.message);
     std::cout<<"window search checks passed\n";
 }catch(const std::exception &error){std::cerr<<error.what()<<'\n';return 1;}}

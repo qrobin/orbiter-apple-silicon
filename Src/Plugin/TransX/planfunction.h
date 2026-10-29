@@ -120,6 +120,10 @@ private:
 
 	void calcejectvector(const VECTOR3 &rminplane,const VECTOR3 &minorvel, double inheritedvelocity);
 public:
+#ifdef ORBITER_NATIVE
+    void nativeEjectionValues(double inherited,double *date,double *prograde,double *outward,double *plane);
+    bool nativeSetEjectionValues(double date,double prograde,double outward,double plane);
+#endif
 	virtual ~slingejectplan(){};
 	virtual class plan *iclone(){return new slingejectplan();};
 	virtual int getplanid(){return 3;};

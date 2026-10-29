@@ -324,7 +324,7 @@ bool Session::routeMatches(const Route &route){
     }
     if(route.ejectStage){
         auto *base=state->getbasefn(route.ejectStage);
-        if(!base||!base->getplanpointer()||base->getplanpointer()->getplanid()!=2)return false;
+        if(!base||!base->getplanpointer()||(base->getplanpointer()->getplanid()!=2&&base->getplanpointer()->getplanid()!=3))return false;
     }
     return true;
 }
@@ -348,7 +348,7 @@ bool Session::currentRoute(Route &route){
         candidate.legs.push_back({center,next,stage,escape});
         if(!escape&&!candidate.targetStage){
             candidate.targetStage=stage;
-            if(base->getplanpointer()&&base->getplanpointer()->getplanid()==2)candidate.ejectStage=stage;
+            if(base->getplanpointer()&&(base->getplanpointer()->getplanid()==2||base->getplanpointer()->getplanid()==3))candidate.ejectStage=stage;
         }
         center=next;
     }
@@ -368,6 +368,14 @@ bool Session::routeValues(const Route &route,bool departure,RouteValues &values)
     if(!routeMatches(route))return false;
     int stage=departure?1:route.ejectStage,mode=departure?4:3;
     if(!stage||!routeView(stage,mode))return false;
+    if(!departure){
+        auto *base=impl->display(RouteDisplay).nativeView()->nativeState()->getbasefn(stage);
+        auto *sling=base?dynamic_cast<slingejectplan*>(base->getplanpointer()):nullptr;
+        if(sling){VECTOR3 unused;base->calculate(&unused);auto *previous=base->getpreviousfunc();
+            double inherited=previous&&previous->getplanpointer()?previous->getplanpointer()->getentryvelocity():0;
+            sling->nativeEjectionValues(inherited,&values.date,&values.prograde,&values.outward,&values.plane);
+            return std::isfinite(values.date)&&std::isfinite(values.prograde)&&std::isfinite(values.outward)&&std::isfinite(values.plane);}
+    }
     auto *view=impl->display(RouteDisplay).nativeView();
     std::string previous=frame(RouteDisplay).selected;
     if(departure){
@@ -393,6 +401,12 @@ bool Session::setRouteValues(const Route &route,bool departure,const RouteValues
        !std::isfinite(values.plane)||fabs(values.plane)>1e8)return false;
     int stage=departure?1:route.ejectStage,mode=departure?4:3;
     if(!stage||!routeView(stage,mode))return false;
+    if(!departure){
+        auto *base=impl->display(RouteDisplay).nativeView()->nativeState()->getbasefn(stage);
+        auto *sling=base?dynamic_cast<slingejectplan*>(base->getplanpointer()):nullptr;
+        if(sling){if(!sling->nativeSetEjectionValues(values.date,values.prograde,values.outward,values.plane))return false;
+            base->addaction(0);for(int i=0;i<32;++i)tick();return true;}
+    }
     auto *view=impl->display(RouteDisplay).nativeView();std::string previous=frame(RouteDisplay).selected;
     if(departure){
         if(!selectVariable(RouteDisplay,"Manoeuvre mode"))return false;

@@ -665,6 +665,25 @@ void slingejectplan::calcejectvector(const VECTOR3 &rminplane,const VECTOR3 &min
 		ejectvector=ejectvector*m_totalvel;
 }
 
+#ifdef ORBITER_NATIVE
+void slingejectplan::nativeEjectionValues(double inherited,double *date,double *prograde,double *outward,double *plane)
+{
+    double speed=(int)m_inheritvel==0&&inherited>0?inherited:m_totalvel.getvalue();
+    *date=m_ejdate.getvalue();
+    *prograde=speed*m_outwardangle.getcos()*m_incangle.getcos();
+    *outward=speed*m_outwardangle.getsin()*m_incangle.getcos();
+    *plane=speed*m_incangle.getsin();
+}
+bool slingejectplan::nativeSetEjectionValues(double date,double prograde,double outward,double plane)
+{
+    double speed=std::hypot(std::hypot(prograde,outward),plane);
+    if(!std::isfinite(date)||date<0||date>1e20||!std::isfinite(speed)||speed>1e8)return false;
+    m_inheritvel=1;m_totalvel=speed;m_ejdate=date;
+    m_outwardangle=atan2(outward,prograde);m_incangle=atan2(plane,hypot(prograde,outward));
+    return true;
+}
+#endif
+
 
 void majejectplan::calculate(class MFDvarhandler *vars,basefunction *base)
 {
