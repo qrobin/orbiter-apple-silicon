@@ -141,8 +141,9 @@ bool Session::stageTiming(int stage,BurnTiming &timing){
 bool Session::alignStage(int stage){
     // Only the current stage has the vessel's actual, rather than predicted, state.
     VECTOR3 direction;if(stage!=1||impl->flight.rcs<=0||!maneuverDirectionForStage(stage,direction))return false;
-    auto &flight=impl->flight;flight.clearAssist();flight.maneuverDirection={direction.x,direction.y,direction.z};
-    flight.assist=Assist::Maneuver;flight.glider.rcsMode=1;return true;
+    auto &flight=impl->flight;bool level=flight.assistActive(Assist::HorizonLevel);
+    flight.clearAssist();flight.maneuverDirection={direction.x,direction.y,direction.z};
+    flight.assist=Assist::Maneuver;flight.horizonWithAssist=level;flight.atmospheric.cancel();flight.glider.rcsMode=1;return true;
 }
 bool Session::beginWindowSearch(const Route &route,std::string &error){
     if(!routeMatches(route)||!route.targetStage){error="Choose a route with a target first.";return false;}

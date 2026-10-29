@@ -94,16 +94,38 @@ void Flight::cutEngines() {
     throttle=glider.hover=glider.retro=0;glider.mainLevel=glider.hoverLevel=glider.retroLevel=0;
     glider.hoverControl.holdActive=false;glider.hoverControl.resetFeedback();glider.hoverControl.levels.fill(0);
 }
-void Flight::clearAssist() {assist=Assist::Free;killRotationWithLevel=false;}
+void Flight::clearAssist() {assist=Assist::Free;killRotationWithLevel=false;horizonWithAssist=false;}
 bool Flight::assistActive(Assist mode) const {
-    return mode!=Assist::Free&&(assist==mode||(mode==Assist::KillRotation&&assist==Assist::HorizonLevel&&killRotationWithLevel));
+    if(mode==Assist::Free)return false;
+    if(mode==Assist::HorizonLevel)return assist==mode||horizonWithAssist;
+    if(mode==Assist::KillRotation)return assist==mode||(assist==Assist::HorizonLevel&&killRotationWithLevel);
+    return assist==mode;
 }
 void Flight::toggleAssist(Assist mode) {
     if(mode==Assist::Free){clearAssist();return;}
-    // The original nav computer permits KILL-R to coexist with HRLVL.
-    if(mode==Assist::KillRotation&&assist==Assist::HorizonLevel){killRotationWithLevel=!killRotationWithLevel;if(killRotationWithLevel)return;}
-    if(assist==mode){clearAssist();return;}
-    atmospheric.cancel();assist=mode;killRotationWithLevel=false;
+    atmospheric.cancel();
+    if(mode==Assist::HorizonLevel){
+        if(assist==Assist::HorizonLevel){
+            if(killRotationWithLevel){assist=Assist::KillRotation;killRotationWithLevel=false;}
+            else clearAssist();
+        }else if(assist==Assist::Free)assist=Assist::HorizonLevel;
+        else if(assist==Assist::KillRotation){assist=Assist::HorizonLevel;killRotationWithLevel=true;}
+        else horizonWithAssist=!horizonWithAssist;
+        return;
+    }
+    if(mode==Assist::KillRotation){
+        if(assist==Assist::HorizonLevel){killRotationWithLevel=!killRotationWithLevel;return;}
+        if(assist==Assist::KillRotation){clearAssist();return;}
+        bool level=assistActive(Assist::HorizonLevel);
+        assist=level?Assist::HorizonLevel:Assist::KillRotation;killRotationWithLevel=level;horizonWithAssist=false;return;
+    }
+    if(assist==mode){
+        if(horizonWithAssist){assist=Assist::HorizonLevel;horizonWithAssist=false;}
+        else clearAssist();
+        return;
+    }
+    bool level=assistActive(Assist::HorizonLevel);
+    assist=mode;killRotationWithLevel=false;horizonWithAssist=level;
 }
 void Flight::load(const std::filesystem::path &path) {
     std::ifstream file(path); if(!file) throw std::runtime_error("Cannot open scenario.");
@@ -314,6 +336,13 @@ void Flight::step(double dt,const Input &input) {
             target=horizontal.unit();desiredUp=radial;controlRoll=true;
         }
         if(target.length2()<1e-12)target=forward;
+        // With another pointing program, HRLVL controls the remaining roll
+        // degree of freedom. At a vertical target, roll relative to the local
+        // horizon is undefined, so keep the pointing program's roll instead.
+        if(horizonWithAssist){
+            Vector horizontalUp=radial-target*dotp(radial,target);
+            if(horizontalUp.length2()>1e-8){desiredUp=radial;controlRoll=true;}
+        }
         Vector error=crossp(forward,target);
         // A 180-degree target needs an explicit axis: the cross product is zero there.
         if(dotp(forward,target)<-.98&&error.length()<.05) error=up;

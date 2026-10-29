@@ -215,6 +215,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     NSColor *panel=[NSColor colorWithRed:.025 green:.045 blue:.04 alpha:.91];
     NSString *mode=@"MANUAL";
     switch(f.assist) { case Assist::Prograde: mode=@"PROGRADE";break; case Assist::Retrograde:mode=@"RETROGRADE";break;case Assist::Normal:mode=@"NORMAL";break;case Assist::AntiNormal:mode=@"ANTI-NORMAL";break;case Assist::HorizonLevel:mode=@"HORIZON LEVEL";break;case Assist::KillRotation:mode=@"KILL ROTATION";break;case Assist::Maneuver:mode=@"MANEUVER ALIGN";break;default:break; }
+    if(f.horizonWithAssist)mode=[mode stringByAppendingString:@" + HRLVL"];
     auto warning=f.glider.warning();
     NSString *burn=burnCountdown(v);
     bool parkingNotice=f.glider.parkingBrake&&f.altitude()<1000;
@@ -909,7 +910,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         self.hud.needsDisplay=YES;self.panel2D.needsDisplay=YES;return;
     }
     Assist mode=navButtonMode(button);if(mode==Assist::Free)return;
-    flight.toggleAssist(mode);transxAlignDisplay=-1;
+    flight.toggleAssist(mode);if(flight.assist!=Assist::Maneuver)transxAlignDisplay=-1;
     if(flight.rcs<=0&&flight.assistActive(mode))status=@"RCS fuel depleted · attitude program cannot fire";
     self.hud.needsDisplay=YES;self.panel2D.needsDisplay=YES;
 }

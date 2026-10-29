@@ -46,7 +46,7 @@ public:
     int wheelContacts=0;
     double groundSpeed=0,contactLoad=0;
     Assist assist=Assist::Free;
-    bool killRotationWithLevel=false;
+    bool killRotationWithLevel=false,horizonWithAssist=false;
     Vector maneuverDirection{0,0,1};
     std::string name="GL-01";
     Flight();

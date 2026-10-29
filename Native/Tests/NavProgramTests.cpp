@@ -18,7 +18,14 @@ int main(){try{
     mode.toggleAssist(Assist::Prograde);check(mode.assist==Assist::Free,"Selecting an active program turns it off");
     mode.toggleAssist(Assist::HorizonLevel);mode.toggleAssist(Assist::KillRotation);
     check(mode.assistActive(Assist::HorizonLevel)&&mode.assistActive(Assist::KillRotation),"Kill rotation can coexist with horizon level");
-    mode.toggleAssist(Assist::Normal);check(mode.assistActive(Assist::Normal)&&!mode.assistActive(Assist::KillRotation),"Other programs are mutually exclusive");
+    mode.toggleAssist(Assist::Normal);check(mode.assistActive(Assist::Normal)&&mode.assistActive(Assist::HorizonLevel)&&!mode.assistActive(Assist::KillRotation),"Pointing replaces kill rotation while retaining horizon level");
+    mode.toggleAssist(Assist::HorizonLevel);check(mode.assistActive(Assist::Normal)&&!mode.assistActive(Assist::HorizonLevel),"Disabling horizon level preserves the pointing program");
+    mode.toggleAssist(Assist::HorizonLevel);mode.toggleAssist(Assist::Normal);
+    check(mode.assistActive(Assist::HorizonLevel)&&mode.assist==Assist::HorizonLevel,"Disabling a pointing program preserves horizon level");
+    mode.toggleAssist(Assist::KillRotation);mode.toggleAssist(Assist::KillRotation);
+    check(mode.assistActive(Assist::HorizonLevel)&&!mode.assistActive(Assist::KillRotation),"Kill rotation can be toggled off without releasing horizon level");
+    mode.toggleAssist(Assist::KillRotation);mode.toggleAssist(Assist::HorizonLevel);
+    check(mode.assist==Assist::KillRotation&&!mode.assistActive(Assist::HorizonLevel),"Horizon level can be toggled off while retaining kill rotation");
     for(auto program:{Assist::Prograde,Assist::Retrograde,Assist::Normal,Assist::AntiNormal}){
         Flight f=orbit();double fuel=f.rcs;f.toggleAssist(program);run(f,100);
         Vector normal=crossp(f.velocity,f.position).unit();
@@ -30,6 +37,19 @@ int main(){try{
             check(program==Assist::Prograde?planetRight<-.98:planetRight>.98,"Planet is left in prograde and right in retrograde");
         }
     }
+    for(auto program:{Assist::Prograde,Assist::Retrograde,Assist::Normal,Assist::AntiNormal}){
+        Flight f=orbit();f.toggleAssist(program);f.toggleAssist(Assist::HorizonLevel);run(f,120);
+        Vector radial=f.position.unit(),normal=crossp(f.velocity,f.position).unit();
+        Vector target=program==Assist::Prograde?f.velocity.unit():program==Assist::Retrograde?-f.velocity.unit():program==Assist::Normal?normal:-normal;
+        check(f.assistActive(program)&&f.assistActive(Assist::HorizonLevel)&&dotp(f.forward,target)>.995,"Horizon level retains the selected pointing direction");
+        Vector expected=(radial-f.forward*dotp(radial,f.forward)).unit();
+        check(dotp(f.up,expected)>.98,"Horizon level aligns the remaining roll axis to local up");
+    }
+    Flight planned=orbit();planned.maneuverDirection=(planned.velocity.unit()+planned.position.unit()*.4).unit();planned.assist=Assist::Maneuver;
+    planned.toggleAssist(Assist::HorizonLevel);run(planned,120);
+    check(dotp(planned.forward,planned.maneuverDirection)>.995&&planned.assistActive(Assist::HorizonLevel),"Horizon level combines with planned maneuver pointing");
+    Vector planUp=(planned.position.unit()-planned.forward*dotp(planned.position.unit(),planned.forward)).unit();
+    check(dotp(planned.up,planUp)>.98,"Planned maneuver uses horizon-level roll");
     Flight level=orbit();Vector radial=level.position.unit();level.forward=(radial+level.velocity.unit()).unit();
     level.right=crossp(radial,level.forward).unit();level.up=crossp(level.forward,level.right).unit();
     level.toggleAssist(Assist::HorizonLevel);run(level,90);

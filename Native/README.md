@@ -129,7 +129,7 @@ The right cockpit MFD displays hover state while hover controls are enabled. The
 | Hover controls | Automatic/manual attitude targets; altitude and vertical-speed hold; limits, manual override, original cockpit controls/readouts and scenario persistence |
 | Atmospheric stabilization | Airspeed, altitude, bank and heading holds using the glider control surfaces and main throttle; available from M in any view |
 | RCS | Six-axis translation and three-axis rotation, original torque magnitudes and normalized moments of inertia, fuel-limited jets, off/rotation/translation modes |
-| Attitude assists | Original six RCS programs, finite torque and fuel use at normal speed; prograde and retrograde put the planet on the left and right respectively. Nav programs can operate with the manual RCS dial off. |
+| Attitude assists | Six RCS programs use finite torque and fuel. HRLVL can be combined with pointing programs and planned-burn alignment: pointing determines the nose direction and HRLVL levels roll. With HRLVL off, prograde/retrograde put the planet on the left/right respectively. Nav programs work with the manual RCS dial off. |
 | HUD | Orbit, surface and docking selection, brightness and four colours from cockpit controls or the Navigation menu; docking displays no target until docking targets are supported |
 | External camera | Orbiter's target-relative, absolute-direction, global-frame, target-to/from-body and ground-observer views, plus the native orbital chase view |
 | Effects and lights | Throttle-linked main/retro/hover exhaust, RCS jets, navigation lights, flashing red beacons, white strobes and docking-light marker |

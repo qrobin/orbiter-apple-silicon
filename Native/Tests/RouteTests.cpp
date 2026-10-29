@@ -51,7 +51,8 @@ int main(){try{
     check(session.stageTiming(1,timing)&&fabs(timing.secondsToBurn-864)<.01&&timing.duration>0,
           "Countdown and full-thrust duration use the selected maneuver and simulation clock");
     check(!session.alignStage(2)&&flight.assist!=Assist::Maneuver,"A future stage cannot steer the current vessel");
-    double warp=flight.warp;check(session.alignStage(1)&&flight.assist==Assist::Maneuver&&flight.throttle==throttle&&flight.warp==warp,
+    flight.toggleAssist(Assist::HorizonLevel);
+    double warp=flight.warp;check(session.alignStage(1)&&flight.assist==Assist::Maneuver&&flight.assistActive(Assist::HorizonLevel)&&flight.throttle==throttle&&flight.warp==warp,
           "Current-stage RCS alignment leaves the main engine and time acceleration alone");
     flight.clearAssist();
     VECTOR3 direction;check(session.routeView(2,2)&&session.maneuverDirectionForStage(1,direction)&&near(length(direction),1),
