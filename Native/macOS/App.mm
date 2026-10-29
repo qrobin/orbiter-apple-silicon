@@ -4,6 +4,7 @@
 #import <QuartzCore/QuartzCore.h>
 #import <simd/simd.h>
 #include "Flight.h"
+#include "TimeAcceleration.h"
 #include "Mesh.h"
 #include "Cockpit.h"
 #include "Surface.h"
@@ -760,8 +761,8 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         case 41:[self selectNavButton:4];break;
         case 39:[self selectNavButton:3];break;
         case 45:flight.clearAssist();transxAlignDisplay=-1;break;
-        case 17:flight.warp=std::min(1000.,flight.warp*10);status=@"Time acceleration returns to 1× during maneuvers";break;
-        case 16:flight.warp=std::max(1.,flight.warp/10);break;
+        case 17:flight.warp=stepTimeAcceleration(flight.warp,true);status=[NSString stringWithFormat:@"Time acceleration %.0f×",flight.warp];break;
+        case 16:flight.warp=stepTimeAcceleration(flight.warp,false);status=[NSString stringWithFormat:@"Time acceleration %.0f×",flight.warp];break;
         case 9:[self cycleView:nil];break;
         case 46:[self showSystems:nil];break;
         case 5:flight.glider.toggle(Part::Gear);break;

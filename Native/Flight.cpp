@@ -1,4 +1,5 @@
 #include "Flight.h"
+#include "TimeAcceleration.h"
 #include "TimeData.h"
 #include "Aerodynamics.h"
 #include "Surface.h"
@@ -355,7 +356,7 @@ void Flight::advance(double realSeconds,const Input &input) {
     bool maneuver=assist==Assist::Maneuver||throttle>0||glider.hover>0||glider.hoverControl.holdActive||glider.retro>0||input.pitch||input.yaw||input.roll||input.translate||input.lateral||input.vertical||angularVelocity.length2()>1e-16;
     if(warp>1&&centralBody().solid&&orbit().PeDist()<centralBody().radius+20){warp=1;atmosphericFlight=true;}
     if(maneuver||atmosphericFlight) warp=1;
-    double dt=std::min(realSeconds,.1)*std::clamp(warp,1.0,1000.0);
+    double dt=std::min(realSeconds,.1)*std::clamp(warp,1.0,MaximumTimeAcceleration);
     glider.elevator=-input.pitch;glider.rudder=input.yaw;glider.aileron=input.roll;
     glider.advance(dt,throttle,bodyAtmosphere(reference,altitude()).p);
     if(!maneuver&&!atmosphericFlight&&(assist==Assist::Free||warp>1)) {
