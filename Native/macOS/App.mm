@@ -227,7 +227,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     if(!warning.empty()) text([NSString stringWithUTF8String:warning.c_str()],26,h-116,12,[NSColor colorWithRed:1 green:.72 blue:.36 alpha:1]);
     if(f.glider.parkingBrake && f.altitude()<1000) text(@"PARKING BRAKE SET · Shift-W releases · , / . wheel brakes",26,h-139,12,[NSColor colorWithRed:1 green:.78 blue:.43 alpha:1]);
     if(f.impacted) {
-        text(@"Hard impact — press R to restart",w*.5-170,h*.63,18,[NSColor orangeColor]);
+        text(@"Hard impact — press ⌘R to restart",w*.5-170,h*.63,18,[NSColor orangeColor]);
     }
     // Restrained flight symbology, leaving the view unobstructed.
     CGFloat cx=w*.5,cy=v->panelView?std::min(h-95.,[v.panel2D panelRect].size.height+55.):h*.5;
@@ -315,7 +315,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         CGFloat bw=620,bh=534,x=(w-bw)/2,y=(h-bh)/2;
         [panel setFill]; NSRectFill(NSMakeRect(x,y,bw,bh));
         text(@"Flight controls",x+24,y+bh-44,23,white);
-        NSArray<NSString *> *rows=@[@"+ / −      Increase / decrease main throttle",@"X          Cut main, hover and retro engines",@"↑ ↓ ← →    Pitch and yaw    ·    Q / E  Roll",@"W/S A/D Z/J   RCS forward/side/vertical",@"P / O      Prograde / retrograde assist",@"; / '      Normal / anti-normal    ·    Shift-L  Horizon level",@"K / N      Kill rotation / manual control",@"Ctrl-H / Option-H   Cycle HUD mode / colour",@"T / Y      Increase / decrease time acceleration",@"[ / ]      Decrease / increase hover throttle",@", / .      Hold left / right wheel brake",@"Shift-W    Toggle parking brake",@"F5/F6/F7   Hover attitude / hold altitude / zero climb",@"M / V      Glider systems / cycle camera views",@"F8         Cycle external tracking frames",@"F4         Original TransX MFD / navigation controls",@"G C F B    Gear / nose / radiator / airbrake",@"H L U I    Hatch / ladder / retro covers / airlock",@"Drag       Look around / rotate TransX graph    ·    Scroll  Zoom",@"Space      Pause    ·    R  Restart    ·    F2  Diagram",@"⌘O / ⌘S    Open / save scenario    ·    F1  Close help"];
+        NSArray<NSString *> *rows=@[@"+ / −      Increase / decrease main throttle",@"X          Cut main, hover and retro engines",@"↑ ↓ ← →    Pitch and yaw    ·    Q / E  Roll",@"W/S A/D Z/J   RCS forward/side/vertical",@"P / O      Prograde / retrograde assist",@"; / '      Normal / anti-normal    ·    Shift-L  Horizon level",@"K / N      Kill rotation / manual control",@"Ctrl-H / Option-H   Cycle HUD mode / colour",@"T / R      Increase / decrease time acceleration",@"[ / ]      Decrease / increase hover throttle",@", / .      Hold left / right wheel brake",@"Shift-W    Toggle parking brake",@"F5/F6/F7   Hover attitude / hold altitude / zero climb",@"M / V      Glider systems / cycle camera views",@"F8         Cycle external tracking frames",@"F4         Original TransX MFD / navigation controls",@"G C F B    Gear / nose / radiator / airbrake",@"H L U I    Hatch / ladder / retro covers / airlock",@"Drag       Look around / rotate TransX graph    ·    Scroll  Zoom",@"Space      Pause    ·    ⌘R  Restart    ·    F2  Diagram",@"⌘O / ⌘S    Open / save scenario    ·    F1  Close help"];
         for(NSUInteger i=0;i<rows.count;++i) text(rows[i],x+24,y+bh-81-i*20,13,ink,YES);
     }
 }
@@ -776,7 +776,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     [self startOrbit:nil];[self setViewMode:0];flight.align(flight.velocity);flight.assist=Assist::Prograde;flight.warp=10;
     for(Part p:{Part::Gear,Part::Nose,Part::Radiator,Part::RetroCover,Part::Airbrake}) flight.glider.command(p,1);
     flight.glider.navLights=flight.glider.beacons=flight.glider.strobes=true;demoLadderQueued=true;
-    status=@"Mechanism demonstration · original deployment timing at 10× · R restarts";
+    status=@"Mechanism demonstration · original deployment timing at 10× · ⌘R restarts";
 }
 - (void)pauseFlight:(id)sender {
     if(burnSkip.running()){burnSkip.cancel(flight);status=@"Skip cancelled · paused";}
@@ -818,7 +818,6 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     switch(code) {
         case 49:[self pauseFlight:nil];break;
         case 7:flight.cutEngines();break; // X
-        case 15:[self resetFlight:nil];break;
         case 35:[self selectNavButton:2];break;
         case 31:[self selectNavButton:1];break;
         case 40:[self selectNavButton:0];break;
@@ -826,7 +825,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         case 39:[self selectNavButton:3];break;
         case 45:flight.clearAssist();transxAlignDisplay=-1;break;
         case 17:if(burnSkip.running())burnSkip.cancel(flight);flight.warp=stepTimeAcceleration(flight.warp,true);status=[NSString stringWithFormat:@"Time acceleration %.0f×",flight.warp];break;
-        case 16:if(burnSkip.running())burnSkip.cancel(flight);flight.warp=stepTimeAcceleration(flight.warp,false);status=[NSString stringWithFormat:@"Time acceleration %.0f×",flight.warp];break;
+        case 15:if(burnSkip.running())burnSkip.cancel(flight);flight.warp=stepTimeAcceleration(flight.warp,false);status=[NSString stringWithFormat:@"Time acceleration %.0f×",flight.warp];break;
         case 9:[self cycleView:nil];break;
         case 46:[self showSystems:nil];break;
         case 5:flight.glider.toggle(Part::Gear);break;
@@ -1018,7 +1017,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         NSMenuItem *orbit=[fm addItemWithTitle:@"Earth Orbit" action:@selector(startOrbit:) keyEquivalent:@""];orbit.target=self.view;
         NSMenuItem *park=[fm addItemWithTitle:@"Toggle Parking Brake" action:@selector(toggleParkingBrake:) keyEquivalent:@""];park.target=self.view;
         NSMenuItem *demo=[fm addItemWithTitle:@"Mechanism Demonstration" action:@selector(demonstrateGlider:) keyEquivalent:@""];demo.target=self.view;
-        NSMenuItem *reset=[fm addItemWithTitle:@"Restart Flight" action:@selector(resetFlight:) keyEquivalent:@""]; reset.target=self.view;
+        NSMenuItem *reset=[fm addItemWithTitle:@"Restart Flight" action:@selector(resetFlight:) keyEquivalent:@"r"]; reset.target=self.view;
         NSMenuItem *help=[fm addItemWithTitle:@"Flight Controls" action:@selector(toggleHelp:) keyEquivalent:@"?"]; help.target=self.view;
         NSMenuItem *cameraItem=[NSMenuItem new];cameraItem.title=@"Camera";[main addItem:cameraItem];NSMenu *cameraMenu=[NSMenu new];cameraItem.submenu=cameraMenu;
         NSArray<NSString *> *cameraNames=@[@"Orbital Chase",@"Target-relative (F8)",@"Absolute Direction (F8)",@"Global Frame (F8)"];

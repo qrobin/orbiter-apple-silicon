@@ -34,7 +34,7 @@ The native host adds platform bindings, drawing and input handling, per-stage ma
 
 ## Solar System in 0.7
 
-Choose **Solar System → a planet → its Orbit or a moon's Orbit**. This starts a new orbit around that body at the current simulation date. **R** restarts the selected orbit. **Flight → Earth Orbit** and the Cape starts return to the original Earth scenarios.
+Choose **Solar System → a planet → its Orbit or a moon's Orbit**. This starts a new orbit around that body at the current simulation date. **Command-R** restarts the selected orbit. **Flight → Earth Orbit** and the Cape starts return to the original Earth scenarios.
 
 The catalogue has **33 bodies**: Sun, eight planets, Vesta and 23 moons.
 
@@ -83,7 +83,7 @@ The cockpit has live native surface/orbit and propulsion displays on the origina
 
 Choose **Flight → Cape Canaveral — Surface Flight** to start parked at the original scenario location with low fuel, gear deployed, RCS off and parking brake set. **Shift-W** releases the parking brake; hold **,** and **.** for left/right wheel brakes. Use **[ / ]** to lower/raise hover throttle. **M** has the equivalent parking-brake switch and hover slider. Around 95% hover thrust lifts this light configuration; keep the gear down while learning. Automatic hover attitude is enabled in this starting scenario. Use **M** to select Off / Auto / Manual attitude modes and altitude / vertical speed hold.
 
-The HUD and left cockpit display automatically show surface altitude, ground-relative speed, vertical speed, heading, pitch and bank below 120 km. The external orbit diagram becomes a surface attitude indicator. Select **Flight → Earth Orbit** to return to the orbital starting scenario. **R** restarts the scenario most recently selected or opened.
+The HUD and left cockpit display automatically show surface altitude, ground-relative speed, vertical speed, heading, pitch and bank below 120 km. The external orbit diagram becomes a surface attitude indicator. Select **Flight → Earth Orbit** to return to the orbital starting scenario. **Command-R** restarts the scenario most recently selected or opened.
 
 ## Hover practice
 
@@ -162,9 +162,9 @@ The native animation registry contains **63 components extracted from upstream s
 | F | Toggle radiator |
 | H | Toggle top hatch |
 | I / Shift-I | Toggle outer / inner airlock |
-| T / Y | Increase / decrease time acceleration |
+| T / R | Increase / decrease time acceleration |
 | Space | Pause / resume |
-| R | Restart the current scenario |
+| Command-R | Restart the current scenario |
 | F1 | Show controls |
 | F2 | Show / hide external orbit or surface attitude diagram |
 | ⌘O / ⌘S | Open / save scenario |
@@ -172,7 +172,7 @@ The native animation registry contains **63 components extracted from upstream s
 
 Use the **Camera** menu to select an external mode. Target-relative follows the ship's orientation; absolute direction holds the camera's world direction while following the ship's roll; global frame holds both direction and roll. The target-to/from submenus choose a Solar System body and lock the camera along that line. Ground observer starts on the current solid body's surface, tracks the ship, moves across the surface when dragged, and zooms its field of view when scrolled. External tracking cameras can zoom out to 1,000 km to inspect long exhaust trails. **V** still cycles the three main views, and the selected external mode is retained when returning to it.
 
-Mechanisms follow simulation time and stop while paused. **T / Y** steps through 1×, 2×, 5× and additional rates up to 100,000×. Attitude programs pause while coasting at higher acceleration; they resume at normal speed without instantly changing the vessel's attitude. TransX's **Align with RCS** returns to 1×. Powered and atmospheric flight require more simulation work at higher rates. Opening the top hatch or opening both airlocks can depressurize the cabin; closing doors and opening the supply valves restores pressure. A warning appears when pressure is low or retro thrust is inhibited.
+Mechanisms follow simulation time and stop while paused. **T / R** steps through 1×, 2×, 5× and additional rates up to 100,000×. Attitude programs pause while coasting at higher acceleration; they resume at normal speed without instantly changing the vessel's attitude. TransX's **Align with RCS** returns to 1×. Powered and atmospheric flight require more simulation work at higher rates. Opening the top hatch or opening both airlocks can depressurize the cabin; closing doors and opening the supply valves restores pressure. A warning appears when pressure is low or retro thrust is inhibited.
 
 The native panel is a separate macOS window. Click the flight window to return keyboard control to the spacecraft after using panel controls.
 
