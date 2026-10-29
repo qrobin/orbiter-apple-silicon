@@ -656,6 +656,9 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     [encoder endEncoding];
     [visuals encodeWeather:cb frame:uniforms];
     [visuals encodeExhaust:cb frame:uniforms flight:flight offset:offset];
+    if(cockpit&&!panelView&&!freeCamera.active){
+        for(const auto &g:groups)if(g.mesh==1&&g.index==77){[visuals encodeCockpitRain:cb frame:uniforms model:object.model vertices:g.vertices indices:g.indices count:g.count];break;}
+    }
     [visuals encodePresent:cb drawable:drawable];
     [cb presentDrawable:drawable];
     __weak FlightView *weakSelf=self; dispatch_semaphore_t semaphore=inflight;

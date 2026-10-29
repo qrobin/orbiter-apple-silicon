@@ -25,6 +25,14 @@ bool loadEarthWeatherMap(const std::filesystem::path &path){
     if((size_t)f.gcount()!=bytes.size()||f.peek()!=std::char_traits<char>::eof())return false;
     cloudMap=std::move(bytes);return true;
 }
+double updateGlassWetness(double wetness,double rain,double airspeed,double dt){
+    wetness=std::isfinite(wetness)?std::clamp(wetness,0.,1.):0;
+    rain=std::isfinite(rain)?std::clamp(rain,0.,1.):0;
+    airspeed=std::isfinite(airspeed)?std::clamp(airspeed,0.,10000.):0;
+    if(!std::isfinite(dt)||dt<=0)return wetness;
+    double rate=rain>wetness?.5:.035+airspeed*.0002;
+    return rain+(wetness-rain)*exp(-rate*dt);
+}
 WeatherSample earthWeather(const Vector &position,double mjd,int preset,bool effects){
     WeatherSample result;if(preset<=0||!std::isfinite(mjd)||position.length2()<1)return result;
     double lat,lon;bodyCoordinates(BodyId::Earth,position,mjd,0,lat,lon);

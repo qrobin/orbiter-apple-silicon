@@ -13,7 +13,7 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
     NSUInteger samples,width,height,trailWidth,trailHeight,historyIndex,frameIndex;
     BOOL historyValid,haveFlight;
     FrameUniforms lastFrame;
-    double lastElapsed;
+    double lastElapsed,glassWetness;
     NSInteger lastWeather;
     id<MTLTexture> hdr,lit,depth,trailLayer,msaaColor,msaaDepth,earthCloudMap,earthOceanMask,earthOceanWaves,earthOceanWaveDetail;
     std::array<id<MTLTexture>,2> cloudHistory,cloudData,bloom;
@@ -21,8 +21,8 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
     ExhaustTrail exhaustTrail;
     std::vector<SmokeDraw> visibleSmoke;
     id<MTLComputePipelineState> noiseKernel,shadowKernel,cloudKernel,extractKernel,blurKernel;
-    id<MTLRenderPipelineState> compositePipeline,flamePipeline,smokePipeline,trailCompositePipeline,presentPipeline;
-    id<MTLDepthStencilState> flameDepth;
+    id<MTLRenderPipelineState> compositePipeline,flamePipeline,smokePipeline,trailCompositePipeline,presentPipeline,rainGlassPipeline;
+    id<MTLDepthStencilState> flameDepth,rainDepth;
 }
 @end
 @implementation NativeVisuals
@@ -57,7 +57,9 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
     smokePipeline=pipeline(@"trailVolumeVertex",@"trailVolumeFragment",MTLPixelFormatRGBA16Float,NO,2);
     trailCompositePipeline=pipeline(@"skyVertex",@"compositeTrail",MTLPixelFormatRGBA16Float,NO,3);
     presentPipeline=pipeline(@"skyVertex",@"toneMap",MTLPixelFormatBGRA8Unorm_sRGB,NO,NO);
+    rainGlassPipeline=pipeline(@"rainGlassVertex",@"rainGlassFragment",MTLPixelFormatRGBA16Float,YES,NO);
     MTLDepthStencilDescriptor *ds=[MTLDepthStencilDescriptor new];ds.depthCompareFunction=MTLCompareFunctionAlways;ds.depthWriteEnabled=NO;flameDepth=[gpu newDepthStencilStateWithDescriptor:ds];
+    ds.depthCompareFunction=MTLCompareFunctionGreater;rainDepth=[gpu newDepthStencilStateWithDescriptor:ds];
     MTLTextureDescriptor *n=[MTLTextureDescriptor new];n.textureType=MTLTextureType3D;n.width=n.height=n.depth=128;n.pixelFormat=MTLPixelFormatRGBA8Unorm;n.storageMode=MTLStorageModePrivate;n.usage=MTLTextureUsageShaderRead|MTLTextureUsageShaderWrite;
     _cloudNoise=[gpu newTextureWithDescriptor:n];visualCheck(_cloudNoise,nil);
     _cloudShadows=[self texture:MTLPixelFormatR8Unorm width:512 height:256 usage:MTLTextureUsageShaderRead|MTLTextureUsageShaderWrite];
@@ -140,6 +142,7 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
     }
     _emitterCount=count;double dt=haveFlight?flight.elapsed-lastElapsed:0;
     auto weather=flight.currentWeather();double humidity=std::clamp(.25+weather.cloud*.45+weather.storm*.3,0.,1.);
+    glassWetness=haveFlight?updateGlassWetness(glassWetness,weather.rain,flight.airRelativeVelocity().length(),dt):weather.rain;
     exhaustTrail.update(flight,dt,humidity);
     EffectUniforms step{};step.clock={(float)dt,(float)fmod(flight.elapsed,4096.),0,(float)count};step.offset=visualVector(offset);
     lastElapsed=flight.elapsed;haveFlight=YES;
@@ -190,6 +193,22 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
         [r drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6 instanceCount:count];[r endEncoding];
     }
 }
+- (void)encodeCockpitRain:(id<MTLCommandBuffer>)cb frame:(const FrameUniforms &)f model:(simd_float4x4)model vertices:(id<MTLBuffer>)vertices indices:(id<MTLBuffer>)indices count:(NSUInteger)count {
+    if(glassWetness<=.01||!vertices||!indices||!count)return;
+    FrameUniforms wetFrame=f;wetFrame.weather.z=(float)glassWetness;
+    // Copy once, then refract from the previous scene while writing the wet
+    // glass to the other HDR texture. This pass is skipped outside rain/VC.
+    id<MTLBlitCommandEncoder> blit=[cb blitCommandEncoder];
+    [blit copyFromTexture:lit sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0,0,0) sourceSize:MTLSizeMake(width,height,1) toTexture:hdr destinationSlice:0 destinationLevel:0 destinationOrigin:MTLOriginMake(0,0,0)];[blit endEncoding];
+    MTLRenderPassDescriptor *pass=[MTLRenderPassDescriptor renderPassDescriptor];pass.colorAttachments[0].texture=hdr;pass.colorAttachments[0].loadAction=MTLLoadActionLoad;pass.colorAttachments[0].storeAction=MTLStoreActionStore;
+    pass.depthAttachment.texture=depth;pass.depthAttachment.loadAction=MTLLoadActionLoad;pass.depthAttachment.storeAction=MTLStoreActionStore;
+    id<MTLRenderCommandEncoder> r=[cb renderCommandEncoderWithDescriptor:pass];r.label=@"Rain on cockpit glass";
+    [r setRenderPipelineState:rainGlassPipeline];[r setDepthStencilState:rainDepth];[r setCullMode:MTLCullModeNone];
+    [r setVertexBuffer:vertices offset:0 atIndex:0];[r setVertexBytes:&wetFrame length:sizeof(wetFrame) atIndex:1];[r setVertexBytes:&model length:sizeof(model) atIndex:2];
+    [r setFragmentBytes:&wetFrame length:sizeof(wetFrame) atIndex:1];[r setFragmentBytes:&model length:sizeof(model) atIndex:2];[r setFragmentTexture:lit atIndex:0];
+    [r drawIndexedPrimitives:MTLPrimitiveTypeTriangle indexCount:count indexType:MTLIndexTypeUInt32 indexBuffer:indices indexBufferOffset:0];[r endEncoding];
+    id<MTLTexture> previous=lit;lit=hdr;hdr=previous;
+}
 - (void)encodePresent:(id<MTLCommandBuffer>)cb drawable:(id<CAMetalDrawable>)drawable {
     id<MTLComputeCommandEncoder> e=[cb computeCommandEncoder];e.label=@"HDR bloom";[e setComputePipelineState:extractKernel];[e setTexture:lit atIndex:0];[e setTexture:bloom[0] atIndex:1];[self dispatch:e texture:bloom[0]];
     [e setComputePipelineState:blurKernel];uint32_t vertical=0;[e setBytes:&vertical length:sizeof(vertical) atIndex:0];[e setTexture:bloom[0] atIndex:0];[e setTexture:bloom[1] atIndex:1];[self dispatch:e texture:bloom[1]];
@@ -203,6 +222,6 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
 - (id<MTLTexture>)oceanWaveDetail {return earthOceanWaveDetail;}
 - (NSUInteger)liveTrailPuffCount {return exhaustTrail.puffs().size();}
 - (NSString *)weatherName{return @[@"Clear",@"Scattered",@"Overcast",@"Storm",@"Regional"][_weather];}
-- (void)reset {historyValid=NO;haveFlight=NO;exhaustTrail.reset();}
+- (void)reset {historyValid=NO;haveFlight=NO;glassWetness=0;exhaustTrail.reset();}
 - (void)resetForReferenceChange {historyValid=NO;haveFlight=NO;}
 @end

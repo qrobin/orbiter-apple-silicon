@@ -277,6 +277,68 @@ fragment float4 compositeClouds(SkyRaster in [[stage_in]],constant FrameUniforms
     }
     return float4(color,1);
 }
+// Rain is drawn on the original cockpit-glass mesh after the scene has been
+// composed. Local coordinates keep droplets on the pane when the pilot looks
+// or zooms, and the scene texture supplies a small refractive distortion.
+struct RainVertex {packed_float3 position;packed_float3 normal;packed_float2 uv;};
+struct RainRaster {float4 position [[position]];float3 local;float3 normal;float3 world;};
+vertex RainRaster rainGlassVertex(uint id [[vertex_id]],const device RainVertex *vertices [[buffer(0)]],
+                                  constant FrameUniforms &f [[buffer(1)]],constant float4x4 &model [[buffer(2)]]){
+    RainVertex v=vertices[id];float3 p=(model*float4(float3(v.position),1)).xyz;
+    float3 view=float3(dot(p,f.right.xyz),dot(p,f.up.xyz),-dot(p,f.forward.xyz));
+    return {f.projection*float4(view,1),float3(v.position),float3(v.normal),p};
+}
+// coverage, refraction gradient, and specular rim for one drop per cell.
+float4 rainBead(float2 uv,float probability,uint salt,float stretch){
+    float2 cell=floor(uv),local=fract(uv);
+    uint seed=uint(int(cell.x)*1973+int(cell.y)*9277)+salt;
+    if(visualRandom(seed)>probability)return float4(0);
+    float2 center=float2(.25f+.5f*visualRandom(seed+17),.25f+.5f*visualRandom(seed+71));
+    float2 delta=local-center;delta.y*=stretch;
+    float radius=mix(.10f,.22f,visualRandom(seed+151));
+    float d=length(delta),angle=atan2(delta.y,delta.x);
+    radius*=1+.07f*sin(angle*3+visualRandom(seed+271)*6.2831853f);
+    float body=1-smoothstep(radius*.70f,radius,d);
+    float rim=smoothstep(radius*.48f,radius*.78f,d)*(1-smoothstep(radius*.88f,radius*1.08f,d));
+    rim*=clamp(.55f-(delta.x+delta.y)*1.6f/max(radius,.001f),.15f,1.0f);
+    float2 slope=delta/max(radius,.001f)*body;
+    return float4(body,slope,rim);
+}
+fragment float4 rainGlassFragment(RainRaster in [[stage_in]],constant FrameUniforms &f [[buffer(1)]],
+                                   constant float4x4 &model [[buffer(2)]],texture2d<float> scene [[texture(0)]]){
+    if(f.weather.z<=.01f)discard_fragment();
+    float3 localNormal=normalize(in.normal);float side=smoothstep(.38f,.76f,abs(localNormal.x));
+    float sideSign=in.local.x<0?-1.0f:1.0f;
+    float2 surface=float2(mix(in.local.x,in.local.z*sideSign,side),in.local.y+in.local.z*.35f);
+    float3 gravity=-normalize(f.position.xyz),wind=-f.weatherWind.xyz;
+    float3 down=float3(dot(gravity,model[0].xyz),dot(gravity,model[1].xyz),dot(gravity,model[2].xyz));
+    float3 air=float3(dot(wind,model[0].xyz),dot(wind,model[1].xyz),dot(wind,model[2].xyz));
+    float2 flow=float2(mix(down.x,down.z*sideSign,side),down.y+down.z*.35f)*14;
+    flow+=float2(mix(air.x,air.z*sideSign,side),air.y+air.z*.35f);
+    flow=length(flow)>.01f?normalize(flow):float2(0,-1);
+    float2 across=float2(flow.y,-flow.x);
+    float4 beads=rainBead(surface*43.0f,f.weather.z*.58f,101u,1.0f);
+    float speed=clamp(.4f+length(f.weatherWind.xyz)*.009f,.4f,3.0f);
+    float2 moving=float2(dot(surface,across),dot(surface,flow))*20.0f;
+    moving.y-=f.environment.w*speed;
+    float4 running=rainBead(moving,f.weather.z*.25f,809u,.55f);
+    float body=max(beads.x,running.x),rim=max(beads.w,running.w);
+    if(body<.004f&&rim<.004f)discard_fragment();
+    float2 gradient=beads.yz+across*running.y+flow*running.z;
+    float3 axisX=mix(model[0].xyz,model[2].xyz*sideSign,side);
+    float3 axisY=model[1].xyz+model[2].xyz*.35f;
+    float3 displacement=axisX*gradient.x+axisY*gradient.y;
+    float2 shift=float2(dot(displacement,f.right.xyz),-dot(displacement,f.up.xyz))*.0022f;
+    float2 uv=in.position.xy/f.screen.xy;
+    constexpr sampler s(filter::linear,address::clamp_to_edge);
+    float3 refracted=scene.sample(s,clamp(uv+shift,0.0f,1.0f)).rgb;
+    float daylight=smoothstep(-.12f,.12f,dot(normalize(f.position.xyz),f.sun.xyz))*f.sun.w;
+    float3 normal=normalize((model*float4(localNormal,0)).xyz);
+    float3 view=normalize(-in.world),halfVector=normalize(f.sun.xyz+view);
+    float spec=pow(max(0.0f,abs(dot(normal,halfVector))),36.0f)*daylight;
+    float highlight=rim*(.018f+.075f*daylight)+body*spec*.12f;
+    return float4(refracted*(1-body*.035f-rim*.04f)+float3(.80,.89,1.0)*highlight,1);
+}
 float3 exhaustBasis(float3 d){return normalize(cross(d,abs(d.y)<.9?float3(0,1,0):float3(1,0,0)));}
 struct FlameRaster {float4 position [[position]];float3 ray;float3 origin [[flat]];float3 axis [[flat]];float4 properties [[flat]];float time [[flat]];};
 vertex FlameRaster flameVertex(uint id [[vertex_id]],uint instance [[instance_id]],constant FrameUniforms &f [[buffer(0)]],

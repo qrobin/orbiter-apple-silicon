@@ -6,4 +6,5 @@ namespace native {
 struct WeatherSample {double cloud=0,storm=0,rain=0;Vector wind,lightning;double flash=0;};
 bool loadEarthWeatherMap(const std::filesystem::path &path);
 WeatherSample earthWeather(const Vector &position,double mjd,int preset,bool effects=true);
+double updateGlassWetness(double wetness,double rain,double airspeed,double dt);
 }

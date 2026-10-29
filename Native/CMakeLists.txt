@@ -92,6 +92,14 @@ target_link_libraries(CockpitHudRenderTests PRIVATE OrbiterFlightCore "-framewor
 add_test(NAME Native.CockpitHudMetal COMMAND CockpitHudRenderTests)
 set_tests_properties(Native.CockpitHudMetal PROPERTIES SKIP_RETURN_CODE 77)
 
+add_executable(CockpitRainRenderTests Tests/CockpitRainRenderTests.mm)
+target_include_directories(CockpitRainRenderTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/macOS)
+target_compile_options(CockpitRainRenderTests PRIVATE -fobjc-arc)
+target_compile_definitions(CockpitRainRenderTests PRIVATE ORBITER_TEST_DATA="${PROJECT_SOURCE_DIR}")
+target_link_libraries(CockpitRainRenderTests PRIVATE OrbiterFlightCore "-framework Cocoa" "-framework Metal")
+add_test(NAME Native.CockpitRainMetal COMMAND CockpitRainRenderTests)
+set_tests_properties(Native.CockpitRainMetal PROPERTIES SKIP_RETURN_CODE 77)
+
 add_executable(BodyRotationTests Tests/BodyRotationTests.cpp)
 target_link_libraries(BodyRotationTests PRIVATE OrbiterFlightCore)
 target_compile_definitions(BodyRotationTests PRIVATE ORBITER_TEST_DATA="${PROJECT_SOURCE_DIR}")
