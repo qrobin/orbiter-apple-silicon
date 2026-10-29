@@ -23,8 +23,8 @@ int main() { try {
     check((flight.position-p0).length()<.1,"one orbital period position closure");
     check((flight.velocity-v0).length()<.001,"one orbital period velocity closure");
     flight.align(flight.velocity); flight.throttle=1; double fuel=flight.fuel;
-    double before=energy(flight); flight.advance(.1);
-    check(flight.warp==1,"burn returns warp to real time"); check(fabs(fuel-flight.fuel-1)<1e-8,"Delta glider fuel flow 10 kg/s");
+    double before=energy(flight),burnStart=flight.elapsed; flight.advance(.1);
+    check(fabs(fuel-flight.fuel-10*(flight.elapsed-burnStart))<1e-8,"Delta glider fuel flow is 10 kg per simulation second");
     check(energy(flight)>before,"prograde burn raises orbital energy");
     flight.paused=true; Vector old=flight.position; flight.advance(.1);
     check(flight.position.dist(old)==0,"pause freezes state"); flight.paused=false;

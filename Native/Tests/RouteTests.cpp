@@ -44,6 +44,16 @@ int main(){try{
     check(session.setStageManeuver(2,later)&&session.stageInfo(2,secondStep)&&secondStep.enabled&&
           secondStep.reference==BodyId::Sun&&near(secondStep.maneuver.prograde,40),"A second stage stores an independent maneuver");
     check(session.stageInfo(1,firstStep)&&near(firstStep.maneuver.prograde,3500),"Editing a later step does not change the departure burn");
+    check(session.selectedStage()==1&&session.selectStage(2)&&session.selectedStage()==2&&!session.selectStage(99),
+          "The selected route step is tracked independently of the cockpit MFDs");
+    check(session.selectStage(1),"Return the selected step to departure");
+    transx::BurnTiming timing;
+    check(session.stageTiming(1,timing)&&fabs(timing.secondsToBurn-864)<.01&&timing.duration>0,
+          "Countdown and full-thrust duration use the selected maneuver and simulation clock");
+    check(!session.alignStage(2)&&flight.assist!=Assist::Maneuver,"A future stage cannot steer the current vessel");
+    double warp=flight.warp;check(session.alignStage(1)&&flight.assist==Assist::Maneuver&&flight.throttle==throttle&&flight.warp==warp,
+          "Current-stage RCS alignment leaves the main engine and time acceleration alone");
+    flight.clearAssist();
     VECTOR3 direction;check(session.routeView(2,2)&&session.maneuverDirectionForStage(1,direction)&&near(length(direction),1),
           "Departure alignment remains available while viewing the transfer stage");
     session.button(0,1);session.frame(0);

@@ -23,6 +23,10 @@ struct StageInfo {
     RouteValues maneuver;
     bool enabled=false;
 };
+struct BurnTiming {
+    double secondsToBurn=0,duration=0,deltaV=0,propellant=0;
+    bool sufficientFuel=false;
+};
 struct Approach {
     double distance=0, relativeSpeed=0, mjd=0;
     int source=0; // 1: TransX plan, 2: manoeuvre, 3: current orbit
@@ -44,8 +48,12 @@ public:
     bool maneuverDirection(int display,VECTOR3 &direction);
     bool maneuverDirectionForStage(int stage,VECTOR3 &direction);
     int stageCount();
+    int selectedStage();
+    bool selectStage(int stage);
     bool stageInfo(int stage,StageInfo &info);
     bool setStageManeuver(int stage,const RouteValues &values);
+    bool stageTiming(int stage,BurnTiming &timing);
+    bool alignStage(int stage);
     bool createRoute(BodyId destination,Route &route,std::string &error);
     bool currentRoute(Route &route);
     bool routeMatches(const Route &route);

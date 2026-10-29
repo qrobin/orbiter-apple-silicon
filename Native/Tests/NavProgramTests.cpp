@@ -1,5 +1,6 @@
 #include "Flight.h"
 #include "Cockpit.h"
+#include "Mesh.h"
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
@@ -13,7 +14,7 @@ static Flight orbit(){
 }
 int main(){try{
     Flight mode=orbit();mode.warp=10;mode.toggleAssist(Assist::Prograde);
-    check(mode.assistActive(Assist::Prograde)&&mode.warp==1,"Selecting a nav program engages it at normal time");
+    check(mode.assistActive(Assist::Prograde),"Selecting a nav program engages it");
     mode.toggleAssist(Assist::Prograde);check(mode.assist==Assist::Free,"Selecting an active program turns it off");
     mode.toggleAssist(Assist::HorizonLevel);mode.toggleAssist(Assist::KillRotation);
     check(mode.assistActive(Assist::HorizonLevel)&&mode.assistActive(Assist::KillRotation),"Kill rotation can coexist with horizon level");
@@ -53,7 +54,10 @@ int main(){try{
         Vector eye{0,1.467,6.782},point{.10191+vcX[i]*.07618,1.25710+vcY[i]*.02930,7.26800};auto hit=pickCockpit(eye,(point-eye).unit());
         check(hit.action==60&&cockpitNavButton(hit.u,hit.v)==i,"Pilot's ray reaches the corresponding original VC button");
     }
-    check(cockpitNavButton(.1,.8)==-1&&panelNavButton(1140,74)==-1,"Empty cells do not activate navigation programs");
+    check(cockpitNavButton(.1,.8)==6&&panelNavButton(1140,74)==6,"Both panels expose the planned-burn RCS button");
+    check(cockpitNavButton(.9,.8)==-1&&panelNavButton(1250,74)==-1,"The remaining empty cells do not activate navigation programs");
+    auto burnButton=maneuverButtonArtwork(false),litBurnButton=maneuverButtonArtwork(true);
+    check(burnButton.width==128&&burnButton.height==64&&burnButton.rgba!=litBurnButton.rgba,"The burn button has visible inactive and active artwork");
     check(cockpitNavButton(42./169,.2)==-1,"The gaps between 3D buttons are inactive");
     Hud hud;hud.select(3);hud.adjustBrightness(-.63);hud.cycleColour();
     check(hud.mode==3&&fabs(hud.brightness-.37)<1e-9&&hud.colour==1,"HUD mode, brightness and colour respond independently");

@@ -65,18 +65,33 @@ bool visibleCockpitGroup(size_t group){
     // Original VC pilot body, head and visor; group 132 is the HUD overlay.
     return group!=62&&group!=83&&group!=84&&group!=132;
 }
+Image maneuverButtonArtwork(bool active){
+    Image image{128,64,std::vector<uint8_t>(128*64*4)};
+    const int glyph[4][7]={
+        {30,17,17,30,17,17,30}, {17,17,17,17,17,17,14},
+        {30,17,17,30,20,18,17}, {17,25,25,21,19,19,17}
+    };
+    auto pixel=[&](int x,int y,int r,int g,int b){auto i=(size_t(y)*image.width+x)*4;image.rgba[i]=r;image.rgba[i+1]=g;image.rgba[i+2]=b;image.rgba[i+3]=255;};
+    for(int y=0;y<64;++y)for(int x=0;x<128;++x){
+        bool edge=x<3||x>=125||y<3||y>=61;int k=edge?(y<3?75:42):12;
+        pixel(x,y,k,k+3,k+1);
+    }
+    for(int c=0;c<4;++c)for(int y=0;y<7;++y)for(int x=0;x<5;++x)if(glyph[c][y]&(1<<(4-x)))
+        for(int py=0;py<4;++py)for(int px=0;px<4;++px)pixel(18+c*24+x*4+px,18+y*4+py,active?136:97,active?245:171,active?156:112);
+    return image;
+}
 int cockpitNavButton(double u,double v){
     if(!std::isfinite(u)||!std::isfinite(v)||u<0||u>=1||v<0||v>=1)return -1;
     // Directly mirrors RcsProgButtons::ProcessMouseVC's 169 x 63 grid.
     int x=int(u*169),y=int(v*63),column=x/43,row=y/33;
     if(column>3||row>1||x%43>=40||y%33>=30)return -1;
-    static const int buttons[2][4]={{0,1,3,5},{-1,2,4,-1}};
+    static const int buttons[2][4]={{0,1,3,5},{6,2,4,-1}};
     return buttons[row][column];
 }
 int panelNavButton(double x,double y){
     if(!std::isfinite(x)||!std::isfinite(y)||x<1124||x>=1272||y<62||y>=110)return -1;
     int column=int(x-1124)/37,row=int(y-62)/24;
-    static const int buttons[2][4]={{-1,2,4,-1},{0,1,3,5}};
+    static const int buttons[2][4]={{6,2,4,-1},{0,1,3,5}};
     return buttons[row][column];
 }
 CockpitHit pickPanel2D(double x,double y){

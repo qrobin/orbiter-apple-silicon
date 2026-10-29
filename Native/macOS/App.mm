@@ -14,6 +14,7 @@
 #import "SolarRenderer.h"
 #include "SolarSystem.h"
 #import "TransXDrawing.h"
+#import "BurnDisplay.h"
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #include <algorithm>
 #include <array>
@@ -67,6 +68,7 @@ struct GpuGroup { id<MTLBuffer> vertices,indices; NSUInteger count; size_t mater
     std::array<native::transx::Frame,3> transxFrames;
     std::array<bool,2> transxMfd;
     int transxAlignDisplay;
+    BodyId transxAlignBody;
     double transxRefresh;
 @private
     id<MTLCommandQueue> queue;
@@ -85,6 +87,7 @@ struct GpuGroup { id<MTLBuffer> vertices,indices; NSUInteger count; size_t mater
     NSMutableArray<id<MTLTexture>> *textures;
     id<MTLTexture> earthTexture,whiteTexture;
     id<MTLTexture> hoverReadoutTexture,mfdLabelTexture;
+    std::array<id<MTLTexture>,2> maneuverButtonTextures;
     Image mfdLabelImage,mfdLabelOriginal;
     std::array<bool,2> lastMfdLabels;
     Image hoverReadoutImage,hoverGlyphs;
@@ -159,6 +162,13 @@ struct GpuGroup { id<MTLBuffer> vertices,indices; NSUInteger count; size_t mater
 - (void)toggleMechanism:(id)sender;
 @end
 
+static NSString *burnCountdown(FlightView *view) {
+    if(!view||!view->transxSession)return nil;
+    auto &session=*view->transxSession;int stage=session.selectedStage();native::transx::BurnTiming timing;
+    if(!stage||!session.stageTiming(stage,timing))return nil;
+    return burnTimingText(stage,timing);
+}
+
 @implementation FlightHUD
 - (BOOL)isOpaque { return NO; }
 - (BOOL)isAccessibilityElement { return YES; }
@@ -169,10 +179,11 @@ struct GpuGroup { id<MTLBuffer> vertices,indices; NSUInteger count; size_t mater
     auto &f=v->flight;
     auto &hover=f.glider.hoverControl;
     NSString *holdState=hover.holdActive?[NSString stringWithFormat:@"%@ %.1f",hover.holdMode==1?@"altitude hold":@"vertical speed hold",hover.holdMode==1?hover.altitudeTarget:hover.verticalSpeedTarget]:@"off";
-    if(f.altitude()<std::min(120000.,f.centralBody().radius*.02)) return [NSString stringWithFormat:@"%@, altitude %.1f metres, ground speed %.2f metres per second, vertical speed %+.1f, heading %.1f degrees, main throttle %.0f percent, hover %.0f percent, parking brake %@, fuel %.1f kg, hold %@, controls %@",
-        f.paused?@"Paused":f.groundContact?@"On the ground":@"Flying",f.altitude(),f.groundSpeed,f.surfaceVerticalSpeed(),Deg(f.heading()),f.throttle*100,f.glider.hover*100,f.glider.parkingBrake?@"set":@"released",f.fuel,holdState,v->helpVisible?@"visible":@"hidden"];
-    return [NSString stringWithFormat:@"%@, altitude %.2f km, speed %.2f m/s, throttle %.0f percent, fuel %.1f kg, time acceleration %.0f, controls %@",
-        v->flight.paused?@"Paused":v->flight.groundContact?@"On the ground":@"Flying",v->flight.altitude()/1000,v->flight.altitude()<std::min(120000.,v->flight.centralBody().radius*.02)?v->flight.groundSpeed:v->flight.velocity.length(),v->flight.throttle*100,v->flight.fuel,v->flight.warp,v->helpVisible?@"visible":@"hidden"];
+    NSString *clock=burnCountdown(v)?:@"No planned burn";
+    if(f.altitude()<std::min(120000.,f.centralBody().radius*.02)) return [NSString stringWithFormat:@"%@, altitude %.1f metres, ground speed %.2f metres per second, vertical speed %+.1f, heading %.1f degrees, main throttle %.0f percent, hover %.0f percent, parking brake %@, fuel %.1f kg, hold %@, controls %@, %@",
+        f.paused?@"Paused":f.groundContact?@"On the ground":@"Flying",f.altitude(),f.groundSpeed,f.surfaceVerticalSpeed(),Deg(f.heading()),f.throttle*100,f.glider.hover*100,f.glider.parkingBrake?@"set":@"released",f.fuel,holdState,v->helpVisible?@"visible":@"hidden",clock];
+    return [NSString stringWithFormat:@"%@, altitude %.2f km, speed %.2f m/s, throttle %.0f percent, fuel %.1f kg, time acceleration %.0f, controls %@, %@",
+        v->flight.paused?@"Paused":v->flight.groundContact?@"On the ground":@"Flying",v->flight.altitude()/1000,v->flight.altitude()<std::min(120000.,v->flight.centralBody().radius*.02)?v->flight.groundSpeed:v->flight.velocity.length(),v->flight.throttle*100,v->flight.fuel,v->flight.warp,v->helpVisible?@"visible":@"hidden",clock];
 }
 - (NSView *)hitTest:(NSPoint)p { return nil; }
 - (void)drawRect:(NSRect)rect { [self paint:self.bounds]; }
@@ -194,14 +205,17 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     NSString *mode=@"MANUAL";
     switch(f.assist) { case Assist::Prograde: mode=@"PROGRADE";break; case Assist::Retrograde:mode=@"RETROGRADE";break;case Assist::Normal:mode=@"NORMAL";break;case Assist::AntiNormal:mode=@"ANTI-NORMAL";break;case Assist::HorizonLevel:mode=@"HORIZON LEVEL";break;case Assist::KillRotation:mode=@"KILL ROTATION";break;case Assist::Maneuver:mode=@"MANEUVER ALIGN";break;default:break; }
     auto warning=f.glider.warning();
+    NSString *burn=burnCountdown(v);
     bool parkingNotice=f.glider.parkingBrake&&f.altitude()<1000;
     CGFloat headerHeight=parkingNotice?154:!warning.empty()?132:v->status.length?110:78;
+    if(burn)headerHeight=std::max(headerHeight,104.);
     [panel setFill];NSRectFill(NSMakeRect(0,h-headerHeight,w,headerHeight));
     NSRectFill(NSMakeRect(0,0,w,28));
     text(@"Orbiter",26,h-44,22,white);
     text([NSString stringWithFormat:@"Delta-glider  /  %s  /  %@",f.name.c_str(),bodyName],26,h-66,12,muted);
     text([NSString stringWithFormat:@"%@   ·   %.0f×   ·   T+ %.0f s",f.paused?@"PAUSED":@"FLIGHT",f.warp,f.elapsed],w-320,h-37,12,ink,YES);
     text([NSString stringWithFormat:@"Metal  ·  ARM64  ·  %.0f fps",v->fps],w-320,h-57,11,muted,YES);
+    if(burn)text(burn,w-320,h-80,11,ink,YES);
     if(v->navigationStatus.length)text(v->navigationStatus,26,h-93,12,ink);
     else if(v->status.length) text(v->status,26,h-93,12,ink);
     if(!warning.empty()) text([NSString stringWithUTF8String:warning.c_str()],26,h-116,12,[NSColor colorWithRed:1 green:.72 blue:.36 alpha:1]);
@@ -306,7 +320,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     if(!device) @throw [NSException exceptionWithName:@"Metal unavailable" reason:@"A Metal-capable Mac is required." userInfo:nil];
     self=[super initWithFrame:frame device:device]; if(!self) return nil;
     activeCockpitControl=-1;cockpitPitch=-.25;restartBody=-1;lastBody=BodyId::Earth;
-    held.fill(false);lastMfdLabels.fill(false);transxMfd.fill(false);transxAlignDisplay=-1;transxRefresh=0; externalCamera.yaw=-.55; externalCamera.pitch=.32; externalCamera.distance=43; helpVisible=false; orbitVisible=true;
+    held.fill(false);lastMfdLabels.fill(false);transxMfd.fill(false);transxAlignDisplay=-1;transxAlignBody=flight.reference;transxRefresh=0; externalCamera.yaw=-.55; externalCamera.pitch=.32; externalCamera.distance=43; helpVisible=false; orbitVisible=true;
     self.colorPixelFormat=MTLPixelFormatBGRA8Unorm_sRGB; self.depthStencilPixelFormat=MTLPixelFormatDepth32Float;
     self.sampleCount=[device supportsTextureSampleCount:4]?4:1;self.clearDepth=0;
     self.preferredFramesPerSecond=120; self.framebufferOnly=NO; self.clearColor=MTLClearColorMake(0,0,0,1);
@@ -340,6 +354,11 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     MTLTextureDescriptor *td=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm_sRGB width:1 height:1 mipmapped:NO];
     whiteTexture=[device newTextureWithDescriptor:td]; uint32_t white=0xffffffff;
     [whiteTexture replaceRegion:MTLRegionMake2D(0,0,1,1) mipmapLevel:0 withBytes:&white bytesPerRow:4]; [textures addObject:whiteTexture];
+    for(int i=0;i<2;++i){auto art=maneuverButtonArtwork(i!=0);
+        MTLTextureDescriptor *desc=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm_sRGB width:art.width height:art.height mipmapped:NO];
+        maneuverButtonTextures[i]=[device newTextureWithDescriptor:desc];
+        [maneuverButtonTextures[i] replaceRegion:MTLRegionMake2D(0,0,art.width,art.height) mipmapLevel:0 withBytes:art.rgba.data() bytesPerRow:art.width*4];
+    }
     surfaceBase=loadSurfaceBase(resource(@"Bases/Canaveral.cfg").fileSystemRepresentation,resource(@"Meshes").fileSystemRepresentation);
     for(int meshIndex=0;meshIndex<3;++meshIndex) {
         auto mesh=meshIndex==2?surfaceBase.mesh:loadMesh(resource(meshIndex?@"Meshes/deltaglider_vc.msh":@"Meshes/deltaglider_ns.msh").fileSystemRepresentation);
@@ -513,6 +532,17 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
                 [encoder setVertexBuffer:g.vertices offset:0 atIndex:0];[encoder setVertexBytes:&object length:sizeof(object) atIndex:2];[encoder setFragmentBytes:&object length:sizeof(object) atIndex:2];
                 [encoder setFragmentTexture:textures[g.texture] atIndex:0];[encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle indexCount:g.count indexType:MTLIndexTypeUInt32 indexBuffer:g.indices indexBufferOffset:0];
             }
+        }
+        if(cockpit&&!panelView){
+            static const Vertex button[]={
+                {.103f,1.273f,7.265f,0,0,-1,0,1},{.119f,1.273f,7.265f,0,0,-1,1,1},{.119f,1.285f,7.265f,0,0,-1,1,0},
+                {.103f,1.273f,7.265f,0,0,-1,0,1},{.119f,1.285f,7.265f,0,0,-1,1,0},{.103f,1.285f,7.265f,0,0,-1,0,0}
+            };
+            object.model=vesselModel;object.color={1,1,1,1};object.options={3,0,0,0};
+            [encoder setDepthStencilState:depthState];[encoder setVertexBytes:button length:sizeof(button) atIndex:0];
+            [encoder setVertexBytes:&object length:sizeof(object) atIndex:2];[encoder setFragmentBytes:&object length:sizeof(object) atIndex:2];
+            [encoder setFragmentTexture:maneuverButtonTextures[flight.assist==Assist::Maneuver?1:0] atIndex:0];
+            [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6];
         }
         object.model=vesselModel;
         auto transforms=flight.glider.transforms(meshCounts[cockpit?1:0],cockpit?1:0);
@@ -793,6 +823,18 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
 - (void)cycleView:(id)sender {[self setViewMode:!cockpit?1:panelView?0:2];}
 - (void)chooseView:(NSMenuItem *)sender {[self setViewMode:(int)sender.tag];[self.window makeFirstResponder:self];}
 - (void)selectNavButton:(int)button {
+    if(button==6){
+        if(flight.assist==Assist::Maneuver&&transxAlignDisplay==native::transx::Session::RouteDisplay){
+            flight.clearAssist();transxAlignDisplay=-1;status=@"Planned burn alignment released";
+        }else if(!transxSession)status=@"No planned burn. Configure a maneuver in TransX or Route Planner.";
+        else {int stage=transxSession->selectedStage();
+            if(stage!=1)status=@"Select the current stage before aligning; this maneuver is for a later stage.";
+            else if(flight.rcs<=0)status=@"RCS fuel depleted · cannot align to the planned burn";
+            else if(transxSession->alignStage(stage)){transxAlignDisplay=native::transx::Session::RouteDisplay;transxAlignBody=flight.reference;status=@"RCS aligning to the selected burn · main engine is manual";}
+            else status=@"No applicable maneuver vector. Set a nonzero burn for the current stage.";
+        }
+        self.hud.needsDisplay=YES;self.panel2D.needsDisplay=YES;return;
+    }
     Assist mode=navButtonMode(button);if(mode==Assist::Free)return;
     flight.toggleAssist(mode);transxAlignDisplay=-1;
     if(flight.rcs<=0&&flight.assistActive(mode))status=@"RCS fuel depleted · attitude program cannot fire";
@@ -821,7 +863,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     [self applyExternalCamera:next reference:flight.reference];
 }
 - (BOOL)validateMenuItem:(NSMenuItem *)item {
-    if(item.action==@selector(chooseNavProgram:)){item.state=flight.assistActive(navButtonMode((int)item.tag))?NSControlStateValueOn:NSControlStateValueOff;return YES;}
+    if(item.action==@selector(chooseNavProgram:)){item.state=(item.tag==6?flight.assist==Assist::Maneuver&&transxAlignDisplay==native::transx::Session::RouteDisplay:flight.assistActive(navButtonMode((int)item.tag)))?NSControlStateValueOn:NSControlStateValueOff;return YES;}
     if(item.action==@selector(chooseHudMode:)){item.state=flight.hud.mode==item.tag?NSControlStateValueOn:NSControlStateValueOff;return YES;}
     if(item.action==@selector(chooseExternalCamera:)){item.state=(NSInteger)externalCamera.mode==item.tag?NSControlStateValueOn:NSControlStateValueOff;return item.tag!=(NSInteger)ExternalCameraMode::GroundObserver||flight.centralBody().solid;}
     if(item.action==@selector(chooseCameraReference:)){bool to=item.tag<200;int index=(int)item.tag-(to?100:200);item.state=externalCamera.mode==(to?ExternalCameraMode::TargetTo:ExternalCameraMode::TargetFrom)&&(int)externalCamera.target==index?NSControlStateValueOn:NSControlStateValueOff;return YES;}
@@ -952,8 +994,8 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         NSMenuItem *ground=[cameraMenu addItemWithTitle:@"Ground Observer" action:@selector(chooseExternalCamera:) keyEquivalent:@""];ground.target=self.view;ground.tag=(NSInteger)ExternalCameraMode::GroundObserver;
         NSMenuItem *navItem=[NSMenuItem new];navItem.title=@"Navigation";[main addItem:navItem];NSMenu *nav=[NSMenu new];navItem.submenu=nav;
         NSMenuItem *programs=[nav addItemWithTitle:@"RCS Programs" action:nil keyEquivalent:@""];NSMenu *programMenu=[NSMenu new];programs.submenu=programMenu;
-        NSArray<NSString *> *programNames=@[@"Kill Rotation (K)",@"Retrograde (O)",@"Prograde (P)",@"Anti-normal (')",@"Normal (;)",@"Horizon Level (Shift-L)"];
-        for(int i=0;i<6;++i){NSMenuItem *item=[programMenu addItemWithTitle:programNames[i] action:@selector(chooseNavProgram:) keyEquivalent:@""];item.target=self.view;item.tag=i;}
+        NSArray<NSString *> *programNames=@[@"Kill Rotation (K)",@"Retrograde (O)",@"Prograde (P)",@"Anti-normal (')",@"Normal (;)",@"Horizon Level (Shift-L)",@"Align Selected Burn"];
+        for(int i=0;i<7;++i){NSMenuItem *item=[programMenu addItemWithTitle:programNames[i] action:@selector(chooseNavProgram:) keyEquivalent:@""];item.target=self.view;item.tag=i;}
         NSMenuItem *hudMenuItem=[nav addItemWithTitle:@"HUD Mode" action:nil keyEquivalent:@""];NSMenu *hudMenu=[NSMenu new];hudMenuItem.submenu=hudMenu;
         NSArray<NSString *> *hudNames=@[@"Orbit",@"Surface",@"Docking"];
         for(int i=0;i<3;++i){NSMenuItem *item=[hudMenu addItemWithTitle:hudNames[i] action:@selector(chooseHudMode:) keyEquivalent:@""];item.target=self.view;item.tag=i+1;}

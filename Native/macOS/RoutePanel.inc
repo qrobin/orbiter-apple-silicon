@@ -4,8 +4,8 @@
     native::transx::Route route;
     BOOL hasRoute,transferDirty,burnDirty;
     double lastValuesRefresh;
-    NSPopUpButton *destination,*graphChoice;
-    NSTextField *origin,*path,*message,*transferNote,*approach,*approachDetail;
+    NSPopUpButton *destination,*graphChoice,*steps;
+    NSTextField *origin,*path,*message,*transferNote,*burnNote,*approach,*approachDetail;
     NSMutableArray<NSTextField *> *transferFields,*burnFields;
     NSButton *applyTransfer,*estimate,*applyBurn,*align,*release,*transferTime,*burnTime;
     TransXCanvas *canvas;
@@ -62,8 +62,10 @@
     applyTransfer=button(@"Apply transfer",@selector(applyTransfer:),18,400,140);
     estimate=button(@"Use Hohmann estimate",@selector(estimate:),164,400,205);
 
-    heading(@"Departure burn",18,455,410);
-    auto burnNote=label(@"Set a first-stage TransX maneuver, then align with RCS. The main engines are yours to control.",18,481,410,42,12);
+    heading(@"Step burn",18,455,170);
+    steps=[[NSPopUpButton alloc] initWithFrame:NSMakeRect(195,451,221,28) pullsDown:NO];steps.target=self;steps.action=@selector(changeStep:);
+    [steps setAccessibilityLabel:@"Selected maneuver step"];[doc addSubview:steps];
+    burnNote=label(@"Choose a step, set its maneuver, and align using RCS. The main engines remain manual.",18,481,410,42,12);
     burnNote.textColor=NSColor.secondaryLabelColor;
     NSArray *burnLabels=@[@"Burn date (MJD)",@"Prograde (m/s)",@"Outward (m/s)",@"Plane change (m/s)"];
     for(int i=0;i<4;++i){
@@ -138,16 +140,23 @@
             message.stringValue=@"This is the current shared TransX plan. Transfer and burn settings can be edited below.";
         }
     }
+    int stage=session.selectedStage(),count=session.stageCount();
+    bool rebuildSteps=steps.numberOfItems!=count;
+    if(!rebuildSteps)for(int i=1;i<=count;++i){native::transx::StageInfo info;
+        if(!session.stageInfo(i,info)||![[steps itemAtIndex:i-1].title isEqualToString:[NSString stringWithFormat:@"Step %d · %s",i,body(info.reference).name]]){rebuildSteps=true;break;}}
+    if(rebuildSteps){[steps removeAllItems];for(int i=1;i<=count;++i){native::transx::StageInfo info;if(!session.stageInfo(i,info))continue;
+        [steps addItemWithTitle:[NSString stringWithFormat:@"Step %d · %s",i,body(info.reference).name]];steps.lastItem.tag=i;}}
+    if(stage>0)[steps selectItemWithTag:stage];steps.enabled=hasRoute&&count>0;
     path.stringValue=hasRoute?[self routeName]:@"Choose a destination to begin.";
     BOOL transferAvailable=hasRoute&&route.ejectStage>0;
     for(NSTextField *field in transferFields)field.enabled=transferAvailable;
     for(NSTextField *field in burnFields)field.enabled=hasRoute;
     applyTransfer.enabled=transferAvailable;transferTime.enabled=transferAvailable;applyBurn.enabled=hasRoute;burnTime.enabled=hasRoute;
-    estimate.enabled=hasRoute&&route.targetStage>0&&(route.ejectStage>0||route.targetStage==1);
+    estimate.enabled=hasRoute&&route.targetStage>0&&(route.ejectStage>0||(route.targetStage==1&&session.selectedStage()==1));
     graphChoice.enabled=hasRoute;canvas.hidden=!hasRoute;
     [graphChoice itemAtIndex:1].enabled=hasRoute&&route.legs.front().escape;
     if(![graphChoice itemAtIndex:graphChoice.indexOfSelectedItem].enabled)[graphChoice selectItemAtIndex:0];
-    if(!hasRoute){transferNote.stringValue=@"Select a route to edit its transfer.";approach.stringValue=@"No encounter selected";approachDetail.stringValue=@"";align.enabled=NO;release.enabled=v->flight.assist==Assist::Maneuver;return;}
+    if(!hasRoute){transferNote.stringValue=@"Select a route to edit its transfer.";burnNote.stringValue=@"Choose a step and set its maneuver.";approach.stringValue=@"No encounter selected";approachDetail.stringValue=@"";align.enabled=NO;release.enabled=v->flight.assist==Assist::Maneuver;return;}
     if(transferAvailable){
         const auto &leg=*std::find_if(route.legs.begin(),route.legs.end(),[](const auto &item){return !item.escape;});
         transferNote.stringValue=[NSString stringWithFormat:@"Ejection velocity relative to the departing body; tune the first encounter with %s. This is not the engine burn.",body(leg.next).name];
@@ -161,13 +170,17 @@
     if(now-lastValuesRefresh>.5){
         native::transx::RouteValues values;
         if(transferAvailable&&!transferDirty&&session.routeValues(route,false,values))[self fillFields:transferFields values:values];
-        if(!burnDirty&&session.routeValues(route,true,values))[self fillFields:burnFields values:values];
+        native::transx::StageInfo info;
+        if(!burnDirty&&session.stageInfo(stage,info)){
+            values=info.enabled?info.maneuver:native::transx::RouteValues{v->flight.mjd+v->flight.elapsed/86400.,0,0,0};
+            [self fillFields:burnFields values:values];
+        }
         lastValuesRefresh=now;
     }
-    int stage=route.targetStage?route.targetStage:1,mode=route.targetStage?2:3;
-    if(graphChoice.indexOfSelectedItem==1){stage=1;mode=3;}
-    if(graphChoice.indexOfSelectedItem==2){stage=1;mode=4;}
-    if(!session.routeView(stage,mode))session.routeView(stage,2);
+    int graphStage=route.targetStage?route.targetStage:1,mode=route.targetStage?2:3;
+    if(graphChoice.indexOfSelectedItem==1){graphStage=1;mode=3;}
+    if(graphChoice.indexOfSelectedItem==2){graphStage=session.selectedStage();mode=4;}
+    if(!session.routeView(graphStage,mode))session.routeView(graphStage,2);
     v->transxFrames[native::transx::Session::RouteDisplay]=session.frame(native::transx::Session::RouteDisplay);
     canvas.needsDisplay=YES;
 
@@ -181,7 +194,9 @@
         approach.stringValue=route.targetStage?@"No encounter estimate yet":@"Escape to parent system";
         approachDetail.stringValue=route.targetStage?@"Apply transfer or burn settings to calculate an approach. The current route is not an automatic intercept.":@"There is no target encounter for this route.";
     }
-    VECTOR3 direction;align.enabled=v->flight.rcs>0&&session.maneuverDirectionForStage(1,direction);
+    native::transx::BurnTiming timing;int selected=session.selectedStage();
+    burnNote.stringValue=session.stageTiming(selected,timing)?[NSString stringWithFormat:@"%@\n%@",burnTimingText(selected,timing),selected==1?@"Burn duration assumes full main thrust.":@"Align when this step becomes the current stage."]:@"Set this step's maneuver to show the burn countdown and duration.";
+    VECTOR3 direction;align.enabled=selected==1&&v->flight.rcs>0&&v->flight.assist!=Assist::Maneuver&&session.maneuverDirectionForStage(selected,direction);
     release.enabled=v->flight.assist==Assist::Maneuver;
 }
 - (void)createRoute:(id)sender {
@@ -202,11 +217,12 @@
     if(![self readFields:departure?burnFields:transferFields values:values]){
         message.stringValue=@"Enter a finite number in each date and velocity field.";return;
     }
-    if(!v->transxSession->setRouteValues(route,departure,values)){
+    bool accepted=departure?v->transxSession->setStageManeuver(v->transxSession->selectedStage(),values):v->transxSession->setRouteValues(route,false,values);
+    if(!accepted){
         message.stringValue=@"TransX did not accept these values. Check the date and velocity magnitudes, or recreate the route.";return;
     }
     if(departure)burnDirty=NO;else transferDirty=NO;
-    lastValuesRefresh=0;message.stringValue=departure?@"Departure maneuver applied. Align with RCS when ready; fire the engine manually.":@"Transfer plan applied. Check the closest approach and tune the values.";
+    lastValuesRefresh=0;message.stringValue=departure?@"Step maneuver applied. Align with RCS when it is current; fire the engine manually.":@"Transfer plan applied. Check the closest approach and tune the values.";
     [self refresh];[v.navigationPanel refresh];
 }
 - (void)applyTransfer:(id)sender {[self applyValues:NO];}
@@ -226,12 +242,15 @@
     message.stringValue=@"Hohmann is a rough prograde starting estimate, not a solved encounter. Adjust the other values, then apply.";
 }
 - (void)changeGraph:(id)sender {[self refresh];}
+- (void)changeStep:(id)sender {
+    FlightView *v=flightView;if(!v||!v->transxSession)return;
+    if(v->flight.assist==Assist::Maneuver&&v->transxAlignDisplay==native::transx::Session::RouteDisplay){v->flight.clearAssist();v->transxAlignDisplay=-1;}
+    v->transxSession->selectStage((int)steps.selectedItem.tag);burnDirty=NO;lastValuesRefresh=0;
+    [self refresh];v.hud.needsDisplay=YES;
+}
 - (void)align:(id)sender {
-    FlightView *v=flightView;if(!v||!hasRoute||v->flight.rcs<=0||!v->transxSession->routeMatches(route))return;
-    VECTOR3 direction;if(!v->transxSession->maneuverDirectionForStage(1,direction))return;
-    v->flight.clearAssist();v->flight.maneuverDirection={direction.x,direction.y,direction.z};
-    v->flight.assist=Assist::Maneuver;v->flight.glider.rcsMode=1;v->flight.warp=1;
-    v->transxAlignDisplay=native::transx::Session::RouteDisplay;[self returnToFlight:nil];
+    FlightView *v=flightView;if(!v||!hasRoute||!v->transxSession->routeMatches(route))return;
+    [v selectNavButton:6];[self returnToFlight:nil];
 }
 - (void)release:(id)sender {
     if(flightView->flight.assist==Assist::Maneuver)flightView->flight.clearAssist();

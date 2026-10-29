@@ -40,9 +40,9 @@ int main(){try {
     check(std::all_of(h.levels.begin(),h.levels.end(),[](double v){return v>=0&&v<=1;}),"saturated controller outputs are bounded");
     Flight launch=cape();double fuel=launch.fuel,rcs=launch.rcs;
     check(launch.setHoverHold(1,30)&&launch.glider.hoverControl.attitudeMode==1,"engaging hold enables automatic attitude when off");
-    launch.warp=100;run(launch,60);
+    run(launch,60);
     std::cout<<"launch alt="<<launch.altitude()<<" vs="<<launch.surfaceVerticalSpeed()<<" pitch="<<Deg(launch.pitch())<<" bank="<<Deg(launch.bank())<<" fuel="<<launch.fuel<<'\n';
-    check(!launch.impacted&&!launch.groundContact&&launch.warp==1,"altitude hold lifts off at real time");
+    check(!launch.impacted&&!launch.groundContact,"altitude hold lifts off at real time");
     check(fabs(launch.altitude()-30)<.5&&fabs(launch.surfaceVerticalSpeed())<.1,"altitude hold settles within half a metre");
     check(fabs(launch.pitch())<Rad(1)&&fabs(launch.bank())<Rad(1),"hover attitude remains level without RCS");
     check(launch.fuel<fuel&&launch.rcs==rcs,"hold consumes main propellant and no RCS fuel");

@@ -8,6 +8,7 @@ struct Image;
 struct HoverControl;
 bool paintHoverReadout(Image &target,const Image &glyphs,const HoverControl &hover);
 bool paintMfdButtonLabels(Image &target,const Image &original,const std::array<bool,2> &transx);
+Image maneuverButtonArtwork(bool active);
 struct CockpitZone { int action; std::array<Vector,4> corners; };
 struct CockpitSwitch { int action,group,first,count; Vector pivot,axis; int motion=0; };
 struct CockpitSphere { int action;Vector center;double radius; };

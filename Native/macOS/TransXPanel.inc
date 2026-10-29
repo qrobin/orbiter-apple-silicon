@@ -97,7 +97,7 @@
 }
 - (void)align:(id)sender {
     FlightView *v=flightView;VECTOR3 direction;if(!v->transxSession->maneuverDirection(display,direction))return;
-    v->flight.clearAssist();v->flight.maneuverDirection={direction.x,direction.y,direction.z};v->flight.assist=Assist::Maneuver;v->flight.glider.rcsMode=1;v->flight.warp=1;v->transxAlignDisplay=display;[self returnToFlight:nil];
+    v->flight.clearAssist();v->flight.maneuverDirection={direction.x,direction.y,direction.z};v->flight.assist=Assist::Maneuver;v->flight.glider.rcsMode=1;v->flight.warp=1;v->transxAlignDisplay=display;v->transxAlignBody=v->flight.reference;[self returnToFlight:nil];
 }
 - (void)release:(id)sender {if(flightView->flight.assist==Assist::Maneuver)flightView->flight.clearAssist();flightView->transxAlignDisplay=-1;[self refresh];}
 - (void)resetGraph:(id)sender {[flightView resetTransXGraph:display];}
@@ -113,7 +113,7 @@
 - (void)updateNavigation {
     if(!transxSession)return;transxSession->tick();
     if(flight.assist==Assist::Maneuver&&transxAlignDisplay>=0){VECTOR3 target;
-        bool valid=transxAlignDisplay==native::transx::Session::RouteDisplay?transxSession->maneuverDirectionForStage(1,target):transxSession->maneuverDirection(transxAlignDisplay,target);
+        bool valid=flight.reference==transxAlignBody&&(transxAlignDisplay==native::transx::Session::RouteDisplay?transxSession->maneuverDirectionForStage(1,target):transxSession->maneuverDirection(transxAlignDisplay,target));
         if(valid)flight.maneuverDirection={target.x,target.y,target.z};else{flight.assist=Assist::Free;transxAlignDisplay=-1;}
     }
     double now=CACurrentMediaTime();if(now-transxRefresh>.1){for(int d=0;d<2;++d)transxFrames[d]=transxSession->frame(d);[self.navigationPanel refresh];[self.routePanel refresh];transxRefresh=now;}

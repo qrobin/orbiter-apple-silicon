@@ -10,6 +10,7 @@ namespace native::transx {
 struct Session::Impl {
     Flight &flight;
     std::unique_ptr<TransxMFD> mfd[3];
+    basefunction *selectedBase=nullptr;
     struct GraphRotation {double yaw=0,pitch=0;} rotation[3];
     explicit Impl(Flight &f):flight(f){
         bind(&f);mapfunction::getthemap();
@@ -80,6 +81,7 @@ void Session::load(const std::string &path){
     char line[2048];long start=0;
     while(fgets(line,sizeof(line),file)){char type[80]={},key[80]={};if(sscanf(line,"%79s %79s",key,type)==2&&!strcasecmp(key,"TYPE")&&!strcasecmp(type,"TransX")){start=ftell(file);break;}}
     fseek(file,start,SEEK_SET);impl->display(0).ReadStatus(file);fclose(file);for(int i=0;i<128;++i)tick();
+    impl->selectedBase=nullptr;
     int stages=impl->display(RouteDisplay).nativeView()->nativeState()->getnumfunctions();
     for(int d=0;d<2;++d){int stage=std::min(original[d].stage,stages);
         if(!displayView(d,stage,original[d].view))displayView(d,stage,2);}
@@ -95,6 +97,15 @@ bool Session::maneuverDirectionForStage(int stage,VECTOR3 &direction){
     if(!std::isfinite(magnitude)||magnitude<.1)return false;direction/=magnitude;return true;
 }
 int Session::stageCount(){return impl->display(RouteDisplay).nativeView()->nativeState()->getnumfunctions();}
+int Session::selectedStage(){
+    auto *state=impl->display(RouteDisplay).nativeView()->nativeState();
+    for(int i=1;i<=state->getnumfunctions();++i)if(state->getbasefn(i)==impl->selectedBase)return i;
+    impl->selectedBase=state->getbasefn(1);return impl->selectedBase?1:0;
+}
+bool Session::selectStage(int stage){
+    auto *base=impl->display(RouteDisplay).nativeView()->nativeState()->getbasefn(stage);
+    if(!base)return false;impl->selectedBase=base;return true;
+}
 bool Session::stageInfo(int stage,StageInfo &info){
     auto *base=impl->display(RouteDisplay).nativeView()->nativeState()->getbasefn(stage);if(!base)return false;
     char name[80]={};oapiGetObjectName(base->gethmajor(),name,sizeof(name));
@@ -107,6 +118,23 @@ bool Session::setStageManeuver(int stage,const RouteValues &values){
     if(!base||!base->nativeSetManeuver(values.date,values.prograde,values.outward,values.plane))return false;
     for(int i=0;i<32;++i)tick();return true;
 }
+bool Session::stageTiming(int stage,BurnTiming &timing){
+    StageInfo info;if(!stageInfo(stage,info)||!info.enabled)return false;
+    auto &flight=impl->flight;auto &v=info.maneuver;
+    timing.secondsToBurn=(v.date-(flight.mjd+flight.elapsed/86400.))*86400.;
+    timing.deltaV=std::hypot(v.prograde,v.outward,v.plane);
+    timing.propellant=flight.mass()*(1-std::exp(-timing.deltaV/ExhaustVelocity));
+    double thrust=200000*(std::clamp(1-flight.glider.mainBalance,0.,1.)+std::clamp(1+flight.glider.mainBalance,0.,1.));
+    timing.duration=thrust>0?timing.propellant/(thrust/ExhaustVelocity):0;
+    timing.sufficientFuel=timing.propellant<=flight.fuel;
+    return std::isfinite(timing.secondsToBurn)&&std::isfinite(timing.duration);
+}
+bool Session::alignStage(int stage){
+    // Only the current stage has the vessel's actual, rather than predicted, state.
+    VECTOR3 direction;if(stage!=1||impl->flight.rcs<=0||!maneuverDirectionForStage(stage,direction))return false;
+    auto &flight=impl->flight;flight.clearAssist();flight.maneuverDirection={direction.x,direction.y,direction.z};
+    flight.assist=Assist::Maneuver;flight.glider.rcsMode=1;return true;
+}
 
 bool Session::displayView(int display,int stage,int mode){
     if(stage<0||mode<1||mode>4)return false;
@@ -118,6 +146,9 @@ bool Session::displayView(int display,int stage,int mode){
         if(view->nativeStage()==before)return false;
     }
     for(int i=0;i<5&&view->nativeMode()!=mode;++i){button(display,3);frame(display);}
+    // Original TransX does not cycle to a future stage's maneuver view; the
+    // native route editor can show that existing view directly.
+    if(display==RouteDisplay&&mode==4&&view->nativeMode()!=mode){view->nativeSetMode(mode);frame(display);}
     return view->nativeStage()==stage&&view->nativeMode()==mode;
 }
 bool Session::routeView(int stage,int mode){return stage>0&&displayView(RouteDisplay,stage,mode);}
@@ -158,7 +189,7 @@ bool Session::createRoute(BodyId destination,Route &route,std::string &error){
     }};
     auto fail=[&](const char *message){
         rewind(backup.get());impl->display(0).ReadStatus(backup.get());
-        for(int i=0;i<128;++i)tick();restoreViews();error=message;return false;
+        for(int i=0;i<128;++i)tick();impl->selectedBase=nullptr;restoreViews();error=message;return false;
     };
     if(!state->nativeRestart())return fail("TransX could not start a new plan; the previous plan was restored.");
     for(int i=0;i<32;++i)tick();frame(RouteDisplay);
@@ -183,6 +214,7 @@ bool Session::createRoute(BodyId destination,Route &route,std::string &error){
     }
     for(int i=0;i<64;++i)tick();
     restoreViews();
+    impl->selectedBase=state->getbasefn(1);
     route=std::move(candidate);error.clear();return true;
 }
 

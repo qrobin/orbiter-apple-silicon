@@ -3,6 +3,7 @@
 #include "Flight.h"
 #include "SolarSystem.h"
 #import "TransXDrawing.h"
+#import "BurnDisplay.h"
 #include <array>
 #include <iostream>
 #include <stdexcept>
@@ -24,14 +25,17 @@ using namespace native;
 }
 @property(nonatomic,strong) TransXPanel *navigationPanel;
 @property(nonatomic,strong) RoutePanel *routePanel;
+@property(nonatomic,strong) NSView *hud;
 - (void)ensureTransX;
 - (void)clearInput;
 - (void)showNavigation:(id)sender;
+- (void)selectNavButton:(int)button;
 @end
 @implementation FlightView
 - (void)ensureTransX {if(!transxSession)transxSession=std::make_unique<native::transx::Session>(flight);}
 - (void)clearInput {}
 - (void)showNavigation:(id)sender {}
+- (void)selectNavButton:(int)button {if(button==6&&transxSession&&transxSession->alignStage(transxSession->selectedStage()))transxAlignDisplay=native::transx::Session::RouteDisplay;}
 @end
 @interface FlippedGliderDocument : NSView
 @end
@@ -57,6 +61,7 @@ using namespace native;
 - (void)release:(id)sender;
 - (void)estimate:(id)sender;
 - (void)setTime:(NSButton *)sender;
+- (void)changeStep:(id)sender;
 - (void)controlTextDidChange:(NSNotification *)notification;
 @end
 @interface FlightView (RouteControls)
@@ -74,19 +79,20 @@ int main(){@autoreleasepool {try{
     [view ensureTransX];for(int i=0;i<100;++i)view->transxSession->tick();
     RoutePanel *panel=[[RoutePanel alloc] initWithFlightView:view];
     NSScrollView *scroll=(NSScrollView *)panel.window.contentView;NSView *doc=scroll.documentView;
-    NSPopUpButton *destination=nil;NSMutableArray<NSTextField *> *fields=[NSMutableArray arrayWithCapacity:8];
+    NSPopUpButton *destination=nil,*steps=nil;NSMutableArray<NSTextField *> *fields=[NSMutableArray arrayWithCapacity:8];
     for(int i=0;i<8;++i)[fields addObject:(NSTextField *)[NSNull null]];
     NSMutableArray<NSView *> *interactive=[NSMutableArray new];
     for(NSView *item in doc.subviews){
         check(NSContainsRect(doc.bounds,item.frame),"Control fits inside the route document");
         if([item isKindOfClass:NSPopUpButton.class]&&[item.accessibilityLabel isEqualToString:@"Route destination"])destination=(NSPopUpButton *)item;
+        if([item isKindOfClass:NSPopUpButton.class]&&[item.accessibilityLabel isEqualToString:@"Selected maneuver step"])steps=(NSPopUpButton *)item;
         if([item isKindOfClass:NSTextField.class]&&[(NSTextField *)item isEditable]&&item.tag>=0&&item.tag<8)fields[item.tag]=(NSTextField *)item;
         if([item isKindOfClass:NSButton.class]||[item isKindOfClass:NSPopUpButton.class]||
            ([item isKindOfClass:NSTextField.class]&&[(NSTextField *)item isEditable]))[interactive addObject:item];
     }
     for(NSUInteger i=0;i<interactive.count;++i)for(NSUInteger j=i+1;j<interactive.count;++j)
         check(!NSIntersectsRect(interactive[i].frame,interactive[j].frame),"Interactive controls do not overlap");
-    check(destination!=nil,"Destination selector exists");
+    check(destination!=nil&&steps!=nil,"Destination and step selectors exist");
     check(destination.selectedItem.tag==(NSInteger)BodyId::Mars,"Mars is the default destination from Earth");
     for(id field in fields)check(field!=NSNull.null,"A numeric route field exists");
     [panel updateControls];check(!fields[1].enabled&&!fields[5].enabled,"Fields are disabled before a route exists");
@@ -108,6 +114,17 @@ int main(){@autoreleasepool {try{
     [panel controlTextDidChange:[NSNotification notificationWithName:NSControlTextDidChangeNotification object:fields[5]]];
     [panel applyBurn:nil];[panel updateControls];
     check(view->transxSession->routeValues(route,true,values)&&fabs(values.prograde-3500)<.001,"Burn is applied to the original maneuver");
+    [steps selectItemWithTag:2];[panel changeStep:nil];[panel updateControls];
+    check(view->transxSession->selectedStage()==2,"Step selector changes the selected TransX stage");
+    fields[5].stringValue=@"75";
+    [panel controlTextDidChange:[NSNotification notificationWithName:NSControlTextDidChangeNotification object:fields[5]]];
+    [panel applyBurn:nil];[panel updateControls];
+    transx::StageInfo later;check(view->transxSession->stageInfo(2,later)&&later.enabled&&fabs(later.maneuver.prograde-75)<.001,
+          "Editing a later step writes its own maneuver");
+    [steps selectItemWithTag:1];[panel changeStep:nil];[panel updateControls];
+    check(view->transxSession->stageInfo(1,later)&&fabs(later.maneuver.prograde-3500)<.001,"Switching steps preserves the first maneuver");
+    transx::BurnTiming clock;check(view->transxSession->stageTiming(1,clock)&&[burnTimingText(1,clock) containsString:@"BURN ~"],
+          "The selected maneuver has a countdown and full-thrust duration");
     double fuel=view->flight.fuel,throttle=view->flight.throttle;[panel align:nil];
     check(view->flight.assist==Assist::Maneuver&&view->transxAlignDisplay==transx::Session::RouteDisplay,"Align engages departure RCS guidance");
     check(view->flight.fuel==fuel&&view->flight.throttle==throttle,"The planner never commands the main engines");

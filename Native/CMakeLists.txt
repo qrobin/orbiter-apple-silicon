@@ -15,7 +15,7 @@ add_library(OrbiterFlightCore STATIC
 target_include_directories(OrbiterFlightCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${CORE})
 target_compile_definitions(OrbiterFlightCore PUBLIC ORBITER_NATIVE=1)
 target_compile_options(OrbiterFlightCore PRIVATE -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable)
-add_executable(OrbiterNative MACOSX_BUNDLE macOS/App.mm macOS/NativeVisuals.mm macOS/SolarRenderer.mm macOS/GliderPanel.inc macOS/TransXPanel.inc macOS/RoutePanel.inc macOS/Panel2D.inc macOS/TransXDrawing.mm)
+add_executable(OrbiterNative MACOSX_BUNDLE macOS/App.mm macOS/NativeVisuals.mm macOS/SolarRenderer.mm macOS/GliderPanel.inc macOS/TransXPanel.inc macOS/RoutePanel.inc macOS/Panel2D.inc macOS/BurnDisplay.h macOS/TransXDrawing.mm)
 target_compile_options(OrbiterNative PRIVATE -fobjc-arc -Wall -Wextra -Wno-unused-parameter)
 target_link_libraries(OrbiterNative PRIVATE
     "-framework UniformTypeIdentifiers" "-framework Cocoa" "-framework Metal" "-framework MetalKit" "-framework QuartzCore")

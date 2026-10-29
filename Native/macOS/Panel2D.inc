@@ -2,6 +2,7 @@
 @implementation Panel2DView {
     NSImage *background;
     NSMutableArray<NSImage *> *displays;
+    std::array<NSImage *,2> burnButtons;
     int activeAction;
 }
 - (instancetype)initWithFrame:(NSRect)frame {
@@ -16,6 +17,10 @@
     }
     background=[[NSImage alloc] initWithSize:NSMakeSize(1280,572)];[background addRepresentation:rep];
     displays=[NSMutableArray arrayWithObjects:[NSImage new],[NSImage new],nil];activeAction=-1;
+    for(int i=0;i<2;++i){auto art=maneuverButtonArtwork(i!=0);
+        NSBitmapImageRep *button=[[NSBitmapImageRep alloc] initWithBitmapDataPlanes:nullptr pixelsWide:art.width pixelsHigh:art.height bitsPerSample:8 samplesPerPixel:4 hasAlpha:YES isPlanar:NO colorSpaceName:NSCalibratedRGBColorSpace bytesPerRow:art.width*4 bitsPerPixel:32];
+        memcpy(button.bitmapData,art.rgba.data(),art.rgba.size());burnButtons[i]=[[NSImage alloc] initWithSize:NSMakeSize(art.width,art.height)];[burnButtons[i] addRepresentation:button];
+    }
     self.toolTip=@"Original Delta-glider panel. Drag a TransX display to rotate its graph; double-click to reset.";
     return self;
 }
@@ -60,6 +65,7 @@
     [[NSColor colorWithRed:.40 green:1 blue:.48 alpha:1] setFill];
     const int navCol[]={0,1,1,2,2,3},navRow[]={1,1,0,1,0,1};
     for(int i=0;i<6;++i)if(v->flight.assistActive(navButtonMode(i)))NSRectFill(NSMakeRect(1124+navCol[i]*37+5,62+navRow[i]*24+19,27,2));
+    [burnButtons[v->flight.assist==Assist::Maneuver?1:0] drawInRect:NSMakeRect(1125,63,35,22) fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:1 respectFlipped:YES hints:nil];
     NSRectFill(NSMakeRect(15+v->flight.hud.mode*29+3,30,14,2));
     for(int d=0;d<2;++d){
         [displays[d] drawInRect:NSMakeRect(d?778:216,63,288,288) fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:1 respectFlipped:YES hints:nil];
@@ -91,7 +97,7 @@
 - (void)mouseDown:(NSEvent *)event {
     FlightView *v=self.flightView;if(!v)return;[self.window makeFirstResponder:v];
     NSPoint p=[self panelPoint:event];auto hit=pickPanel2D(p.x,p.y);activeAction=hit.action;
-    if(activeAction>=400&&activeAction<406){[v selectNavButton:activeAction-400];self.needsDisplay=YES;return;}
+    if(activeAction>=400&&activeAction<407){[v selectNavButton:activeAction-400];self.needsDisplay=YES;return;}
     if(activeAction>=500&&activeAction<=503){int button=activeAction-500;if(button==0)v->flight.hud.adjustBrightness(hit.v<8?.04:-.04);else v->flight.hud.select(button);v.hud.needsDisplay=YES;self.needsDisplay=YES;return;}
     if(activeAction>=100&&activeAction<124){int id=activeAction-100;[v operateTransXButton:id%12 display:id/12];return;}
     if(activeAction>=200&&activeAction<202){int d=activeAction-200;
