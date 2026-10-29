@@ -35,15 +35,25 @@ float2 terrestrialUV(float3 p,constant FrameUniforms &f) {
     float3 e=normalize(terrestrial(p,f));
     return float2(atan2(e.z,e.x)/(2*M_PI_F)+.5,acos(clamp(e.y,-1.0f,1.0f))/M_PI_F);
 }
-float cloudDensity(float3 p,constant FrameUniforms &f,texture3d<float> noise) {
-    if(f.clouds.z<=0)return 0;
+// Regional coverage varies slowly compared with the volume noise. Sample once
+// per ray instead of once per density and sunlight step.
+float cloudRegion(float3 p,constant FrameUniforms &f,texture2d<float> cloudMap) {
+    constexpr sampler mapSampler(filter::linear,mip_filter::linear,s_address::repeat,t_address::clamp_to_edge);
+    float observed=cloudMap.sample(mapSampler,terrestrialUV(p,f),level(0)).r;
+    float region=smoothstep(.015f,.48f,observed);
+    if(f.weather.x>2.5&&f.weather.x<3.5)region=max(region,.72f);
+    else if(f.weather.x>1.5&&f.weather.x<2.5)region=max(region,.25f);
+    return region;
+}
+float cloudDensity(float3 p,constant FrameUniforms &f,texture3d<float> noise,float region) {
+    if(f.clouds.z<=0||region<=0)return 0;
     float h=length(p)-f.body.x;
     float height=(h-f.clouds.x)/(f.clouds.y-f.clouds.x);
     if(height<=0||height>=1)return 0;
     constexpr sampler s(filter::linear,address::repeat);
     float3 w=terrestrial(p,f)+float3(f.environment.w*14,0,f.environment.w*7);
     float weather=noise.sample(s,w/320000.0f).b;
-    float coverage=clamp(f.clouds.z+(weather-.5)*.65,.01f,.98f);
+    float coverage=clamp(.30+region*.55+(weather-.5)*.2,.01f,.98f);
     float shape=noise.sample(s,w/52000.0f).r;
     float threshold=.84-coverage*.75+height*height*.16;
     float density=smoothstep(threshold,threshold+.20,shape);
@@ -51,7 +61,7 @@ float cloudDensity(float3 p,constant FrameUniforms &f,texture3d<float> noise) {
     float detail=noise.sample(s,w/8500.0f).g;
     density=max(0.0f,density-(1-detail)*.32*(1-density));
     float profile=smoothstep(0.0f,.14f,height)*(1-smoothstep(.55f,1.0f,height));
-    return density*profile*(.00065+f.clouds.w*.00045);
+    return density*profile*region*(.00065+f.clouds.w*.00045);
 }
 // Stable sphere intersections avoid subtracting two large, nearly equal squared radii.
 float2 cloudShellRoots(float cameraHeight,float shellHeight,float mu,float radius) {
@@ -68,13 +78,13 @@ float3 viewRay(float2 uv,constant FrameUniforms &f) {
 float depthDistance(float depth,float3 ray,constant FrameUniforms &f) {
     return depth>0?.2/max(1e-12f,depth*dot(ray,f.forward.xyz)):1e9;
 }
-float cloudSunTransmittance(float3 p,constant FrameUniforms &f,texture3d<float> noise) {
+float cloudSunTransmittance(float3 p,constant FrameUniforms &f,texture3d<float> noise,float region) {
     float optical=0,last=0;
-    for(int i=0;i<4;++i){float t=220.0f*pow(2.8f,float(i));optical+=cloudDensity(p+f.sun.xyz*t,f,noise)*(t-last);last=t;}
+    for(int i=0;i<4;++i){float t=220.0f*pow(2.8f,float(i));optical+=cloudDensity(p+f.sun.xyz*t,f,noise,region)*(t-last);last=t;}
     return exp(-optical);
 }
 kernel void cloudShadowMap(constant FrameUniforms &f [[buffer(0)]],texture3d<float> noise [[texture(0)]],
-                           texture2d<float,access::write> shadow [[texture(1)]],uint2 id [[thread_position_in_grid]]) {
+                           texture2d<float,access::write> shadow [[texture(1)]],texture2d<float> cloudMap [[texture(2)]],uint2 id [[thread_position_in_grid]]) {
     if(id.x>=shadow.get_width()||id.y>=shadow.get_height())return;
     float2 uv=(float2(id)+.5)/float2(shadow.get_width(),shadow.get_height());
     float3 ray=viewRay(uv,f);float cameraHeight=f.environment.x*f.body.x;
@@ -84,8 +94,8 @@ kernel void cloudShadowMap(constant FrameUniforms &f [[buffer(0)]],texture3d<flo
         float3 surface=normalize(normalize(f.position.xyz)*(f.body.x+cameraHeight)+ray*roots.x)*f.body.x;
         float mu=dot(normalize(surface),f.sun.xyz);
         if(mu>.02){
-            float step=(f.clouds.y-f.clouds.x)/4;
-            for(int i=0;i<4;++i){float t=(f.clouds.x+(i+.5)*step)/max(.08f,mu);optical+=cloudDensity(surface+f.sun.xyz*t,f,noise)*step/max(.08f,mu);}
+            float step=(f.clouds.y-f.clouds.x)/4,region=cloudRegion(surface,f,cloudMap);
+            for(int i=0;i<4;++i){float t=(f.clouds.x+(i+.5)*step)/max(.08f,mu);optical+=cloudDensity(surface+f.sun.xyz*t,f,noise,region)*step/max(.08f,mu);}
         }
     }
     shadow.write(float4(.26+.74*exp(-optical)),id);
@@ -93,7 +103,7 @@ kernel void cloudShadowMap(constant FrameUniforms &f [[buffer(0)]],texture3d<flo
 kernel void marchClouds(constant FrameUniforms &f [[buffer(0)]],constant uint &frameIndex [[buffer(1)]],
                         texture3d<float> noise [[texture(0)]],texture2d<float,access::read> depth [[texture(1)]],
                         texture2d<float> previous [[texture(2)]],texture2d<float> previousData [[texture(3)]],
-                        texture2d<float,access::write> result [[texture(4)]],texture2d<float,access::write> data [[texture(5)]],
+                        texture2d<float,access::write> result [[texture(4)]],texture2d<float,access::write> data [[texture(5)]],texture2d<float> cloudMap [[texture(6)]],
                         uint2 id [[thread_position_in_grid]]) {
     uint2 size=uint2(result.get_width(),result.get_height());if(any(id>=size))return;
     float2 uv=(float2(id)+.5)/float2(size);float3 ray=viewRay(uv,f);
@@ -109,6 +119,7 @@ kernel void marchClouds(constant FrameUniforms &f [[buffer(0)]],constant uint &f
     if(f.clouds.z>0&&end>start){
         float step=(end-start)/48.0f;
         float3 center=normalize(origin+ray*((start+end)*.5));
+        float region=cloudRegion(center,f,cloudMap);
         float mu=dot(center,f.sun.xyz),day=smoothstep(-.08f,.12f,mu);
         float g=.55,cosTheta=dot(ray,f.sun.xyz);
         float phase=(1-g*g)/pow(max(.05f,1+g*g-2*g*cosTheta),1.5f);
@@ -117,8 +128,8 @@ kernel void marchClouds(constant FrameUniforms &f [[buffer(0)]],constant uint &f
         float jitter=visualRandom(id.x+id.y*1973u+frameIndex*26699u);
         for(int i=0;i<48;++i){
             float t=start+(i+jitter)*step;float3 p=origin+ray*t;
-            float density=cloudDensity(p,f,noise);if(density<.000002)continue;
-            float lighting=cloudSunTransmittance(p,f,noise);
+            float density=cloudDensity(p,f,noise,region);if(density<.000002)continue;
+            float lighting=cloudSunTransmittance(p,f,noise,region);
             float3 light=ambient+sunlight*day*(lighting*(.30+.23*phase)+pow(lighting,.4f)*.17);
             float extinction=1-exp(-density*step),contribution=trans*extinction;
             radiance+=light*contribution;weightedDistance+=t*contribution;weight+=contribution;
@@ -173,6 +184,8 @@ fragment float4 compositeClouds(SkyRaster in [[stage_in]],constant FrameUniforms
             constexpr sampler mapSampler(filter::linear,mip_filter::linear,s_address::repeat,t_address::clamp_to_edge);
             float mask=earthCloudMap.sample(mapSampler,terrestrialUV(point,f)).r;
             float coverage=saturate(mask*min(1.5f,f.clouds.z/.48f));
+            if(f.weather.x>2.5&&f.weather.x<3.5)coverage=max(coverage,.72f);
+            else if(f.weather.x>1.5&&f.weather.x<2.5)coverage=max(coverage,.25f);
             float mu=max(.18f,abs(dot(normal,ray)));
             float alpha=1-pow(max(.001f,1-coverage),1/mu);
             float daylight=smoothstep(-.08f,.10f,dot(normal,f.sun.xyz));
@@ -180,7 +193,58 @@ fragment float4 compositeClouds(SkyRaster in [[stage_in]],constant FrameUniforms
             cloud=mix(cloud,float4(illumination*alpha,alpha),orbital);
         }else cloud*=1-orbital;
     }
-    return float4(scene.sample(s,uv).rgb*(1-cloud.a)+cloud.rgb,1);
+    float3 color=scene.sample(s,uv).rgb*(1-cloud.a)+cloud.rgb;
+    // Precipitation uses two sparse, moving layers in camera space. Its slant
+    // follows the apparent air motion, while regional weather controls density.
+    if(f.weather.z>.01f && cameraHeight<f.clouds.y+1500){
+        float3 falling=-f.weatherWind.xyz-normalize(f.position.xyz)*12.0f;
+        float2 direction=float2(dot(falling,f.right.xyz),-dot(falling,f.up.xyz));
+        direction=length(direction)>1?normalize(direction):float2(.12,1);
+        float2 across=float2(direction.y,-direction.x);
+        float speed=clamp(length(falling)*.015f,1.0f,5.0f),rain=0;
+        for(int layer=0;layer<2;++layer){
+            float scale=layer==0?1.0f:1.55f;
+            float2 coord=float2(dot(in.position.xy,across)/30.0f,dot(in.position.xy,direction)/65.0f)*scale;
+            coord.y-=f.environment.w*speed*(layer==0?2.1f:3.0f);
+            float2 cell=floor(coord),local=fract(coord)-.5f;
+            uint seed=uint(int(cell.x)*1973+int(cell.y)*9277+layer*26699);
+            float random=visualRandom(seed);
+            float enabled=step(random,f.weather.z*.42f);
+            float streak=(1-smoothstep(.015f,.05f,abs(local.x+(visualRandom(seed+73)-.5f)*.65f)));
+            streak*=1-smoothstep(.25f,.48f,abs(local.y));
+            rain=max(rain,enabled*streak*(layer==0?.17f:.11f));
+        }
+        float day=smoothstep(-.15f,.15f,dot(normalize(f.position.xyz),f.sun.xyz));
+        color=mix(color,float3(.62,.70,.78)*(.2+.8*day),rain);
+    }
+    // A short-lived world-anchored bolt. Screen-space distances give a thin,
+    // bright channel and a broad flash without another volume march.
+    if(f.lightning.w>.01f && cameraHeight<f.clouds.y+3000){
+        float3 ground=f.lightning.xyz;
+        float3 radial=normalize(f.position.xyz*f.body.x+ground);
+        float3 top=ground+radial*6500.0f;
+        float zg=dot(ground,f.forward.xyz),zt=dot(top,f.forward.xyz);
+        if(zg>1&&zt>1){
+            float aspect=f.screen.x/f.screen.y;
+            float2 a=float2(.5+.5*dot(ground,f.right.xyz)/(zg*f.screen.z*aspect),.5-.5*dot(ground,f.up.xyz)/(zg*f.screen.z))*f.screen.xy;
+            float2 b=float2(.5+.5*dot(top,f.right.xyz)/(zt*f.screen.z*aspect),.5-.5*dot(top,f.up.xyz)/(zt*f.screen.z))*f.screen.xy;
+            float2 delta=b-a,normal=length(delta)>1?normalize(float2(-delta.y,delta.x)):float2(1,0);
+            float d=1e9;float2 last=a;uint seed=uint(abs(ground.x)*.1f+abs(ground.y)*.3f+abs(ground.z)*.7f);
+            for(int i=1;i<=8;++i){
+                float t=float(i)/8.0f;float2 next=mix(a,b,t)+normal*((i==8?0.0f:visualRandom(seed+uint(i)*71)-.5f)*min(55.0f,length(delta)*.15f));
+                float2 edge=next-last;float h=saturate(dot(in.position.xy-last,edge)/max(1e-4f,dot(edge,edge)));
+                d=min(d,length(in.position.xy-(last+edge*h)));last=next;
+            }
+            float sceneDepth=geometry*max(.001f,dot(ray,f.forward.xyz));
+            if(min(zg,zt)<sceneDepth){
+                float flash=f.lightning.w;
+                float glow=exp(-d*.055f)*flash*.24f,core=exp(-d*d*.55f)*flash*2.4f;
+                color+=float3(.55,.68,1)*glow+float3(.9,.94,1)*core;
+                color+=cloud.rgb*flash*.30f;
+            }
+        }
+    }
+    return float4(color,1);
 }
 float3 exhaustBasis(float3 d){return normalize(cross(d,abs(d.y)<.9?float3(0,1,0):float3(1,0,0)));}
 struct FlameRaster {float4 position [[position]];float3 ray;float3 origin [[flat]];float3 axis [[flat]];float4 properties [[flat]];float time [[flat]];};
@@ -201,7 +265,7 @@ vertex FlameRaster flameVertex(uint id [[vertex_id]],uint instance [[instance_id
     return {f.projection*float4(view,1),p,origin,axis,float4(radius,plumeLength,jet.positionLevel.w,jet.style.w),e.clock.y};
 }
 fragment float4 flameFragment(FlameRaster in [[stage_in]],constant FrameUniforms &f [[buffer(0)]],
-                              texture2d<float,access::read> depth [[texture(0)]],texture3d<float> noise [[texture(1)]]) {
+                              texture2d<float,access::read> depth [[texture(0)]],texture3d<float> noise [[texture(1)]],texture2d<float> cloudMap [[texture(2)]]) {
     float3 ray=normalize(in.ray),axis=in.axis,ro=-in.origin;
     float radialBound=in.properties.x*(1.8+in.properties.w*3),len=in.properties.y;
     float rdAxis=dot(ray,axis),roAxis=dot(ro,axis);float3 rd=ray-axis*rdAxis,radial=ro-axis*roAxis;
@@ -238,7 +302,8 @@ fragment float4 flameFragment(FlameRaster in [[stage_in]],constant FrameUniforms
     }
     float alpha=(1-trans)*sqrt(in.properties.z)*.8;if(alpha<.002)discard_fragment();
     if(f.environment.x*f.body.x<f.clouds.y+1000&&f.clouds.z>0){float distance=(start+end)*.5,optical=0;float3 origin=f.position.xyz*f.body.x;
-        for(int i=0;i<4;++i)optical+=cloudDensity(origin+ray*distance*((i+.5)/4.0f),f,noise)*distance*.25;alpha*=exp(-optical);}
+        float region=cloudRegion(origin+ray*distance*.5,f,cloudMap);
+        for(int i=0;i<4;++i)optical+=cloudDensity(origin+ray*distance*((i+.5)/4.0f),f,noise,region)*distance*.25;alpha*=exp(-optical);}
     return float4(radiance/max(.001f,1-trans),alpha);
 }
 // Continuous world-space tube segments follow the emitted exhaust; the material
@@ -266,7 +331,7 @@ vertex TrailRaster trailVolumeVertex(uint id [[vertex_id]],uint instance [[insta
             float2(mix(seg.opticalAge.x,seg.opticalAge.y,t),mix(seg.opticalAge.z,seg.opticalAge.w,t)),edge,seg.noiseMode.xyz,seg.noiseMode.w,cap?1.0f:0.0f};
 }
 fragment float4 trailVolumeFragment(TrailRaster in [[stage_in]],constant FrameUniforms &f [[buffer(0)]],
-                                    texture2d<float,access::read> depth [[texture(0)]],texture3d<float> noise [[texture(1)]]){
+                                    texture2d<float,access::read> depth [[texture(0)]],texture3d<float> noise [[texture(1)]],texture2d<float> cloudMap [[texture(2)]]){
     constexpr sampler sampler3d(filter::linear,address::repeat);
     float2 depthScale=float2(depth.get_width(),depth.get_height())/f.screen.xy;
     uint2 pixel=min(uint2(in.position.xy*depthScale),uint2(depth.get_width()-1,depth.get_height()-1));float z=depth.read(pixel).r;
@@ -288,7 +353,7 @@ fragment float4 trailVolumeFragment(TrailRaster in [[stage_in]],constant FrameUn
     color*=.16+.84*light;color+=hot*(in.vacuum>.5?float3(.60,.38,.18):float3(.50,.28,.12));
     if(f.environment.x*f.body.x<f.clouds.y+1000&&f.clouds.z>0){
         float distance=length(in.ray);float3 midpoint=f.position.xyz*f.body.x+in.ray*.5;
-        alpha*=exp(-cloudDensity(midpoint,f,noise)*distance);
+        alpha*=exp(-cloudDensity(midpoint,f,noise,cloudRegion(midpoint,f,cloudMap))*distance);
     }
     return float4(color,alpha);
 }

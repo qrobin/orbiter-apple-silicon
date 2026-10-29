@@ -56,7 +56,7 @@ VESSEL *oapiGetFocusInterface(){return &vessel;}
 VESSEL *oapiGetVesselInterface(OBJHANDLE h){return h==&vessel?&vessel:nullptr;}
 void oapiGetFocusRelativePos(OBJHANDLE ref,VECTOR3*p){oapiGetRelativePos(&vessel,ref,p);}
 void oapiGetFocusRelativeVel(OBJHANDLE ref,VECTOR3*v){oapiGetRelativeVel(&vessel,ref,v);}
-void oapiGetFocusShipAirspeedVector(VECTOR3*v){*v=cv(flight->velocity-crossp(flight->centralBody().spin(),flight->position));}
+void oapiGetFocusShipAirspeedVector(VECTOR3*v){*v=cv(flight->airRelativeVelocity());}
 void oapiGetFocusEquPos(double*lon,double*lat,double*r){native::bodyCoordinates(flight->reference,flight->position,flight->mjd,flight->elapsed,*lat,*lon);*r=flight->position.length();}
 double oapiGetPlanetPeriod(OBJHANDLE h){return bodyFor(h).period;}
 bool oapiPlanetHasAtmosphere(OBJHANDLE h){return bodyFor(h).density>0&&bodyFor(h).atmosphereLimit>0;}

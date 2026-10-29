@@ -11,7 +11,7 @@ add_library(OrbiterFlightCore STATIC
     ${PROJECT_SOURCE_DIR}/Src/Celbody/Moon/ELP82.cpp
     ${PROJECT_SOURCE_DIR}/Src/Celbody/Galsat/Lieske.cpp
     ${PROJECT_SOURCE_DIR}/Src/Celbody/Satsat/Tass17.cpp
-    Flight.cpp Mesh.cpp Glider.cpp Aerodynamics.cpp Cockpit.cpp Surface.cpp Base.cpp Hover.cpp Exhaust.cpp Camera.cpp)
+    Flight.cpp Mesh.cpp Glider.cpp Aerodynamics.cpp Weather.cpp Cockpit.cpp Surface.cpp Base.cpp Hover.cpp Exhaust.cpp Camera.cpp)
 target_include_directories(OrbiterFlightCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${CORE})
 target_compile_definitions(OrbiterFlightCore PUBLIC ORBITER_NATIVE=1)
 target_compile_options(OrbiterFlightCore PRIVATE -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable)
@@ -83,6 +83,11 @@ target_compile_definitions(EarthRenderTests PRIVATE ORBITER_TEST_DATA="${PROJECT
 target_link_libraries(EarthRenderTests PRIVATE "-framework Cocoa" "-framework Metal" "-framework MetalKit")
 add_test(NAME Native.EarthMetal COMMAND EarthRenderTests)
 set_tests_properties(Native.EarthMetal PROPERTIES SKIP_RETURN_CODE 77)
+
+add_executable(WeatherTests Tests/WeatherTests.cpp)
+target_link_libraries(WeatherTests PRIVATE OrbiterFlightCore)
+target_compile_definitions(WeatherTests PRIVATE ORBITER_TEST_DATA="${PROJECT_SOURCE_DIR}")
+add_test(NAME Native.Weather COMMAND WeatherTests)
 
 add_executable(CameraTests Tests/CameraTests.cpp)
 target_link_libraries(CameraTests PRIVATE OrbiterFlightCore)

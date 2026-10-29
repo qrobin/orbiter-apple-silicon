@@ -3,6 +3,7 @@
 #include "Body.h"
 #include "Glider.h"
 #include "Hud.h"
+#include "Weather.h"
 #include <string>
 #include <filesystem>
 namespace native {
@@ -20,6 +21,7 @@ public:
     Hud hud;
     BodyId reference=BodyId::Earth;
     bool automaticReferenceChanges=false;
+    int weatherPreset=0;
     const CelestialBody &centralBody()const{return body(reference);}
     double gravityMu()const{return centralBody().mu();}
     void startOrbit(BodyId body);
@@ -55,6 +57,8 @@ public:
     double altitude() const { return position.length()-centralBody().radius; }
     double mass() const { return EmptyMass+fuel+rcs; }
     double radialSpeed() const { return dotp(position,velocity)/position.length(); }
+    WeatherSample currentWeather() const {return reference==BodyId::Earth?earthWeather(position,mjd+elapsed/86400.,weatherPreset):WeatherSample{};}
+    Vector airRelativeVelocity() const {return velocity-crossp(centralBody().spin(),position)-(reference==BodyId::Earth?earthWeather(position,mjd+elapsed/86400.,weatherPreset,false).wind:Vector());}
     void align(const Vector &direction);
 private:
     void coast(double dt);

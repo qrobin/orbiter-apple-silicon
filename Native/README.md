@@ -61,7 +61,7 @@ For a bounded render check, add `--body Moon`, `--body Mars`, `--body Jupiter` o
 
 ## Native graphics in 0.6
 
-The application now renders the 8K NASA Earth map, volumetric clouds, cloud shadows and exhaust directly in Metal. Choose **Weather → Clear / Scattered / Overcast / Storm**, or **F3** to cycle. Function keys may require Fn on Mac keyboards. These presets control procedural cloud coverage, density and layer height; they are not live weather and do not change the aerodynamic forces.
+The application now renders the 8K NASA Earth map, volumetric clouds, cloud shadows and exhaust directly in Metal. Choose **Weather → Regional** (the default), or select **Clear / Scattered / Overcast / Storm**; **F3** cycles the choices. Function keys may require Fn on Mac keyboards. Regional cloud coverage comes from a historical satellite composite, and winds, rain and lightning are procedural approximations, not live weather. Wind affects air-relative aerodynamics and exhaust drift.
 
 Clouds occupy a spherical layer above Earth. A GPU-generated 128³ Perlin/Worley noise volume shapes the density, sunlight is attenuated through the volume, and a forward-scattering phase approximation produces bright edges. A screen-space cloud shadow pass follows the actual visible ground. The cloud pass uses 48 primary samples and four sun samples, up to 760 pixels wide (no more than half output resolution), temporal reprojection and depth-aware reconstruction. Spacecraft geometry, cockpit instruments and HUD remain at full output resolution. Camera cuts, resize, scenario changes and weather changes invalidate the history.
 
@@ -130,7 +130,7 @@ The native animation registry contains **63 components extracted from upstream s
 | Control | Action |
 | --- | --- |
 | M | Open glider systems panel |
-| F3 | Cycle visual cloud/weather presets |
+| F3 | Cycle weather presets |
 | F4 / Cmd-Shift-T | Open original TransX MFD controls |
 | F5 | Toggle automatic hover attitude |
 | F6 | Toggle altitude hold at current height |
@@ -205,7 +205,7 @@ python3 Native/tools/extract_base_geometry.py
 
 The generated `.inc` files are committed, so Python is not a build dependency.
 
-Additional bounded render options: `--weather 0` through `--weather 3`, `--throttle .8`, `--rcs-demo`, `--camera-yaw -30`, `--camera-pitch 45`, and `--camera-distance 60` (angles in degrees, distance in metres). `--altitude 3500 --paused` places a stationary render-review state at the current latitude/longitude inside the cloud layer. It is a visual test setup, not a flying autopilot.
+Additional bounded render options: `--weather 0` through `--weather 4`, `--throttle .8`, `--rcs-demo`, `--camera-yaw -30`, `--camera-pitch 45`, and `--camera-distance 60` (angles in degrees, distance in metres). `--altitude 3500 --paused` places a stationary render-review state at the current latitude/longitude inside the cloud layer. It is a visual test setup, not a flying autopilot.
 
 ## Ground physics and Cape Canaveral
 

@@ -27,7 +27,7 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
 @end
 @implementation NativeVisuals
 - (instancetype)initWithDevice:(id<MTLDevice>)device library:(id<MTLLibrary>)library queue:(id<MTLCommandQueue>)queue samples:(NSUInteger)count {
-    if(!(self=[super init]))return nil;gpu=device;samples=count;_weather=1;lastWeather=-1;
+    if(!(self=[super init]))return nil;gpu=device;samples=count;_weather=4;lastWeather=-1;
     NSError *error=nil;
     MTKTextureLoader *loader=[[MTKTextureLoader alloc] initWithDevice:device];
     NSURL *cloudURL=[NSURL fileURLWithPath:[NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"earth-clouds.png"]];
@@ -84,9 +84,9 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
             bloom[i]=[self texture:MTLPixelFormatRGBA16Float width:std::max(1ul,w/4) height:std::max(1ul,h/4) usage:MTLTextureUsageShaderRead|MTLTextureUsageShaderWrite];
         }
     }
-    _weather=std::clamp((int)_weather,0,3);
+    _weather=std::clamp((int)_weather,0,4);
     if(_weather!=lastWeather){historyValid=NO;lastWeather=_weather;}
-    const simd_float4 presets[]={{1800,6500,0,0},{1800,6500,.48,0},{1400,6200,.78,.10},{1000,9000,.91,1}};
+    const simd_float4 presets[]={{1800,6500,0,0},{1800,6500,.48,0},{1400,6200,.78,.10},{1000,9000,.91,1},{1400,8500,.48,.65}};
     f->clouds=presets[_weather];if((int)f->surfaceColor.w!=(int)BodyId::Earth)f->clouds.z=0;
     float moved=simd_length(simd_make_float3(f->position.x-lastFrame.position.x,f->position.y-lastFrame.position.y,f->position.z-lastFrame.position.z))*f->body.x;
     float aligned=simd_dot(simd_make_float3(f->forward.x,f->forward.y,f->forward.z),simd_make_float3(lastFrame.forward.x,lastFrame.forward.y,lastFrame.forward.z));
@@ -109,13 +109,13 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
 }
 - (void)encodeShadows:(id<MTLCommandBuffer>)cb frame:(const FrameUniforms &)f {
     id<MTLComputeCommandEncoder> e=[cb computeCommandEncoder];e.label=@"Planetary cloud shadows";
-    [e setComputePipelineState:shadowKernel];[e setBytes:&f length:sizeof(f) atIndex:0];[e setTexture:_cloudNoise atIndex:0];[e setTexture:_cloudShadows atIndex:1];[self dispatch:e texture:_cloudShadows];[e endEncoding];
+    [e setComputePipelineState:shadowKernel];[e setBytes:&f length:sizeof(f) atIndex:0];[e setTexture:_cloudNoise atIndex:0];[e setTexture:_cloudShadows atIndex:1];[e setTexture:earthCloudMap atIndex:2];[self dispatch:e texture:_cloudShadows];[e endEncoding];
 }
 - (void)encodeWeather:(id<MTLCommandBuffer>)cb frame:(const FrameUniforms &)f {
     NSUInteger index=historyIndex%2,previous=1-index;uint32_t jitter=(uint32_t)frameIndex++;
     id<MTLComputeCommandEncoder> e=[cb computeCommandEncoder];e.label=@"Volumetric clouds and temporal reconstruction";[e setComputePipelineState:cloudKernel];
     [e setBytes:&f length:sizeof(f) atIndex:0];[e setBytes:&jitter length:sizeof(jitter) atIndex:1];
-    [e setTexture:_cloudNoise atIndex:0];[e setTexture:depth atIndex:1];[e setTexture:cloudHistory[previous] atIndex:2];[e setTexture:cloudData[previous] atIndex:3];[e setTexture:cloudHistory[index] atIndex:4];[e setTexture:cloudData[index] atIndex:5];[self dispatch:e texture:cloudHistory[index]];[e endEncoding];
+    [e setTexture:_cloudNoise atIndex:0];[e setTexture:depth atIndex:1];[e setTexture:cloudHistory[previous] atIndex:2];[e setTexture:cloudData[previous] atIndex:3];[e setTexture:cloudHistory[index] atIndex:4];[e setTexture:cloudData[index] atIndex:5];[e setTexture:earthCloudMap atIndex:6];[self dispatch:e texture:cloudHistory[index]];[e endEncoding];
     MTLRenderPassDescriptor *pass=[MTLRenderPassDescriptor renderPassDescriptor];pass.colorAttachments[0].texture=lit;pass.colorAttachments[0].loadAction=MTLLoadActionDontCare;pass.colorAttachments[0].storeAction=MTLStoreActionStore;
     id<MTLRenderCommandEncoder> r=[cb renderCommandEncoderWithDescriptor:pass];r.label=@"Depth-aware cloud composite";[r setRenderPipelineState:compositePipeline];[r setFragmentBytes:&f length:sizeof(f) atIndex:0];[r setFragmentTexture:hdr atIndex:0];[r setFragmentTexture:cloudHistory[index] atIndex:1];[r setFragmentTexture:cloudData[index] atIndex:2];[r setFragmentTexture:depth atIndex:3];[r setFragmentTexture:earthCloudMap atIndex:4];[r drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];[r endEncoding];
     ++historyIndex;lastFrame=f;historyValid=YES;
@@ -130,7 +130,8 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
         jets[count++]={visualVector(world(jet.position),jet.level),visualVector(world(jet.direction),jet.radius),{(float)kind,(float)length,(float)(shape.speed*.28),(float)shape.spread}};
     }
     _emitterCount=count;double dt=haveFlight?flight.elapsed-lastElapsed:0;
-    const double humidity[]={.25,.5,.75,.95};exhaustTrail.update(flight,dt,humidity[std::clamp((int)_weather,0,3)]);
+    auto weather=flight.currentWeather();double humidity=std::clamp(.25+weather.cloud*.45+weather.storm*.3,0.,1.);
+    exhaustTrail.update(flight,dt,humidity);
     EffectUniforms step{};step.clock={(float)dt,(float)fmod(flight.elapsed,4096.),0,(float)count};step.offset=visualVector(offset);
     lastElapsed=flight.elapsed;haveFlight=YES;
     visibleSmoke.clear();ExhaustCameraFrame cameraFrame(flight,offset);
@@ -160,7 +161,7 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
         volumePass.colorAttachments[0].loadAction=MTLLoadActionClear;volumePass.colorAttachments[0].clearColor=MTLClearColorMake(0,0,0,0);volumePass.colorAttachments[0].storeAction=MTLStoreActionStore;
         id<MTLRenderCommandEncoder> r=[cb renderCommandEncoderWithDescriptor:volumePass];r.label=@"World-space exhaust meshes";
         [r setCullMode:MTLCullModeNone];[r setVertexBytes:&trailFrame length:sizeof(trailFrame) atIndex:0];[r setFragmentBytes:&trailFrame length:sizeof(trailFrame) atIndex:0];
-        [r setFragmentTexture:depth atIndex:0];[r setFragmentTexture:_cloudNoise atIndex:1];
+        [r setFragmentTexture:depth atIndex:0];[r setFragmentTexture:_cloudNoise atIndex:1];[r setFragmentTexture:earthCloudMap atIndex:2];
         [r setRenderPipelineState:smokePipeline];[r setVertexBuffer:buffer offset:0 atIndex:1];[r setVertexTexture:_cloudNoise atIndex:0];
         [r drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:12*18 instanceCount:visibleSmoke.size()];
         [r endEncoding];
@@ -176,7 +177,7 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
         id<MTLRenderCommandEncoder> r=[cb renderCommandEncoderWithDescriptor:flamePass];r.label=@"Nozzle flame cores";
         [r setDepthStencilState:flameDepth];[r setCullMode:MTLCullModeNone];[r setRenderPipelineState:flamePipeline];
         [r setVertexBytes:&f length:sizeof(f) atIndex:0];[r setVertexBytes:&step length:sizeof(step) atIndex:1];[r setVertexBytes:jets.data() length:sizeof(jets) atIndex:2];
-        [r setFragmentBytes:&f length:sizeof(f) atIndex:0];[r setFragmentTexture:depth atIndex:0];[r setFragmentTexture:_cloudNoise atIndex:1];
+        [r setFragmentBytes:&f length:sizeof(f) atIndex:0];[r setFragmentTexture:depth atIndex:0];[r setFragmentTexture:_cloudNoise atIndex:1];[r setFragmentTexture:earthCloudMap atIndex:2];
         [r drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6 instanceCount:count];[r endEncoding];
     }
 }
@@ -188,7 +189,7 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
     id<MTLRenderCommandEncoder> r=[cb renderCommandEncoderWithDescriptor:pass];r.label=@"Tone mapping at full output resolution";[r setRenderPipelineState:presentPipeline];[r setFragmentTexture:lit atIndex:0];[r setFragmentTexture:bloom[0] atIndex:1];[r drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];[r endEncoding];
 }
 - (NSUInteger)liveTrailPuffCount {return exhaustTrail.puffs().size();}
-- (NSString *)weatherName{return @[@"Clear",@"Scattered",@"Overcast",@"Storm"][_weather];}
+- (NSString *)weatherName{return @[@"Clear",@"Scattered",@"Overcast",@"Storm",@"Regional"][_weather];}
 - (void)reset {historyValid=NO;haveFlight=NO;exhaustTrail.reset();}
 - (void)resetForReferenceChange {historyValid=NO;haveFlight=NO;}
 @end

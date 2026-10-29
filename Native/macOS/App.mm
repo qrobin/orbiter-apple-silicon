@@ -326,6 +326,8 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     id<MTLDevice> device=MTLCreateSystemDefaultDevice();
     if(!device) @throw [NSException exceptionWithName:@"Metal unavailable" reason:@"A Metal-capable Mac is required." userInfo:nil];
     self=[super initWithFrame:frame device:device]; if(!self) return nil;
+    if(!loadEarthWeatherMap(resource(@"earth-clouds.r8").fileSystemRepresentation))
+        @throw [NSException exceptionWithName:@"Weather map unavailable" reason:@"The Earth weather data could not be loaded." userInfo:nil];
     activeCockpitControl=-1;cockpitPitch=-.25;restartBody=-1;lastBody=BodyId::Earth;
     held.fill(false);lastMfdLabels.fill(false);transxMfd.fill(false);transxAlignDisplay=-1;transxAlignBody=flight.reference;transxRefresh=0; externalCamera.yaw=-.55; externalCamera.pitch=.32; externalCamera.distance=43; helpVisible=false; orbitVisible=true;
     self.colorPixelFormat=MTLPixelFormatBGRA8Unorm_sRGB; self.depthStencilPixelFormat=MTLPixelFormatDepth32Float;
@@ -464,6 +466,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     if(activeCockpitControl==62){flight.hud.adjustBrightness(activeCockpitDirection*dt*.3);self.hud.needsDisplay=YES;}
     if(activeCockpitControl>=100&&activeCockpitControl<124&&transxSession){int id=activeCockpitControl-100,b=id%12;if(b==8||b==9)transxSession->button(id/12,b,true);}
     if(panelView)[self.panel2D tick];
+    flight.weatherPreset=(int)visuals.weather;
     [self updateNavigation];
     if(burnSkip.running()){
         burnSkip.advance(flight,*transxSession);
@@ -493,6 +496,9 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     uniforms.environment={0,(float)flight.altitude(),0,(float)fmod(flight.elapsed,86400.)};
     if(lastBody!=flight.reference){[visuals resetForReferenceChange];lastBody=flight.reference;}
     [solar updateFrame:&uniforms flight:flight offset:offset];
+    auto weather=flight.currentWeather();
+    uniforms.weather={(float)flight.weatherPreset,(float)weather.storm,(float)weather.rain,(float)weather.flash};
+    uniforms.weatherWind=f4(flight.airRelativeVelocity());uniforms.lightning=f4(weather.lightning-flight.position-offset,(float)weather.flash);
     [visuals prepare:&uniforms width:drawable.texture.width height:drawable.texture.height];
     ObjectUniforms object={};
     object.model.columns[0]=f4(flight.right); object.model.columns[1]=f4(flight.up); object.model.columns[2]=f4(flight.forward); object.model.columns[3]=f4(-offset,1);
@@ -906,7 +912,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     if(item.action==@selector(setWeather:))return flight.reference==BodyId::Earth;
     return YES;
 }
-- (void)cycleWeather:(id)sender {visuals.weather=(visuals.weather+1)%4;status=[NSString stringWithFormat:@"Weather: %@ · F3 changes cloud coverage",[visuals weatherName]];self.hud.needsDisplay=YES;}
+- (void)cycleWeather:(id)sender {visuals.weather=(visuals.weather+1)%5;status=[NSString stringWithFormat:@"Weather: %@ · F3 changes weather",[visuals weatherName]];self.hud.needsDisplay=YES;}
 - (void)setWeather:(NSMenuItem *)sender {visuals.weather=sender.tag;status=[NSString stringWithFormat:@"Weather: %@",[visuals weatherName]];self.hud.needsDisplay=YES;}
 - (void)keyUp:(NSEvent *)event { if(event.keyCode<held.size()) held[event.keyCode]=false; }
 - (void)mouseDown:(NSEvent *)event {
@@ -1049,8 +1055,8 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
             for(const auto &moon:bodies())if(b.id!=BodyId::Sun&&moon.id!=b.id&&moon.parent==b.id){NSMenuItem *item=[children addItemWithTitle:[NSString stringWithFormat:@"%s Orbit",moon.name] action:@selector(startBodyOrbit:) keyEquivalent:@""];item.target=self.view;item.tag=(NSInteger)moon.id;}
         }
         NSMenuItem *weatherItem=[NSMenuItem new];weatherItem.title=@"Weather";[main addItem:weatherItem];NSMenu *weather=[NSMenu new];weatherItem.submenu=weather;
-        NSArray *presets=@[@"Clear",@"Scattered",@"Overcast",@"Storm"];
-        for(NSInteger i=0;i<4;++i){NSMenuItem *item=[weather addItemWithTitle:presets[i] action:@selector(setWeather:) keyEquivalent:@""];item.target=self.view;item.tag=i;}
+        NSArray *presets=@[@"Clear",@"Scattered",@"Overcast",@"Storm",@"Regional"];
+        for(NSInteger i=0;i<5;++i){NSMenuItem *item=[weather addItemWithTitle:presets[i] action:@selector(setWeather:) keyEquivalent:@""];item.target=self.view;item.tag=i;}
         if([NSProcessInfo.processInfo.arguments containsObject:@"--transx"])[self.view ensureTransX];
         if(self.view->navigationTarget>=0)[self.view prepareNavigation:(BodyId)self.view->navigationTarget];
         NSApp.mainMenu=main; [self.window center]; [self.window makeKeyAndOrderFront:nil]; [NSApp activateIgnoringOtherApps:YES];

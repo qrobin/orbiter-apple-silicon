@@ -41,6 +41,9 @@ int main(){@autoreleasepool{
     desc.pixelFormat=MTLPixelFormatDepth32Float;desc.storageMode=MTLStorageModePrivate;id<MTLTexture> depth=[device newTextureWithDescriptor:desc];
     desc=[MTLTextureDescriptor new];desc.textureType=MTLTextureType3D;desc.width=desc.height=desc.depth=32;desc.pixelFormat=MTLPixelFormatRGBA8Unorm;
     desc.storageMode=MTLStorageModePrivate;desc.usage=MTLTextureUsageShaderRead|MTLTextureUsageShaderWrite;id<MTLTexture> noise=[device newTextureWithDescriptor:desc];
+    MTLTextureDescriptor *mapDesc=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatR8Unorm width:1 height:1 mipmapped:NO];
+    mapDesc.storageMode=MTLStorageModeShared;mapDesc.usage=MTLTextureUsageShaderRead;id<MTLTexture> cloudMap=[device newTextureWithDescriptor:mapDesc];
+    unsigned char mapValue=128;[cloudMap replaceRegion:MTLRegionMake2D(0,0,1,1) mipmapLevel:0 withBytes:&mapValue bytesPerRow:1];
     require(color&&depth&&noise,"Metal texture allocation failed");
     MTLDepthStencilDescriptor *stateDesc=[MTLDepthStencilDescriptor new];stateDesc.depthCompareFunction=MTLCompareFunctionAlways;stateDesc.depthWriteEnabled=NO;id<MTLDepthStencilState> depthState=[device newDepthStencilStateWithDescriptor:stateDesc];
     stateDesc.depthWriteEnabled=YES;id<MTLDepthStencilState> depthWriter=[device newDepthStencilStateWithDescriptor:stateDesc];
@@ -66,7 +69,7 @@ int main(){@autoreleasepool{
         if(!drawSmoke){pass.depthAttachment.texture=depth;pass.depthAttachment.loadAction=MTLLoadActionLoad;pass.depthAttachment.storeAction=MTLStoreActionStore;}
         id<MTLRenderCommandEncoder> r=[cb renderCommandEncoderWithDescriptor:pass];if(!drawSmoke)[r setDepthStencilState:depthState];[r setCullMode:MTLCullModeNone];
         [r setVertexBytes:&frame length:sizeof(frame) atIndex:0];[r setFragmentBytes:&frame length:sizeof(frame) atIndex:0];
-        [r setFragmentTexture:depth atIndex:0];[r setFragmentTexture:noise atIndex:1];
+        [r setFragmentTexture:depth atIndex:0];[r setFragmentTexture:noise atIndex:1];[r setFragmentTexture:cloudMap atIndex:2];
         if(drawSmoke){[r setRenderPipelineState:smoke];[r setVertexBuffer:puffBuffer offset:0 atIndex:1];[r setVertexTexture:noise atIndex:0];}
         else{[r setRenderPipelineState:flame];[r setVertexBytes:&effects length:sizeof(effects) atIndex:1];[r setVertexBytes:&jet length:sizeof(jet) atIndex:2];}
         [r drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:drawSmoke?12*18:6];[r endEncoding];[cb commit];[cb waitUntilCompleted];
@@ -111,7 +114,7 @@ int main(){@autoreleasepool{
     halfPass.colorAttachments[0].loadAction=MTLLoadActionClear;halfPass.colorAttachments[0].clearColor=MTLClearColorMake(0,0,0,0);halfPass.colorAttachments[0].storeAction=MTLStoreActionStore;
     encoder=[reconstruction renderCommandEncoderWithDescriptor:halfPass];[encoder setRenderPipelineState:smoke];[encoder setCullMode:MTLCullModeNone];
     [encoder setVertexBytes:&halfFrame length:sizeof(halfFrame) atIndex:0];[encoder setVertexBuffer:sampleBuffer offset:0 atIndex:1];[encoder setVertexTexture:noise atIndex:0];[encoder setFragmentBytes:&halfFrame length:sizeof(halfFrame) atIndex:0];
-    [encoder setFragmentTexture:depth atIndex:0];[encoder setFragmentTexture:noise atIndex:1];[encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:12*18];[encoder endEncoding];
+    [encoder setFragmentTexture:depth atIndex:0];[encoder setFragmentTexture:noise atIndex:1];[encoder setFragmentTexture:cloudMap atIndex:2];[encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:12*18];[encoder endEncoding];
     MTLRenderPassDescriptor *fullPass=[MTLRenderPassDescriptor renderPassDescriptor];fullPass.colorAttachments[0].texture=color;
     fullPass.colorAttachments[0].loadAction=MTLLoadActionClear;fullPass.colorAttachments[0].clearColor=MTLClearColorMake(0,0,0,1);fullPass.colorAttachments[0].storeAction=MTLStoreActionStore;
     encoder=[reconstruction renderCommandEncoderWithDescriptor:fullPass];[encoder setRenderPipelineState:composite];[encoder setFragmentTexture:half atIndex:0];[encoder setFragmentTexture:depth atIndex:1];

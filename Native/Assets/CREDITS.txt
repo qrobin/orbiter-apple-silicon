@@ -36,3 +36,4 @@ Clouded: https://svs.gsfc.nasa.gov/vis/a000000/a003600/a003615/flat_earth03.jpg
 Clear: https://svs.gsfc.nasa.gov/vis/a000000/a003600/a003615/earth_noClouds.0330.jpg
 The underlying cloud composite is from multiple satellites on 2007-07-01; it is
 historical imagery, not live weather. Extracted with tools/extract_satellite_clouds.py.
+The corresponding earth-clouds.r8 stores the same opacity bytes for regional simulation.

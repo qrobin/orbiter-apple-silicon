@@ -297,8 +297,7 @@ void Flight::step(double dt,const Input &input) {
     force+=translation*(5000*rcsScale); rcs=rcsDemand>=rcs?0:rcs-rcsDemand;
     glider.rcsRotation*=rcsScale; glider.rcsTranslation*=rcsScale;
     auto air=bodyAtmosphere(reference,altitude());
-    Vector spin=centralBody().spin();
-    Vector airVelocity=velocity-crossp(spin,position);
+    Vector airVelocity=airRelativeVelocity();
     double airspeed=airVelocity.length();
     dynamicPressure=.5*air.rho*airspeed*airspeed;
     mach=air.T>0?airspeed/sqrt(centralBody().gamma*(reference==BodyId::Earth?286.91:centralBody().gasConstant)*air.T):0;

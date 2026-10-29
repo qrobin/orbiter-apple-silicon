@@ -70,17 +70,19 @@ bool ExhaustCameraFrame::relative(BodyId id,const Vector &point,Vector &result){
     result=center+point-camera;return true;
 }
 
-static Vector atmosphericVelocity(BodyId id,const Vector &position){
+static Vector atmosphericVelocity(BodyId id,const Vector &position,const Vector &earthWind){
     struct AirFrame{Vector pole,spin,equatorZ;double radius;};
     static const auto frames=[](){std::array<AirFrame,BodyCount> result{};for(const auto &b:bodies())result[(size_t)b.id]={b.pole(),b.spin(),b.equatorZ(),b.radius};return result;}();
-    const auto &b=frames[(size_t)id];Vector radial=position.unit(),east=crossp(b.pole,radial);
+    const auto &b=frames[(size_t)id];
+    if(id==BodyId::Earth)return crossp(b.spin,position)+earthWind;
+    Vector radial=position.unit(),east=crossp(b.pole,radial);
     if(east.length2()<1e-12)east=b.equatorZ;else east.unify();
     Vector north=crossp(radial,east).unit();
     // A modest prevailing wind with altitude-dependent shear.
     double altitude=std::max(0.,position.length()-b.radius);
     return crossp(b.spin,position)+east*(7+4*sqrt(std::min(altitude,50000.)/10000))+north*(3+2*sin(altitude/6500));
 }
-static void advect(ExhaustTrailPuff &p,double dt){
+static void advect(ExhaustTrailPuff &p,double dt,const Vector &earthWind){
     if(dt<=0)return;
     if(p.age+dt>=p.lifetime){p.age=p.lifetime;return;}
     const auto &b=body(p.body);
@@ -89,7 +91,7 @@ static void advect(ExhaustTrailPuff &p,double dt){
         p.position+=p.velocity*dt+gravity*(dt*dt*.5);p.velocity+=gravity*dt;p.age+=dt;return;
     }
     Vector radial=p.position.unit();
-    Vector air=atmosphericVelocity(p.body,p.position)+radial*(2.5*exp(-p.age/15));
+    Vector air=atmosphericVelocity(p.body,p.position,earthWind)+radial*(2.5*exp(-p.age/15));
     // Hot exhaust rapidly mixes into ambient air, then drifts with the atmosphere.
     double damping=exp(-2*dt);Vector relative=p.velocity-air;
     p.position+=air*dt+relative*((1-damping)*.5);
@@ -112,7 +114,8 @@ void ExhaustTrail::reset(){particles.clear();history={};haveBody=false;nextStrea
 void ExhaustTrail::update(const Flight &f,double dt,double humidity){
     if(!std::isfinite(dt)||dt<=0)return;
     humidity=std::isfinite(humidity)?std::clamp(humidity,0.,1.):.5;
-    for(auto &p:particles)advect(p,dt);
+    Vector earthWind=f.reference==BodyId::Earth?f.currentWeather().wind:Vector();
+    for(auto &p:particles)advect(p,dt,earthWind);
     particles.erase(std::remove_if(particles.begin(),particles.end(),[](const auto &p){return p.age>=p.lifetime;}),particles.end());
     if(!haveBody||previousBody!=f.reference){history={};previousBody=f.reference;haveBody=true;}
     auto atmosphere=bodyAtmosphere(f.reference,f.altitude());
@@ -145,7 +148,7 @@ void ExhaustTrail::update(const Flight &f,double dt,double humidity){
                 double opacity=weight*(vacuum?sqrt(jet.level)*(jet.kind==ExhaustKind::Rcs?.025:.12):ambient*(.55+.45*humidity)*sqrt(jet.level)*(jet.kind==ExhaustKind::Rcs?.12:.55));
                 int mediumIndex=vacuum?1:0;
                 ExhaustTrailPuff puff{f.reference,origin,firingVelocity+firingDirection*exhaustSpeed,0,life,jet.radius,opacity,h.stream[mediumIndex],h.sequence[mediumIndex]++,jet.id,vacuum};
-                advect(puff,pending);if(puff.age<puff.lifetime)particles.push_back(puff);
+                advect(puff,pending,earthWind);if(puff.age<puff.lifetime)particles.push_back(puff);
             };
             if(ambient>0)append(false,1);
             if(rarefied>0)append(true,rarefied);
