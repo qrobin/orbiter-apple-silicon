@@ -2,6 +2,14 @@
 #include "Flight.h"
 #include <array>
 namespace native {
+// Modifier throttle is inhibited by Option/Command shortcuts. Emergency cutoff
+// latches until each held throttle modifier is released.
+struct ModifierThrottle {
+    bool shift=false,control=false,option=false,command=false,blockShift=false,blockControl=false;
+    void update(bool s,bool c,bool o,bool m){shift=s;control=c;option=o;command=m;if(!s)blockShift=false;if(!c)blockControl=false;}
+    void inhibit(){blockShift=shift;blockControl=control;}
+    int demand() const {return option||command?0:(shift&&!blockShift?1:0)-(control&&!blockControl?1:0);}
+};
 // macOS hardware key codes. W/S and A/D control pitch and yaw; arrows
 // retain the forward/back and side translation inputs previously on WASD.
 inline Input flightKeyboardInput(const std::array<bool,256> &held){

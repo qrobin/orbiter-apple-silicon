@@ -62,6 +62,7 @@ struct GpuGroup { id<MTLBuffer> vertices,indices; NSUInteger count; size_t mater
 @public
     Flight flight;
     std::array<bool,256> held;
+    ModifierThrottle throttleModifiers;
     double fps,cpuMs,gpuMs,cockpitYaw,cockpitPitch;
     OrbitCamera externalCamera;
     CockpitCamera cockpitCamera;
@@ -130,6 +131,7 @@ struct GpuGroup { id<MTLBuffer> vertices,indices; NSUInteger count; size_t mater
 - (void)skipToBurn:(id)sender;
 - (void)toggleHelp:(id)sender;
 - (void)clearInput;
+- (void)updateModifierThrottle:(NSEvent *)event;
 - (void)cycleWeather:(id)sender;
 - (void)startBodyOrbit:(NSMenuItem *)sender;
 - (void)setWeather:(NSMenuItem *)sender;
@@ -217,7 +219,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     NSString *burn=burnCountdown(v);
     bool parkingNotice=f.glider.parkingBrake&&f.altitude()<1000;
     [panel setFill];NSRectFill(NSMakeRect(0,0,w,28));
-    text(@"+ / − Throttle   X Cut   M Systems   V View   F1 Help",18,8,11,muted);
+    text(@"Shift / Ctrl Throttle   X Cut   M Systems   C View   F1 Help",18,8,11,muted);
     NSString *state=v->burnSkip.running()?@"SKIPPING":f.paused?@"PAUSED":@"FLIGHT";
     text([NSString stringWithFormat:@"%@  ·  %.0f×  ·  T+ %.0f s",state,f.warp,f.elapsed],w-505,8,11,ink,YES);
     text([simulationDate(f.mjd+f.elapsed/86400.) stringByAppendingString:@" UTC"],w-213,8,11,muted,YES);
@@ -235,7 +237,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     notice(message,18,noticeY,std::max(0.,w-360),ink);
     if(burn)notice(burn,w-320,noticeY,302,ink);
     if(!warning.empty())notice([NSString stringWithUTF8String:warning.c_str()],18,noticeY+26,w-36,[NSColor colorWithRed:1 green:.72 blue:.36 alpha:1]);
-    if(parkingNotice)notice(@"PARKING BRAKE SET · Shift-W releases · , / . wheel brakes",18,noticeY+(!warning.empty()?52:26),w-36,[NSColor colorWithRed:1 green:.78 blue:.43 alpha:1]);
+    if(parkingNotice)notice(@"PARKING BRAKE SET · Option-W releases · , / . wheel brakes",18,noticeY+(!warning.empty()?52:26),w-36,[NSColor colorWithRed:1 green:.78 blue:.43 alpha:1]);
     if(f.impacted) {
         text(@"Hard impact — press ⌘R to restart",w*.5-170,h*.63,18,[NSColor orangeColor]);
     }
@@ -324,7 +326,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         CGFloat bw=620,bh=534,x=(w-bw)/2,y=(h-bh)/2;
         [panel setFill]; NSRectFill(NSMakeRect(x,y,bw,bh));
         text(@"Flight controls",x+24,y+bh-44,23,white);
-        NSArray<NSString *> *rows=@[@"+ / −      Increase / decrease main throttle",@"X          Cut main, hover and retro engines",@"W/S A/D    Pitch down/up and yaw    ·    Q / E  Roll",@"↑/↓ ←/→ Z/J   RCS forward/side/vertical",@"P / O      Prograde / retrograde assist",@"; / '      Normal / anti-normal    ·    Shift-L  Horizon level",@"K / N      Kill rotation / manual control",@"Ctrl-H / Option-H   Cycle HUD mode / colour",@"T / R      Increase / decrease time acceleration",@"[ / ]      Decrease / increase hover throttle",@", / .      Hold left / right wheel brake",@"Shift-W    Toggle parking brake",@"F5/F6/F7   Hover attitude / hold altitude / zero climb",@"M / V      Glider systems / cycle camera views",@"F8         Cycle external tracking frames",@"F4         Original TransX MFD / navigation controls",@"G C F B    Gear / nose / radiator / airbrake",@"H L U I    Hatch / ladder / retro covers / airlock",@"Drag       Look around / rotate TransX graph    ·    Scroll  Zoom",@"Space      Pause    ·    ⌘R  Restart    ·    F2  Diagram",@"⌘O / ⌘S    Open / save scenario    ·    F1  Close help"];
+        NSArray<NSString *> *rows=@[@"Shift / Ctrl  Increase / decrease main throttle",@"X          Cut main, hover and retro engines",@"W/S A/D    Pitch down/up and yaw    ·    Q / E  Roll",@"↑/↓ ←/→ Z/J   RCS forward/side/vertical",@"P / O      Prograde / retrograde assist",@"; / '      Normal / anti-normal    ·    Option-L  Horizon level",@"K / N      Kill rotation / manual control",@"Option-H / Option-Shift-H   HUD mode / colour",@"T / R      Increase / decrease time acceleration",@"[ / ]      Decrease / increase hover throttle",@", / .      Hold left / right wheel brake",@"Option-W    Toggle parking brake",@"F5/F6/F7   Hover attitude / hold altitude / zero climb",@"M / C      Glider systems / cycle camera views",@"F8         Cycle external tracking frames",@"F4         Original TransX MFD / navigation controls",@"G / Option-C / F / B    Gear / nose / radiator / airbrake",@"H L U I    Hatch / ladder / retro covers / airlock",@"Drag       Look around / rotate TransX graph    ·    Scroll  Zoom",@"Space      Pause    ·    ⌘R  Restart    ·    F2  Diagram",@"⌘O / ⌘S    Open / save scenario    ·    F1  Close help"];
         for(NSUInteger i=0;i<rows.count;++i) text(rows[i],x+24,y+bh-81-i*20,13,ink,YES);
     }
 }
@@ -452,7 +454,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     [self updateCockpitDisplays];previous=begin=CACurrentMediaTime(); return self;
 }
 - (BOOL)acceptsFirstResponder { return YES; }
-- (void)clearInput { held.fill(false);haveDragPoint=false;activeCockpitControl=-1;activeCockpitDirection=0;[self.panel2D cancelInteraction]; }
+- (void)clearInput { held.fill(false);throttleModifiers=ModifierThrottle{};haveDragPoint=false;activeCockpitControl=-1;activeCockpitDirection=0;[self.panel2D cancelInteraction]; }
 - (void)viewDidMoveToWindow { [super viewDidMoveToWindow]; [self.window makeFirstResponder:self]; }
 - (void)mtkView:(MTKView *)view drawableSizeWillChange:(CGSize)size {}
 - (void)drawInMTKView:(MTKView *)view {
@@ -460,14 +462,15 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     CFTimeInterval start=CACurrentMediaTime(),dt=start-previous; previous=start;
     if(dt<=0) return;
     Input input=flightKeyboardInput(held);
-    if(burnSkip.running()&&(input.pitch||input.yaw||input.roll||input.translate||input.lateral||input.vertical||
+    int throttleDemand=throttleModifiers.demand();
+    if(burnSkip.running()&&(input.pitch||input.yaw||input.roll||input.translate||input.lateral||input.vertical||throttleDemand||
        held[30]||held[33]||held[24]||held[27]||held[69]||held[78])){
         burnSkip.cancel(flight);status=@"Skip cancelled by manual control · paused";
     }
     if(held[30]) flight.setHoverThrottle(flight.glider.hover+dt*.35);
     if(held[33]) flight.setHoverThrottle(flight.glider.hover-dt*.35);
-    if(held[24]||held[69]) flight.setMainThrottle(flight.throttle+dt*.4);
-    if(held[27]||held[78]) flight.setMainThrottle(flight.throttle-dt*.4);
+    int increase=held[24]||held[69]||throttleDemand>0,decrease=held[27]||held[78]||throttleDemand<0;
+    if(increase!=decrease)flight.setMainThrottle(flight.throttle+dt*.4*(increase?1:-1));
     if((input.pitch||input.yaw||input.roll)&&flight.glider.rcsMode!=2) flight.clearAssist();
     if(smokeFrames&&rcsDemo){input.pitch=.3;input.yaw=-.15;input.roll=.2;flight.clearAssist();}
     if(activeCockpitControl==62){flight.hud.adjustBrightness(activeCockpitDirection*dt*.3);self.hud.needsDisplay=YES;}
@@ -841,15 +844,20 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     if([panel runModal]==NSModalResponseOK) { try { flight.save(panel.URL.fileSystemRepresentation);[self saveTransXScenario:panel.URL.path]; status=@"Flight saved"; } catch(const std::exception &e) { [self showError:e.what()]; } }
     flight.paused=wasPaused; previous=CACurrentMediaTime();
 }
+- (void)updateModifierThrottle:(NSEvent *)event {
+    auto flags=event.modifierFlags;throttleModifiers.update(flags&NSEventModifierFlagShift,flags&NSEventModifierFlagControl,flags&NSEventModifierFlagOption,flags&NSEventModifierFlagCommand);
+}
+- (void)flagsChanged:(NSEvent *)event {[self updateModifierThrottle:event];}
 - (void)keyDown:(NSEvent *)event {
     if(smokeFrames) return;
+    [self updateModifierThrottle:event];
     if(event.modifierFlags&NSEventModifierFlagCommand) { [super keyDown:event]; return; }
     unsigned code=event.keyCode; if(code<held.size()) held[code]=true;
-    if(code==13&&(event.modifierFlags&NSEventModifierFlagShift)) {held[code]=false;if(!event.isARepeat)[self toggleParkingBrake:nil];return;}
+    if(code==13&&(event.modifierFlags&NSEventModifierFlagOption)) {held[code]=false;if(!event.isARepeat)[self toggleParkingBrake:nil];return;}
     if(event.isARepeat) return;
     switch(code) {
         case 49:[self pauseFlight:nil];break;
-        case 7:flight.cutEngines();break; // X
+        case 7:throttleModifiers.inhibit();flight.cutEngines();break; // X
         case 35:[self selectNavButton:2];break;
         case 31:[self selectNavButton:1];break;
         case 40:[self selectNavButton:0];break;
@@ -861,12 +869,12 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         case 9:[self cycleView:nil];break;
         case 46:[self showSystems:nil];break;
         case 5:flight.glider.toggle(Part::Gear);break;
-        case 8:flight.glider.toggle(Part::Nose);break;
-        case 11:if(event.modifierFlags&NSEventModifierFlagShift) flight.glider.command(Part::Airbrake,std::max(0.,flight.glider.part(Part::Airbrake).target-.5)); else flight.glider.command(Part::Airbrake,std::min(1.,flight.glider.part(Part::Airbrake).target+.5));break;
-        case 4:if(event.modifierFlags&NSEventModifierFlagOption)[self cycleHudColour:nil];else if(event.modifierFlags&NSEventModifierFlagControl)flight.hud.cycleMode();else flight.glider.toggle(Part::Hatch);break;
+        case 8:if(event.modifierFlags&NSEventModifierFlagOption)flight.glider.toggle(Part::Nose);else [self cycleView:nil];break;
+        case 11:if(event.modifierFlags&NSEventModifierFlagOption) flight.glider.command(Part::Airbrake,std::max(0.,flight.glider.part(Part::Airbrake).target-.5)); else flight.glider.command(Part::Airbrake,std::min(1.,flight.glider.part(Part::Airbrake).target+.5));break;
+        case 4:if(event.modifierFlags&NSEventModifierFlagOption){if(event.modifierFlags&NSEventModifierFlagShift)[self cycleHudColour:nil];else flight.hud.cycleMode();}else flight.glider.toggle(Part::Hatch);break;
         case 3:flight.glider.toggle(Part::Radiator);break;
-        case 37:if(event.modifierFlags&NSEventModifierFlagShift)[self selectNavButton:5];else if(!flight.glider.toggle(Part::Ladder)) status=@"Open the nose cone fully before extending the ladder";break;
-        case 34:flight.glider.toggle(event.modifierFlags&NSEventModifierFlagShift?Part::InnerLock:Part::OuterLock);break;
+        case 37:if(event.modifierFlags&NSEventModifierFlagOption)[self selectNavButton:5];else if(!flight.glider.toggle(Part::Ladder)) status=@"Open the nose cone fully before extending the ladder";break;
+        case 34:flight.glider.toggle(event.modifierFlags&NSEventModifierFlagOption?Part::InnerLock:Part::OuterLock);break;
         case 32:flight.glider.toggle(Part::RetroCover);break;
         case 96:[self toggleHoverAttitude:nil];break;
         case 97:[self holdCurrentAltitude:nil];break;
@@ -938,7 +946,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
 }
 - (void)cycleWeather:(id)sender {visuals.weather=(visuals.weather+1)%5;status=[NSString stringWithFormat:@"Weather: %@ · F3 changes weather",[visuals weatherName]];self.hud.needsDisplay=YES;}
 - (void)setWeather:(NSMenuItem *)sender {visuals.weather=sender.tag;status=[NSString stringWithFormat:@"Weather: %@",[visuals weatherName]];self.hud.needsDisplay=YES;}
-- (void)keyUp:(NSEvent *)event { if(event.keyCode<held.size()) held[event.keyCode]=false; }
+- (void)keyUp:(NSEvent *)event { [self updateModifierThrottle:event];if(event.keyCode<held.size()) held[event.keyCode]=false; }
 - (void)mouseDown:(NSEvent *)event {
     [self.window makeFirstResponder:self];activeCockpitControl=-1;lastDragPoint=event.locationInWindow;haveDragPoint=true;
     if(!cockpit||smokeFrames)return;
@@ -1065,12 +1073,12 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         NSMenuItem *ground=[cameraMenu addItemWithTitle:@"Ground Observer" action:@selector(chooseExternalCamera:) keyEquivalent:@""];ground.target=self.view;ground.tag=(NSInteger)ExternalCameraMode::GroundObserver;
         NSMenuItem *navItem=[NSMenuItem new];navItem.title=@"Navigation";[main addItem:navItem];NSMenu *nav=[NSMenu new];navItem.submenu=nav;
         NSMenuItem *programs=[nav addItemWithTitle:@"RCS Programs" action:nil keyEquivalent:@""];NSMenu *programMenu=[NSMenu new];programs.submenu=programMenu;
-        NSArray<NSString *> *programNames=@[@"Kill Rotation (K)",@"Retrograde (O)",@"Prograde (P)",@"Anti-normal (')",@"Normal (;)",@"Horizon Level (Shift-L)",@"Align Selected Burn"];
+        NSArray<NSString *> *programNames=@[@"Kill Rotation (K)",@"Retrograde (O)",@"Prograde (P)",@"Anti-normal (')",@"Normal (;)",@"Horizon Level (Option-L)",@"Align Selected Burn"];
         for(int i=0;i<7;++i){NSMenuItem *item=[programMenu addItemWithTitle:programNames[i] action:@selector(chooseNavProgram:) keyEquivalent:@""];item.target=self.view;item.tag=i;}
         NSMenuItem *hudMenuItem=[nav addItemWithTitle:@"HUD Mode" action:nil keyEquivalent:@""];NSMenu *hudMenu=[NSMenu new];hudMenuItem.submenu=hudMenu;
         NSArray<NSString *> *hudNames=@[@"Orbit",@"Surface",@"Docking"];
         for(int i=0;i<3;++i){NSMenuItem *item=[hudMenu addItemWithTitle:hudNames[i] action:@selector(chooseHudMode:) keyEquivalent:@""];item.target=self.view;item.tag=i+1;}
-        NSMenuItem *colour=[hudMenu addItemWithTitle:@"Cycle HUD Colour (Option-H)" action:@selector(cycleHudColour:) keyEquivalent:@""];colour.target=self.view;
+        NSMenuItem *colour=[hudMenu addItemWithTitle:@"Cycle HUD Colour (Option-Shift-H)" action:@selector(cycleHudColour:) keyEquivalent:@""];colour.target=self.view;
         for(int sign:{-1,1}){NSMenuItem *item=[hudMenu addItemWithTitle:sign<0?@"Decrease Brightness":@"Increase Brightness" action:@selector(adjustHudBrightness:) keyEquivalent:@""];item.target=self.view;item.tag=sign;}
         NSMenuItem *planner=[nav addItemWithTitle:@"TransX… (F4)" action:@selector(showNavigation:) keyEquivalent:@"t"];planner.keyEquivalentModifierMask=NSEventModifierFlagCommand|NSEventModifierFlagShift;planner.target=self.view;
         NSMenuItem *routePlanner=[nav addItemWithTitle:@"Route Planner…" action:@selector(showRoutePlanner:) keyEquivalent:@"r"];routePlanner.keyEquivalentModifierMask=NSEventModifierFlagCommand|NSEventModifierFlagShift;routePlanner.target=self.view;

@@ -18,5 +18,12 @@ int main(){try{
     keys={};keys[123]=true;check(flightKeyboardInput(keys).lateral==-1,"Left arrow translates left");
     keys={};keys[124]=true;check(flightKeyboardInput(keys).lateral==1,"Right arrow translates right");
     keys={};keys[12]=true;keys[6]=true;check(flightKeyboardInput(keys).roll==1&&flightKeyboardInput(keys).vertical==1,"Roll and vertical translation remain available");
+    ModifierThrottle throttle;throttle.update(true,false,false,false);check(throttle.demand()==1,"Shift increases main throttle");
+    throttle.update(false,true,false,false);check(throttle.demand()==-1,"Control decreases main throttle");
+    throttle.update(true,true,false,false);check(throttle.demand()==0,"Opposite throttle modifiers cancel");
+    throttle.update(true,false,true,false);check(throttle.demand()==0,"Option shortcuts cannot command throttle");
+    throttle.update(true,false,false,true);check(throttle.demand()==0,"Command shortcuts cannot command throttle");
+    throttle.update(true,false,false,false);throttle.inhibit();check(throttle.demand()==0,"Cutoff latches a held throttle key");
+    throttle.update(false,false,false,false);throttle.update(true,false,false,false);check(throttle.demand()==1,"Releasing and pressing Shift re-enables throttle");
     std::cout<<"flight keyboard controls verified\n";return 0;
 }catch(const std::exception &e){std::cerr<<e.what()<<'\n';return 1;}}

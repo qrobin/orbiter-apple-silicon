@@ -77,7 +77,7 @@ Open `Orbiter Native.app`. Press **M** for the native systems panel, or use **Fl
 
 Choose **Flight → Mechanism Demonstration** to watch gear, nose, retro covers, airbrakes, radiator and escape ladder deploy with the original staged animation timing at 10× simulation time. The ladder waits for the nose cone to finish opening. Press **R** to return to the normal orbital scenario.
 
-Press **V** to cycle through external view, the original 3D cockpit and the original 2D instrument-panel view. The **Flight** menu also selects each view. In the 3D cockpit, drag to look around and scroll up to zoom toward the cursor; scroll down to zoom out. The pilot body, head and visor are hidden from the pilot's camera. Thirty-two original click regions (30 quadrilaterals and two spherical buttons) operate supported switches, gear/nose/airbrake levers, main and hover throttles, RCS selector, trim and gimbal controls. Sixteen switch handles rotate about their original pivots; the original main/hover throttle, gear and nose lever animations are connected. The original hover dial, spring switches, hold/mode buttons, balance pointers and small numeric hover readout are also connected. Click-and-drag the main or hover throttle to adjust it. **M** provides larger accessible controls for the same systems.
+Press **C** (or **V**) to cycle through external view, the original 3D cockpit and the original 2D instrument-panel view. The **Flight** menu also selects each view. In the 3D cockpit, drag to look around and scroll up to zoom toward the cursor; scroll down to zoom out. The pilot body, head and visor are hidden from the pilot's camera. Thirty-two original click regions (30 quadrilaterals and two spherical buttons) operate supported switches, gear/nose/airbrake levers, main and hover throttles, RCS selector, trim and gimbal controls. Sixteen switch handles rotate about their original pivots; the original main/hover throttle, gear and nose lever animations are connected. The original hover dial, spring switches, hold/mode buttons, balance pointers and small numeric hover readout are also connected. Click-and-drag the main or hover throttle to adjust it. **M** provides larger accessible controls for the same systems.
 
 The 2D view uses the original `dg_panel.dds` main-panel artwork and original MFD/button positions. Both displays mirror their cockpit counterparts; their TransX buttons and graph dragging work in either view. Main/retro and hover throttles, gear, nose, airbrake, trim, RCS mode, hover attitude and hover hold are connected. The main levers control both engines together in the native flight model. The attitude and heading underlays show live flight data; other original panel instruments and switches are not all connected yet.
 
@@ -85,7 +85,7 @@ The 3D cockpit HUD is rendered on the original transparent combiner surface, so 
 
 The cockpit has live native surface/orbit and propulsion displays on the original MFD meshes. These are new native displays, not the full Orbiter MFD implementation. Original analog instruments and other cockpit buttons are not all connected.
 
-Choose **Flight → Cape Canaveral — Surface Flight** to start parked at the original scenario location with low fuel, gear deployed, RCS off and parking brake set. **Shift-W** releases the parking brake; hold **,** and **.** for left/right wheel brakes. Use **[ / ]** to lower/raise hover throttle. **M** has the equivalent parking-brake switch and hover slider. Around 95% hover thrust lifts this light configuration; keep the gear down while learning. Automatic hover attitude is enabled in this starting scenario. Use **M** to select Off / Auto / Manual attitude modes and altitude / vertical speed hold.
+Choose **Flight → Cape Canaveral — Surface Flight** to start parked at the original scenario location with low fuel, gear deployed, RCS off and parking brake set. **Option-W** releases the parking brake; hold **,** and **.** for left/right wheel brakes. Use **[ / ]** to lower/raise hover throttle. **M** has the equivalent parking-brake switch and hover slider. Around 95% hover thrust lifts this light configuration; keep the gear down while learning. Automatic hover attitude is enabled in this starting scenario. Use **M** to select Off / Auto / Manual attitude modes and altitude / vertical speed hold.
 
 The HUD and left cockpit display automatically show surface altitude, ground-relative speed, vertical speed, heading, pitch and bank below 120 km. The external orbit diagram becomes a surface attitude indicator. Select **Flight → Earth Orbit** to return to the orbital starting scenario. **Command-R** restarts the scenario most recently selected or opened.
 
@@ -151,10 +151,11 @@ The native animation registry contains **63 components extracted from upstream s
 | F8 | Cycle target-relative, absolute-direction and global-frame external cameras |
 | [ / ] | Decrease / increase hover throttle |
 | , / . | Hold left / right wheel brake; hold both to stop |
-| Shift-W | Toggle parking brake |
-| V | Cycle external / 3D cockpit / 2D instrument panel |
+| Option-W | Toggle parking brake |
+| C / V | Cycle external / 3D cockpit / 2D instrument panel |
 | Drag / scroll | Orbit external camera or look around cockpit; scroll to zoom |
 | Drag / double-click TransX graph | Rotate its projection / reset it |
+| Shift / Control | Increase / decrease main throttle while held |
 | + / − or keypad + / − | Increase / decrease main throttle |
 | X | Cut main, hover and retro engines |
 | W / S | Pitch nose down / up; vertical jets in RCS translation mode |
@@ -165,17 +166,17 @@ The native animation registry contains **63 components extracted from upstream s
 | Z / J | Up / down RCS translation |
 | P / O | Prograde / retrograde assist |
 | ; / ' | Normal / anti-normal assist |
-| Shift-L | Horizon-level assist |
+| Option-L | Horizon-level assist |
 | K / N | Kill rotation / manual attitude |
-| Ctrl-H / Option-H | Cycle HUD mode / colour |
+| Option-H / Option-Shift-H | Cycle HUD mode / colour |
 | G | Toggle landing gear |
-| C | Toggle nose cone |
+| Option-C | Toggle nose cone |
 | L | Toggle escape ladder |
 | U | Toggle retro covers |
-| B / Shift-B | Extend / retract airbrake by one half-step |
+| B / Option-B | Extend / retract airbrake by one half-step |
 | F | Toggle radiator |
 | H | Toggle top hatch |
-| I / Shift-I | Toggle outer / inner airlock |
+| I / Option-I | Toggle outer / inner airlock |
 | T / R | Increase / decrease time acceleration |
 | Space | Pause / resume |
 | Command-R | Restart the current scenario |

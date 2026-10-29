@@ -81,7 +81,7 @@
     warning.textColor=[NSColor colorWithRed:1 green:.72 blue:.36 alpha:1];
     label(@"Mechanisms follow simulation time. M opens this panel.",18,1402,390,11);
     for(NSView *item in doc.subviews) if(item!=summary) {NSRect frame=item.frame;frame.origin.y+=424;item.frame=frame;}
-    parkingBrake=[NSButton checkboxWithTitle:@"Parking brake  (Shift-W)" target:self action:@selector(changeParkingBrake:)];
+    parkingBrake=[NSButton checkboxWithTitle:@"Parking brake  (Option-W)" target:self action:@selector(changeParkingBrake:)];
     parkingBrake.frame=NSMakeRect(18,43,384,24);[doc addSubview:parkingBrake];
     label(@"Hold , / . for left/right brakes. [ / ] changes hover thrust.",18,76,390,11);
     section(@"Hover control",112);
