@@ -155,10 +155,11 @@ The native animation registry contains **63 components extracted from upstream s
 | Drag / double-click TransX graph | Rotate its projection / reset it |
 | + / − or keypad + / − | Increase / decrease main throttle |
 | X | Cut main, hover and retro engines |
-| Arrow keys | Pitch/yaw in RCS rotation mode; vertical/lateral jets in translation mode |
+| W / S | Pitch nose down / up; vertical jets in RCS translation mode |
+| A / D | Yaw left / right; lateral jets in RCS translation mode |
 | Q / E | Roll in rotation mode |
-| W / S | Forward / backward RCS translation |
-| A / D | Left / right RCS translation |
+| Up / down arrows | Forward / backward RCS translation |
+| Left / right arrows | Left / right RCS translation |
 | Z / J | Up / down RCS translation |
 | P / O | Prograde / retrograde assist |
 | ; / ' | Normal / anti-normal assist |

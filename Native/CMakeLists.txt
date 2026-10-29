@@ -84,6 +84,10 @@ target_link_libraries(EarthRenderTests PRIVATE "-framework Cocoa" "-framework Me
 add_test(NAME Native.EarthMetal COMMAND EarthRenderTests)
 set_tests_properties(Native.EarthMetal PROPERTIES SKIP_RETURN_CODE 77)
 
+add_executable(KeyboardTests Tests/KeyboardTests.cpp)
+target_link_libraries(KeyboardTests PRIVATE OrbiterFlightCore)
+add_test(NAME Native.Keyboard COMMAND KeyboardTests)
+
 add_executable(AtmosphericPanelTests Tests/AtmosphericPanelTests.mm)
 target_compile_options(AtmosphericPanelTests PRIVATE -fobjc-arc)
 target_compile_definitions(AtmosphericPanelTests PRIVATE ORBITER_TEST_DATA="${PROJECT_SOURCE_DIR}")

@@ -8,6 +8,7 @@
 #include "TransX/BurnSkip.h"
 #include "Mesh.h"
 #include "Cockpit.h"
+#include "Keyboard.h"
 #include "Surface.h"
 #include "Base.h"
 #include "Camera.h"
@@ -316,7 +317,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         CGFloat bw=620,bh=534,x=(w-bw)/2,y=(h-bh)/2;
         [panel setFill]; NSRectFill(NSMakeRect(x,y,bw,bh));
         text(@"Flight controls",x+24,y+bh-44,23,white);
-        NSArray<NSString *> *rows=@[@"+ / −      Increase / decrease main throttle",@"X          Cut main, hover and retro engines",@"↑ ↓ ← →    Pitch and yaw    ·    Q / E  Roll",@"W/S A/D Z/J   RCS forward/side/vertical",@"P / O      Prograde / retrograde assist",@"; / '      Normal / anti-normal    ·    Shift-L  Horizon level",@"K / N      Kill rotation / manual control",@"Ctrl-H / Option-H   Cycle HUD mode / colour",@"T / R      Increase / decrease time acceleration",@"[ / ]      Decrease / increase hover throttle",@", / .      Hold left / right wheel brake",@"Shift-W    Toggle parking brake",@"F5/F6/F7   Hover attitude / hold altitude / zero climb",@"M / V      Glider systems / cycle camera views",@"F8         Cycle external tracking frames",@"F4         Original TransX MFD / navigation controls",@"G C F B    Gear / nose / radiator / airbrake",@"H L U I    Hatch / ladder / retro covers / airlock",@"Drag       Look around / rotate TransX graph    ·    Scroll  Zoom",@"Space      Pause    ·    ⌘R  Restart    ·    F2  Diagram",@"⌘O / ⌘S    Open / save scenario    ·    F1  Close help"];
+        NSArray<NSString *> *rows=@[@"+ / −      Increase / decrease main throttle",@"X          Cut main, hover and retro engines",@"W/S A/D    Pitch down/up and yaw    ·    Q / E  Roll",@"↑/↓ ←/→ Z/J   RCS forward/side/vertical",@"P / O      Prograde / retrograde assist",@"; / '      Normal / anti-normal    ·    Shift-L  Horizon level",@"K / N      Kill rotation / manual control",@"Ctrl-H / Option-H   Cycle HUD mode / colour",@"T / R      Increase / decrease time acceleration",@"[ / ]      Decrease / increase hover throttle",@", / .      Hold left / right wheel brake",@"Shift-W    Toggle parking brake",@"F5/F6/F7   Hover attitude / hold altitude / zero climb",@"M / V      Glider systems / cycle camera views",@"F8         Cycle external tracking frames",@"F4         Original TransX MFD / navigation controls",@"G C F B    Gear / nose / radiator / airbrake",@"H L U I    Hatch / ladder / retro covers / airlock",@"Drag       Look around / rotate TransX graph    ·    Scroll  Zoom",@"Space      Pause    ·    ⌘R  Restart    ·    F2  Diagram",@"⌘O / ⌘S    Open / save scenario    ·    F1  Close help"];
         for(NSUInteger i=0;i<rows.count;++i) text(rows[i],x+24,y+bh-81-i*20,13,ink,YES);
     }
 }
@@ -449,10 +450,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     @autoreleasepool {
     CFTimeInterval start=CACurrentMediaTime(),dt=start-previous; previous=start;
     if(dt<=0) return;
-    Input input; input.pitch=(held[125]?1.:0)-(held[126]?1.:0); input.yaw=(held[124]?1.:0)-(held[123]?1.:0);
-    input.roll=(held[12]?1.:0)-(held[14]?1.:0); input.translate=(held[13]?1.:0)-(held[1]?1.:0);
-    input.lateral=(held[2]?1.:0)-(held[0]?1.:0); input.vertical=(held[6]?1.:0)-(held[38]?1.:0);
-    input.leftBrake=held[43]?1:0;input.rightBrake=held[47]?1:0;
+    Input input=flightKeyboardInput(held);
     if(burnSkip.running()&&(input.pitch||input.yaw||input.roll||input.translate||input.lateral||input.vertical||
        held[30]||held[33]||held[24]||held[27]||held[69]||held[78])){
         burnSkip.cancel(flight);status=@"Skip cancelled by manual control · paused";
