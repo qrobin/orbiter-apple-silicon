@@ -56,6 +56,14 @@ int main(){try{
     check(session.enterValue(0,"0"),"Native numeric entry accepts literal zero");session.frame(0);
     check(session.enterValue(0,"500"),"Original maneuver value restored");session.frame(0);VECTOR3 direction;
     check(session.maneuverDirection(0,direction)&&std::isfinite(length(direction)),"RCS alignment direction comes from the original Target-view vector");
+    check(session.selectVariable(0,"Man. date")&&session.enterValue(0,"2001-04-10 12:34:56"),"TransX accepts a UTC calendar maneuver date");
+    auto dateFrame=session.frame(0);check(words(dateFrame).find("2001-04-10 12:34:56")!=std::string::npos,"The MFD displays the calendar date");
+    transx::StageInfo info;double calendar=0;check(transx::parseCalendarUTC("2001-04-10 12:34:56",calendar)&&
+        session.stageInfo(1,info)&&fabs(info.maneuver.date-calendar)<1e-9,"Calendar entry updates the original MJD maneuver value");
+    check(!session.enterValue(0,"2001-02-29 12:34:56"),"Invalid calendar dates are rejected");
+    check(session.enterValue(0,"52000.5")&&session.stageInfo(1,info)&&fabs(info.maneuver.date-52000.5)<1e-9,
+          "Original numeric MJD entry remains supported");
+    check(session.maneuverDirection(0,direction),"A maneuver direction remains available after changing the date");
     for(int i=0;i<5&&session.frame(0).view!=1;++i)session.button(0,3);
     auto targetBefore=session.frame(0);session.rotateGraph(0,80,50);auto targetAfter=session.frame(0);VECTOR3 rotatedDirection;
     check(targetBefore.view==1&&geometry(targetBefore)==geometry(targetAfter),"Graph rotation does not rotate the Target steering cue");

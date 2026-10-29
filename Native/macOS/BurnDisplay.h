@@ -9,5 +9,6 @@ static NSString *burnDuration(double seconds) {
     return days?[NSString stringWithFormat:@"%llud %02llu:%02llu:%02llu",days,hours,minutes,secs]:[NSString stringWithFormat:@"%02llu:%02llu:%02llu",hours,minutes,secs];
 }
 static NSString *burnTimingText(int stage,const native::transx::BurnTiming &timing) {
-    return [NSString stringWithFormat:@"STEP %d  T%@%@  ·  BURN ~%@%@",stage,timing.secondsToBurn>=0?@"−":@"+",burnDuration(fabs(timing.secondsToBurn)),burnDuration(timing.duration),timing.sufficientFuel?@"":@" · LOW FUEL"];
+    double ignition=timing.secondsToBurn-timing.duration*.5;
+    return [NSString stringWithFormat:@"STEP %d  IGN T%@%@  ·  BURN ~%@%@",stage,ignition>=0?@"−":@"+",burnDuration(fabs(ignition)),burnDuration(timing.duration),timing.sufficientFuel?@"":@" · LOW FUEL"];
 }

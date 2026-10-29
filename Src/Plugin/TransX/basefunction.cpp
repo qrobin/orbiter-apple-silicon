@@ -36,6 +36,16 @@
 
 extern double debug;
 
+#ifdef ORBITER_NATIVE
+static int nativeDateLabel(char *buffer,size_t size,const char *label,double mjd)
+{
+    char date[20];
+    if(native::transx::formatCalendarUTC(mjd,date,sizeof(date)))snprintf(buffer,size,"%s %s",label,date);
+    else snprintf(buffer,size,"%s MJD %.4g",label,mjd);
+    return (int)strlen(buffer);
+}
+#endif
+
 basefunction::basefunction(class transxstate *tstate, class basefunction *tpreviousfunc, OBJHANDLE thmajor, OBJHANDLE thminor,OBJHANDLE thcraft)
 : TransXFunction(tstate, thmajor, thminor,thcraft)
 {
@@ -971,8 +981,13 @@ void basefunction::doupdate(oapi::Sketchpad *sketchpad,int tw, int th,int viewmo
 				hpos+=linespacing;
 				double intercepttime=primary.gettimeintercept();
 				double arrmjd=oapiTime2MJD(intercepttime);
+#ifdef ORBITER_NATIVE
+                char dateLabel[40];int len=nativeDateLabel(dateLabel,sizeof(dateLabel),"Enc",arrmjd);
+                sketchpad->Text(wpos,hpos,dateLabel,len);
+#else
 				int len=snprintf(buffer, sizeof(buffer) - 1, "Enc. MJD %.4f", arrmjd);
 				sketchpad->Text(wpos, hpos, buffer, len);
+#endif
 			}
 		}
 		else
@@ -992,8 +1007,13 @@ void basefunction::doupdate(oapi::Sketchpad *sketchpad,int tw, int th,int viewmo
 				}
 				hpos+=linespacing;
 				char buffer[20]="";
+#ifdef ORBITER_NATIVE
+                char dateLabel[40];int length=nativeDateLabel(dateLabel,sizeof(dateLabel),"Pe",(craft.getpedeltatime()+craft.gettimestamp())/SECONDS_PER_DAY+simstartMJD);
+                sketchpad->Text(wpos,hpos,dateLabel,length);
+#else
 				int length=snprintf(buffer, sizeof(buffer) - 1, "Pe MJD:   %.4f",(craft.getpedeltatime()+craft.gettimestamp())/SECONDS_PER_DAY+simstartMJD);
 				sketchpad->Text(wpos,hpos,buffer, length);
+#endif
 				hpos+=linespacing;
 				VECTOR3 south = {0, -1, 0};
 				length = snprintf(buffer, sizeof(buffer) - 1, "Inc:      %.4g°", 180/PI*acos(cosangle(south, craft.getplanevector())));
@@ -1005,8 +1025,13 @@ void basefunction::doupdate(oapi::Sketchpad *sketchpad,int tw, int th,int viewmo
 				TextShow(sketchpad,"Hyp PeD ",wpos,hpos,hypormaj.getpedistance());
 				hpos+=linespacing;
 				double timeatped=(hypormaj.gettimestamp()+hypormaj.getpedeltatime())/SECONDS_PER_DAY+simstartMJD;
+#ifdef ORBITER_NATIVE
+                char dateLabel[40];int length=nativeDateLabel(dateLabel,sizeof(dateLabel),"Hyp Pe",timeatped);
+                sketchpad->Text(wpos,hpos,dateLabel,length);
+#else
 				int length=snprintf(buffer, sizeof(buffer) - 1, "H. Pe MJD %.2f", timeatped);
 				sketchpad->Text(wpos,hpos,buffer,length);
+#endif
 			}
 		}
 		if (viewmode==3 && planpointer!=NULL)

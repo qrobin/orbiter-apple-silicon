@@ -15,6 +15,7 @@
 #include "SolarSystem.h"
 #import "TransXDrawing.h"
 #import "BurnDisplay.h"
+#import "DateDisplay.h"
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #include <algorithm>
 #include <array>
@@ -180,10 +181,11 @@ static NSString *burnCountdown(FlightView *view) {
     auto &hover=f.glider.hoverControl;
     NSString *holdState=hover.holdActive?[NSString stringWithFormat:@"%@ %.1f",hover.holdMode==1?@"altitude hold":@"vertical speed hold",hover.holdMode==1?hover.altitudeTarget:hover.verticalSpeedTarget]:@"off";
     NSString *clock=burnCountdown(v)?:@"No planned burn";
-    if(f.altitude()<std::min(120000.,f.centralBody().radius*.02)) return [NSString stringWithFormat:@"%@, altitude %.1f metres, ground speed %.2f metres per second, vertical speed %+.1f, heading %.1f degrees, main throttle %.0f percent, hover %.0f percent, parking brake %@, fuel %.1f kg, hold %@, controls %@, %@",
-        f.paused?@"Paused":f.groundContact?@"On the ground":@"Flying",f.altitude(),f.groundSpeed,f.surfaceVerticalSpeed(),Deg(f.heading()),f.throttle*100,f.glider.hover*100,f.glider.parkingBrake?@"set":@"released",f.fuel,holdState,v->helpVisible?@"visible":@"hidden",clock];
-    return [NSString stringWithFormat:@"%@, altitude %.2f km, speed %.2f m/s, throttle %.0f percent, fuel %.1f kg, time acceleration %.0f, controls %@, %@",
-        v->flight.paused?@"Paused":v->flight.groundContact?@"On the ground":@"Flying",v->flight.altitude()/1000,v->flight.altitude()<std::min(120000.,v->flight.centralBody().radius*.02)?v->flight.groundSpeed:v->flight.velocity.length(),v->flight.throttle*100,v->flight.fuel,v->flight.warp,v->helpVisible?@"visible":@"hidden",clock];
+    NSString *date=simulationDate(f.mjd+f.elapsed/86400.);
+    if(f.altitude()<std::min(120000.,f.centralBody().radius*.02)) return [NSString stringWithFormat:@"%@, altitude %.1f metres, ground speed %.2f metres per second, vertical speed %+.1f, heading %.1f degrees, main throttle %.0f percent, hover %.0f percent, parking brake %@, fuel %.1f kg, hold %@, controls %@, %@ UTC, %@",
+        f.paused?@"Paused":f.groundContact?@"On the ground":@"Flying",f.altitude(),f.groundSpeed,f.surfaceVerticalSpeed(),Deg(f.heading()),f.throttle*100,f.glider.hover*100,f.glider.parkingBrake?@"set":@"released",f.fuel,holdState,v->helpVisible?@"visible":@"hidden",date,clock];
+    return [NSString stringWithFormat:@"%@, altitude %.2f km, speed %.2f m/s, throttle %.0f percent, fuel %.1f kg, time acceleration %.0f, controls %@, %@ UTC, %@",
+        v->flight.paused?@"Paused":v->flight.groundContact?@"On the ground":@"Flying",v->flight.altitude()/1000,v->flight.altitude()<std::min(120000.,v->flight.centralBody().radius*.02)?v->flight.groundSpeed:v->flight.velocity.length(),v->flight.throttle*100,v->flight.fuel,v->flight.warp,v->helpVisible?@"visible":@"hidden",date,clock];
 }
 - (NSView *)hitTest:(NSPoint)p { return nil; }
 - (void)drawRect:(NSRect)rect { [self paint:self.bounds]; }
@@ -208,14 +210,15 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     NSString *burn=burnCountdown(v);
     bool parkingNotice=f.glider.parkingBrake&&f.altitude()<1000;
     CGFloat headerHeight=parkingNotice?154:!warning.empty()?132:v->status.length?110:78;
-    if(burn)headerHeight=std::max(headerHeight,104.);
+    headerHeight=std::max(headerHeight,burn?128.:104.);
     [panel setFill];NSRectFill(NSMakeRect(0,h-headerHeight,w,headerHeight));
     NSRectFill(NSMakeRect(0,0,w,28));
     text(@"Orbiter",26,h-44,22,white);
     text([NSString stringWithFormat:@"Delta-glider  /  %s  /  %@",f.name.c_str(),bodyName],26,h-66,12,muted);
     text([NSString stringWithFormat:@"%@   ·   %.0f×   ·   T+ %.0f s",f.paused?@"PAUSED":@"FLIGHT",f.warp,f.elapsed],w-320,h-37,12,ink,YES);
     text([NSString stringWithFormat:@"Metal  ·  ARM64  ·  %.0f fps",v->fps],w-320,h-57,11,muted,YES);
-    if(burn)text(burn,w-320,h-80,11,ink,YES);
+    text([simulationDate(f.mjd+f.elapsed/86400.) stringByAppendingString:@" UTC"],w-320,h-80,11,muted,YES);
+    if(burn)text(burn,w-320,h-103,11,ink,YES);
     if(v->navigationStatus.length)text(v->navigationStatus,26,h-93,12,ink);
     else if(v->status.length) text(v->status,26,h-93,12,ink);
     if(!warning.empty()) text([NSString stringWithUTF8String:warning.c_str()],26,h-116,12,[NSColor colorWithRed:1 green:.72 blue:.36 alpha:1]);

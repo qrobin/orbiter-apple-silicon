@@ -54,7 +54,7 @@
     heading(@"Transfer",18,200,410);
     transferNote=label(@"Select a route to edit its transfer.",18,226,410,46,12);transferNote.textColor=NSColor.secondaryLabelColor;
     transferFields=[NSMutableArray new];burnFields=[NSMutableArray new];
-    NSArray *labels=@[@"Ejection date (MJD)",@"Prograde (m/s)",@"Outward (m/s)",@"Plane change (m/s)"];
+    NSArray *labels=@[@"Ejection date (UTC)",@"Prograde (m/s)",@"Outward (m/s)",@"Plane change (m/s)"];
     for(int i=0;i<4;++i){
         CGFloat x=18+(i%2)*202,y=280+(i/2)*58;
         label(labels[i],x,y,i==0?128:190,20,11);
@@ -72,7 +72,7 @@
     [steps setAccessibilityLabel:@"Selected maneuver step"];[doc addSubview:steps];
     burnNote=label(@"Choose a step, set its maneuver, and align using RCS. The main engines remain manual.",18,481,410,42,12);
     burnNote.textColor=NSColor.secondaryLabelColor;
-    NSArray *burnLabels=@[@"Burn date (MJD)",@"Prograde (m/s)",@"Outward (m/s)",@"Plane change (m/s)"];
+    NSArray *burnLabels=@[@"Burn date (UTC)",@"Prograde (m/s)",@"Outward (m/s)",@"Plane change (m/s)"];
     for(int i=0;i<4;++i){
         CGFloat x=18+(i%2)*202,y=530+(i/2)*58;
         label(burnLabels[i],x,y,i==0?128:190,20,11);
@@ -108,11 +108,12 @@
 }
 - (void)fillFields:(NSArray<NSTextField *> *)fields values:(const native::transx::RouteValues &)v {
     double values[]={v.date,v.prograde,v.outward,v.plane};
-    for(int i=0;i<4;++i)if(!fields[i].currentEditor)fields[i].stringValue=[NSString stringWithFormat:@"%.12g",values[i]];
+    for(int i=0;i<4;++i)if(!fields[i].currentEditor)fields[i].stringValue=i==0?simulationDate(values[i]):[NSString stringWithFormat:@"%.12g",values[i]];
 }
 - (BOOL)readFields:(NSArray<NSTextField *> *)fields values:(native::transx::RouteValues &)v {
     double values[4];
-    for(int i=0;i<4;++i){
+    if(!parseSimulationDate(fields[0].stringValue,values[0]))return NO;
+    for(int i=1;i<4;++i){
         NSString *s=[fields[i].stringValue stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
         const char *text=s.UTF8String;char *end=nullptr;values[i]=strtod(text,&end);
         if(!*text||end==text||*end||!std::isfinite(values[i]))return NO;
@@ -128,7 +129,7 @@
 - (void)updateControls {
     FlightView *v=flightView;if(!v||!v->transxSession)return;
     auto &session=*v->transxSession;
-    origin.stringValue=[NSString stringWithFormat:@"From: %s · MJD %.4f",v->flight.centralBody().name,v->flight.mjd+v->flight.elapsed/86400.];
+    origin.stringValue=[NSString stringWithFormat:@"From: %s",v->flight.centralBody().name];
     auto search=session.windowSearchStatus();BOOL searching=search.state==native::transx::SearchState::Running;
     BodyId previous=draftStops.count?(BodyId)draftStops.lastObject.integerValue:v->flight.reference;
     for(NSMenuItem *item in destination.itemArray)item.enabled=item.tag!=(NSInteger)previous;
@@ -210,13 +211,13 @@
         const auto &leg=*std::find_if(route.legs.begin(),route.legs.end(),[](const auto &item){return !item.escape;});
         NSString *source=result.source==1?@"transfer plan":result.source==2?@"burn maneuver":@"inherited orbit";
         approach.stringValue=[NSString stringWithFormat:@"%s closest approach",body(leg.next).name];
-        approachDetail.stringValue=[NSString stringWithFormat:@"%@ · %.0f km from center\nMJD %.4f · relative speed %.0f m/s\nTransX estimate; tune and verify before burning.",source,result.distance/1000.,result.mjd,result.relativeSpeed];
+        approachDetail.stringValue=[NSString stringWithFormat:@"%@ · %.0f km from center\n%@ UTC · relative speed %.0f m/s\nTransX estimate; tune and verify before burning.",source,result.distance/1000.,simulationDate(result.mjd),result.relativeSpeed];
     }else{
         approach.stringValue=route.targetStage?@"No encounter estimate yet":@"Escape to parent system";
         approachDetail.stringValue=route.targetStage?@"Apply transfer or burn settings to calculate an approach. The current route is not an automatic intercept.":@"There is no target encounter for this route.";
     }
     native::transx::BurnTiming timing;int selected=session.selectedStage();
-    burnNote.stringValue=session.stageTiming(selected,timing)?[NSString stringWithFormat:@"%@\n%@",burnTimingText(selected,timing),selected==1?@"Burn duration assumes full main thrust.":@"Align when this step becomes the current stage."]:@"Set this step's maneuver to show the burn countdown and duration.";
+    burnNote.stringValue=session.stageTiming(selected,timing)?[NSString stringWithFormat:@"%@\nIgnition centers a full-thrust burn on the maneuver time.",burnTimingText(selected,timing)]:@"Set this step's maneuver to show the burn countdown and duration.";
     VECTOR3 direction;align.enabled=!searching&&selected==1&&v->flight.rcs>0&&v->flight.assist!=Assist::Maneuver&&session.maneuverDirectionForStage(selected,direction);
     release.enabled=v->flight.assist==Assist::Maneuver;
 }
@@ -263,7 +264,7 @@
     FlightView *v=flightView;if(!v||!hasRoute)return;
     native::transx::RouteValues values;
     if(![self readFields:departure?burnFields:transferFields values:values]){
-        message.stringValue=@"Enter a finite number in each date and velocity field.";return;
+        message.stringValue=@"Enter a UTC date as YYYY-MM-DD HH:MM:SS and a finite number in each velocity field.";return;
     }
     bool accepted=departure?v->transxSession->setStageManeuver(v->transxSession->selectedStage(),values):v->transxSession->setRouteValues(route,false,values);
     if(!accepted){
@@ -278,8 +279,8 @@
 - (void)setTime:(NSButton *)sender {
     if(!flightView||!hasRoute)return;
     double mjd=flightView->flight.mjd+flightView->flight.elapsed/86400.+1./24.;
-    if(sender.tag==0){transferFields[0].stringValue=[NSString stringWithFormat:@"%.12g",mjd];transferDirty=YES;}
-    else{burnFields[0].stringValue=[NSString stringWithFormat:@"%.12g",mjd];burnDirty=YES;}
+    if(sender.tag==0){transferFields[0].stringValue=simulationDate(mjd);transferDirty=YES;}
+    else{burnFields[0].stringValue=simulationDate(mjd);burnDirty=YES;}
 }
 - (void)estimate:(id)sender {
     FlightView *v=flightView;double dv=0;if(!v||!hasRoute||!v->transxSession->routeHohmann(route,dv)){

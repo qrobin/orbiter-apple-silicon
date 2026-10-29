@@ -4,15 +4,17 @@ A partial native Apple Silicon port of the supplied Orbiter source. It includes 
 
 ## TransX
 
-Press **F4** (or **Fn-F4** when macOS uses the function key for a system action), or choose **Navigation → TransX…**. The module is compiled directly from `Src/Plugin/TransX`: its stage handling, orbit and encounter calculations, escape/encounter/slingshot plans, original plots, variable controls, help and serialization are reused. The earlier independent transfer planner and its Lambert implementation have been removed.
+Press **F4** (or **Fn-F4** when macOS uses the function key for a system action), or choose **Navigation → TransX…**. The module is compiled directly from `Src/Plugin/TransX`: its stage handling, orbit and encounter calculations, escape/encounter/slingshot plans, original plots, variable controls, help and serialization are reused.
 
 ### Route Planner
 
-Choose **Navigation → Route Planner…** or press **Command-Shift-R** for a simpler editor of the same TransX plan. Select a destination and choose **Create route**: the planner creates the necessary escape and target stages, such as Earth → Sun → Mars. This replaces the shared TransX plan; the original TransX window and both cockpit MFDs remain available. An existing compatible plan is picked up when the planner reopens, including after loading a saved scenario.
+Choose **Navigation → Route Planner…** or press **Command-Shift-R** for a simpler editor of the same TransX plan. Select a destination and choose **Create route**: the planner creates the necessary escape and target stages, such as Earth → Sun → Mars. To add intermediate destinations, select each body and press **Add stop**, then choose the final destination and press **Create route**. This replaces the shared TransX plan; the original TransX window and both cockpit MFDs remain available. An existing compatible plan is picked up when the planner reopens, including after loading a saved scenario.
 
-For a direct planetary transfer, use **Transfer** to set the TransX ejection date and velocity components. The velocity here is the planned departure velocity relative to the body being left, not the engine burn. **Use Hohmann estimate** supplies an approximate prograde starting value; apply it and tune the date and components while watching the original TransX graph and closest-approach estimate. The estimate indicates whether it comes from the transfer plan, the burn maneuver, or only the current orbit. **In 1 h** sets a date relative to the current simulation time. Dates use MJD and velocities use metres per second.
+**Find 1st window** samples departure dates and flight times, preferring the lowest estimated departure plus capture delta-v. It seeds candidates with Lambert transfers, corrects the departure against TransX's patched-conic escape, and applies the result only when TransX predicts an encounter above the target's modeled atmosphere. The search covers the first encounter, using a bound parking orbit and either a direct target or one escape into the parent system. Multiple escape stages and subsequent encounters need separate planning when they become current; the search does not globally optimize a multi-stop mission. Its result is an estimate among sampled windows, not a guarantee of the absolute minimum fuel, a landing, or sufficient onboard fuel. Atmospheric drag and finite-burn deviations can require corrections.
 
-Set the actual first-stage maneuver separately under **Departure burn** and choose **Apply burn**. Use the graph menu to compare the transfer, escape, and maneuver views. **Align with RCS** follows the original TransX maneuver direction; fire and stop the main engines yourself. The planner does not automatically solve an intercept or match the burn to the desired escape trajectory. Later encounters, slingshots, and routes with multiple escape stages may require further work in the original TransX window.
+Use **Transfer** to manually set the first TransX ejection date and velocity components; these describe the departure velocity relative to the body being left, not the engine burn. **Hohmann estimate** supplies an approximate prograde starting value for manual tuning. **In 1 h** sets a date relative to simulation time. Dates use `YYYY-MM-DD HH:MM:SS` in UTC; the flight display also shows the current simulation date. TransX date entry also accepts its original numeric MJD values. Velocities use metres per second.
+
+Under **Step burn**, select a TransX stage to edit its own maneuver and choose **Apply burn**. The **BURN** button in the virtual cockpit and 2D panel, **Align with RCS**, and **Navigation → RCS Programs → Align Selected Burn** turn the ship toward the selected maneuver when that stage is the current gravity reference. Fire and stop the main engines yourself. The flight display and planner show an **IGN** countdown and approximate full-thrust duration: ignition is estimated by centering the burn on the TransX maneuver time. A low-fuel warning appears if the estimated burn needs more propellant than remains. Future-step times and fuel estimates use the current vessel state and should be checked again later.
 
 The native window exposes the original twelve MFD actions with readable labels and tooltips. **Left MFD / Right MFD** keeps the two original view states separate. The variable menu jumps to an existing TransX variable; **Enter value** and **Apply value** use its original entry/validation path. Numeric expressions such as `100+`, `100-` and `x` retain their TransX meaning. Native entry also accepts literal zero and legal planet/moon names for the current stage. In the display, H/F/R/W, period/comma, brackets, =/−, X/E invoke the original MFD keys after clicking the display. **Return to flight** restores normal flight keyboard control.
 
@@ -26,7 +28,7 @@ Optional **Align with RCS** points at the same vector used by the original Trans
 
 Normal scenario saves include the original TransX status in a `TYPE TransX` MFD block. Opening the scenario restores it. New body/scenario starts reset the plan, while switching left/right views retains their separate view selection. The native host still supports one Delta-glider; general multi-vessel targeting, docking stacks, surface-base targets and other MFD/vessel modules are not ported. Flight uses the existing patched-conic simulation described below.
 
-Portability changes to TransX are limited to native host API bindings, drawing commands, header guards, native input handling, a return-value correction and a stable basis for perfectly circular native starts. Its navigation model and plan workflow remain upstream implementations. Author credits and the MIT/X11 license are included in the app.
+The native host adds platform bindings, drawing and input handling, per-stage maneuver access and an encounter seed for the window search. TransX's stage workflow and trajectory model remain in use. Author credits and the MIT/X11 license are included in the app.
 
 ## Solar System in 0.7
 
@@ -180,7 +182,7 @@ Requires Apple Silicon, macOS 13+, Xcode command-line tools and CMake 3.19+. The
 ./Native/build.sh --run
 ```
 
-Result: `build/macos-arm64/Native/Orbiter Native.app`. Set `ORBITER_NATIVE_BUILD_DIR` for another directory. The build runs the native flight, glider, surface, hover, exhaust, camera, Solar System and original TransX test suites and applies a local ad-hoc signature. Public notarization is not provided.
+Result: `build/macos-arm64/Native/Orbiter Native.app`. Set `ORBITER_NATIVE_BUILD_DIR` for another directory. The build runs all registered native CTest suites, including TransX, route planning and the window search, then applies a local ad-hoc signature. Public notarization is not provided.
 
 For a bounded rendering run:
 

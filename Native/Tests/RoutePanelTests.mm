@@ -4,6 +4,7 @@
 #include "SolarSystem.h"
 #import "TransXDrawing.h"
 #import "BurnDisplay.h"
+#import "DateDisplay.h"
 #include <array>
 #include <iostream>
 #include <stdexcept>
@@ -76,6 +77,14 @@ static int checks=0;
 static void check(bool ok,const char *message){++checks;if(!ok)throw std::runtime_error(message);}
 int main(){@autoreleasepool {try{
     [NSApplication sharedApplication];
+    double parsed=0;
+    check([simulationDate(51544.5) isEqualToString:@"2000-01-01 12:00:00"]&&
+          parseSimulationDate(@"2000-01-01 12:00:00",parsed)&&fabs(parsed-51544.5)<1e-9,
+          "MJD and UTC calendar dates round trip at the J2000 epoch");
+    check(parseSimulationDate(@"2000-02-29 12:34:56",parsed)&&
+          [simulationDate(parsed) isEqualToString:@"2000-02-29 12:34:56"]&&
+          !parseSimulationDate(@"2001-02-29 12:34:56",parsed)&&
+          !parseSimulationDate(@"2000-02-29 12:34:56 extra",parsed),"Calendar entry validates leap days and complete input");
     loadEphemerides(std::filesystem::path(ORBITER_TEST_DATA)/"Src/Celbody");
     FlightView *view=[[FlightView alloc] initWithFrame:NSMakeRect(0,0,800,600)];
     view->flight.load(std::filesystem::path(ORBITER_TEST_DATA)/"Scenarios/Delta-glider/DG Mk4 in orbit.scn");
@@ -105,7 +114,8 @@ int main(){@autoreleasepool {try{
     transx::RouteValues values;check(view->transxSession->routeValues(route,false,values),"Initial ejection values are available");
     [panel estimate:nil];check(fields[1].doubleValue>1000&&values.prograde==0,"Estimate fills a draft without changing the TransX plan");
     NSButton *time=[NSButton buttonWithTitle:@"In 1 h" target:nil action:nullptr];time.tag=1;[panel setTime:time];
-    check(fabs(fields[4].doubleValue-(view->flight.mjd+view->flight.elapsed/86400.+1./24.))<1e-6,"Time shortcut uses the simulation clock");
+    double shortcutDate=0;check(parseSimulationDate(fields[4].stringValue,shortcutDate)&&
+        fabs(shortcutDate-(view->flight.mjd+view->flight.elapsed/86400.+1./24.))<1./86400.,"Time shortcut displays the simulation clock in UTC");
     fields[1].stringValue=@"3000";
     [panel controlTextDidChange:[NSNotification notificationWithName:NSControlTextDidChangeNotification object:fields[1]]];
     [panel updateControls];check([fields[1].stringValue isEqualToString:@"3000"],"Refresh preserves an unapplied edit");
@@ -113,6 +123,10 @@ int main(){@autoreleasepool {try{
     check(view->transxSession->routeValues(route,false,values)&&fabs(values.prograde-3000)<.001,"Transfer is applied to TransX");
     fields[5].stringValue=@"nan";[panel applyBurn:nil];
     check(view->transxSession->routeValues(route,true,values)&&values.prograde==0,"Invalid input does not alter the burn");
+    NSString *date=fields[4].stringValue;fields[4].stringValue=@"2001-02-30 12:00:00";fields[5].stringValue=@"3500";
+    [panel applyBurn:nil];
+    check(view->transxSession->routeValues(route,true,values)&&values.prograde==0,"An invalid calendar date does not alter the burn");
+    fields[4].stringValue=date;
     fields[5].stringValue=@"3500";
     [panel controlTextDidChange:[NSNotification notificationWithName:NSControlTextDidChangeNotification object:fields[5]]];
     [panel applyBurn:nil];[panel updateControls];
@@ -128,6 +142,8 @@ int main(){@autoreleasepool {try{
     check(view->transxSession->stageInfo(1,later)&&fabs(later.maneuver.prograde-3500)<.001,"Switching steps preserves the first maneuver");
     transx::BurnTiming clock;check(view->transxSession->stageTiming(1,clock)&&[burnTimingText(1,clock) containsString:@"BURN ~"],
           "The selected maneuver has a countdown and full-thrust duration");
+    transx::BurnTiming example;example.secondsToBurn=100;example.duration=20;example.sufficientFuel=true;
+    check([burnTimingText(1,example) containsString:@"IGN T−00:01:30"],"Ignition countdown centers the estimated burn on the maneuver time");
     double fuel=view->flight.fuel,throttle=view->flight.throttle;[panel align:nil];
     check(view->flight.assist==Assist::Maneuver&&view->transxAlignDisplay==transx::Session::RouteDisplay,"Align engages departure RCS guidance");
     check(view->flight.fuel==fuel&&view->flight.throttle==throttle,"The planner never commands the main engines");

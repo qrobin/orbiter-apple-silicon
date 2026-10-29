@@ -155,6 +155,10 @@ protected:
 class MFDvarMJD: public MFDvarfloat {
 public:
 	bool show(oapi::Sketchpad *sketchpad, int width, int line);
+#ifdef ORBITER_NATIVE
+    virtual void enter_variable();
+    virtual bool SetVariableFloat(char *str);
+#endif
 	virtual void inc_variable(); // Increase the variable
 	virtual void dec_variable(); //Decrease the variable
 

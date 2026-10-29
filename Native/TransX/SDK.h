@@ -129,4 +129,6 @@ namespace native::transx {
 struct InputRequest{std::string prompt,initial;NativeTransXInputCallback callback=nullptr;void *data=nullptr;int maxLength=20;};
 void bind(const Flight *flight);
 InputRequest &pendingInput();
+bool formatCalendarUTC(double mjd,char *output,size_t capacity);
+bool parseCalendarUTC(const char *text,double &mjd);
 }

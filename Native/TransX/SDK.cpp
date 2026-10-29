@@ -2,6 +2,7 @@
 #include "Flight.h"
 #include "SolarSystem.h"
 #include "Surface.h"
+#include <ctime>
 #include <stdexcept>
 namespace {
 const native::Flight *flight;
@@ -21,6 +22,19 @@ MATRIX3 columns(Vector x,Vector y,Vector z){return{x.x,y.x,z.x,x.y,y.y,z.y,x.z,y
 namespace native::transx {
 void bind(const Flight *f){flight=f;}
 InputRequest &pendingInput(){static InputRequest input;return input;}
+bool formatCalendarUTC(double mjd,char *output,size_t capacity){
+    if(!std::isfinite(mjd)||mjd<0||mjd>2973483.)return false;
+    time_t instant=(time_t)std::round((mjd-40587.)*86400.);std::tm calendar={};
+    return gmtime_r(&instant,&calendar)&&strftime(output,capacity,"%Y-%m-%d %H:%M:%S",&calendar)==19;
+}
+bool parseCalendarUTC(const char *text,double &mjd){
+    if(!text||strlen(text)!=19)return false;
+    std::tm calendar={};char *end=strptime(text,"%Y-%m-%d %H:%M:%S",&calendar);
+    if(!end||*end)return false;
+    time_t instant=timegm(&calendar);char normalized[32];
+    mjd=double(instant)/86400.+40587.;
+    return mjd>=0&&formatCalendarUTC(mjd,normalized,sizeof(normalized))&&!strcmp(text,normalized);
+}
 }
 double oapiGetSimTime(){return flight?flight->elapsed:0;}
 double oapiGetSimMJD(){return flight?flight->mjd+flight->elapsed/86400:51544.5;}

@@ -644,10 +644,29 @@ bool MFDsemiintdiscrete::show(oapi::Sketchpad *sketchpad, int width, int line)
 bool MFDvarMJD::show(oapi::Sketchpad *sketchpad, int width, int line)
 {
 	char buffer[20]="";
+#ifdef ORBITER_NATIVE
+    if(!native::transx::formatCalendarUTC(value,buffer,sizeof(buffer)))snprintf(buffer,sizeof(buffer),"%.4g",value);
+#else
 	sprintf(buffer,"%.4f", value);
+#endif
 	showgeneric(sketchpad, width, line, buffer);
 	return true;
 }
+
+#ifdef ORBITER_NATIVE
+void MFDvarMJD::enter_variable()
+{
+    char buffer[32]="";
+    if(!native::transx::formatCalendarUTC(value,buffer,sizeof(buffer)))snprintf(buffer,sizeof(buffer),"%.12g",value);
+    oapiOpenInputBox((char*)"Enter UTC YYYY-MM-DD HH:MM:SS or MJD",SelectVariableFloat,buffer,24,(void*)this);
+}
+bool MFDvarMJD::SetVariableFloat(char *str)
+{
+    double mjd;
+    if(native::transx::parseCalendarUTC(str,mjd)){if(mjd<min||mjd>max)return false;value=mjd;return true;}
+    return MFDvarfloat::SetVariableFloat(str);
+}
+#endif
 
 void MFDvarMJD::CalcAdjustedValue(bool positive)
 {
