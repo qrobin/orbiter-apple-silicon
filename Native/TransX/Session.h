@@ -56,6 +56,7 @@ public:
     bool maneuverDirectionForStage(int stage,VECTOR3 &direction);
     int stageCount();
     int selectedStage();
+    std::uintptr_t selectedStageToken();
     bool selectStage(int stage);
     bool stageInfo(int stage,StageInfo &info);
     bool setStageManeuver(int stage,const RouteValues &values);

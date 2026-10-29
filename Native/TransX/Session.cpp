@@ -108,6 +108,9 @@ int Session::selectedStage(){
     for(int i=1;i<=state->getnumfunctions();++i)if(state->getbasefn(i)==impl->selectedBase)return i;
     impl->selectedBase=state->getbasefn(1);return impl->selectedBase?1:0;
 }
+std::uintptr_t Session::selectedStageToken(){
+    return selectedStage()?reinterpret_cast<std::uintptr_t>(impl->selectedBase):0;
+}
 bool Session::selectStage(int stage){
     auto *base=impl->display(RouteDisplay).nativeView()->nativeState()->getbasefn(stage);
     if(!base)return false;impl->selectedBase=base;return true;

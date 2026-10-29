@@ -5,6 +5,7 @@
 #import "TransXDrawing.h"
 #import "BurnDisplay.h"
 #import "DateDisplay.h"
+#include "BurnSkip.h"
 #include <array>
 #include <iostream>
 #include <stdexcept>
@@ -21,8 +22,10 @@ using namespace native;
 @public
     Flight flight;
     std::unique_ptr<native::transx::Session> transxSession;
+    native::transx::BurnSkip burnSkip;
     std::array<native::transx::Frame,3> transxFrames;
     int transxAlignDisplay;
+    NSString *status;
 }
 @property(nonatomic,strong) TransXPanel *navigationPanel;
 @property(nonatomic,strong) RoutePanel *routePanel;
@@ -31,12 +34,17 @@ using namespace native;
 - (void)clearInput;
 - (void)showNavigation:(id)sender;
 - (void)selectNavButton:(int)button;
+- (void)skipToBurn:(id)sender;
 @end
 @implementation FlightView
 - (void)ensureTransX {if(!transxSession)transxSession=std::make_unique<native::transx::Session>(flight);}
 - (void)clearInput {}
 - (void)showNavigation:(id)sender {}
 - (void)selectNavButton:(int)button {if(button==6&&transxSession&&transxSession->alignStage(transxSession->selectedStage()))transxAlignDisplay=native::transx::Session::RouteDisplay;}
+- (void)skipToBurn:(id)sender {
+    if(burnSkip.running()){burnSkip.cancel(flight);status=@"Skip cancelled · paused";}
+    else {std::string error;status=burnSkip.begin(flight,*transxSession,error)?@"Skipping":transxString(error);}
+}
 @end
 @interface FlippedGliderDocument : NSView
 @end
@@ -59,6 +67,7 @@ using namespace native;
 - (void)addStop:(id)sender;
 - (void)clearStops:(id)sender;
 - (void)findWindow:(id)sender;
+- (void)skipBurn:(id)sender;
 - (void)applyTransfer:(id)sender;
 - (void)applyBurn:(id)sender;
 - (void)align:(id)sender;
@@ -165,6 +174,26 @@ int main(){@autoreleasepool {try{
     check(view->transxSession->windowSearchStatus().state==transx::SearchState::Complete&&view->transxSession->routeMatches(multi),
           "The panel applies a verified first encounter and preserves later stages");
     check(view->transxSession->stageTiming(1,clock)&&clock.secondsToBurn>0,"The optimized burn has a future countdown");
+    NSButton *skipButton=nil;for(NSView *item in doc.subviews)if([item isKindOfClass:NSButton.class]&&
+        [[(NSButton *)item title] isEqualToString:@"Skip to 1 day before burn"])skipButton=(NSButton *)item;
+    check(skipButton&&skipButton.enabled,"The selected future burn exposes a skip button");
+    [panel skipBurn:nil];[panel updateControls];
+    check(view->burnSkip.running()&&[skipButton.title isEqualToString:@"Cancel skip"],"The skip button starts a cancellable fast-forward");
+    [panel skipBurn:nil];[panel updateControls];
+    check(!view->burnSkip.running()&&view->flight.paused&&view->flight.warp==1,"The same control cancels and pauses the flight");
+    transx::RouteValues future{view->flight.mjd+view->flight.elapsed/86400.+5,600,0,0};
+    check(view->transxSession->setStageManeuver(2,future),"Set a separate later-stage burn");
+    [steps selectItemWithTag:2];[panel changeStep:nil];[panel updateControls];
+    check(skipButton.enabled&&view->transxSession->selectedStage()==2,"Skip is available for a selected later stage");
+    [panel skipBurn:nil];check(view->burnSkip.running(),"Start a skip for the later stage");
+    [steps selectItemWithTag:1];[panel changeStep:nil];[panel updateControls];
+    check(!view->burnSkip.running()&&view->transxSession->selectedStage()==1&&view->flight.paused,
+          "Changing stages cancels the previous skip and selects the new stage");
+    [steps selectItemWithTag:2];[panel changeStep:nil];[panel updateControls];[panel skipBurn:nil];
+    for(int i=0;i<1000&&view->burnSkip.running();++i)view->burnSkip.advance(view->flight,*view->transxSession,128,0);
+    [panel updateControls];check(view->burnSkip.state()==transx::BurnSkip::State::Reached&&
+        view->transxSession->stageTiming(2,clock)&&[burnTimingText(2,clock) containsString:@"IGN T−1d 00:00:00"],
+        "The selected stage's ignition countdown shows one day when the skip finishes");
     NSString *preview=NSProcessInfo.processInfo.environment[@"ORBITER_ROUTE_PREVIEW"];
     if(preview.length){
         [panel updateControls];[doc layoutSubtreeIfNeeded];

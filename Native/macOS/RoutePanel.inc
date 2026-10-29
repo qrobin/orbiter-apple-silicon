@@ -4,12 +4,13 @@
     native::transx::Route route;
     BOOL hasRoute,transferDirty,burnDirty;
     native::transx::SearchState lastSearchState;
+    native::transx::BurnSkip::State lastSkipState;
     double lastValuesRefresh;
     NSPopUpButton *destination,*graphChoice,*steps;
     NSTextField *origin,*path,*message,*transferNote,*burnNote,*approach,*approachDetail;
     NSMutableArray<NSTextField *> *transferFields,*burnFields;
     NSMutableArray<NSNumber *> *draftStops;
-    NSButton *addStop,*clearStops,*create,*findWindow,*applyTransfer,*estimate,*applyBurn,*align,*release,*transferTime,*burnTime;
+    NSButton *addStop,*clearStops,*create,*findWindow,*applyTransfer,*estimate,*applyBurn,*align,*release,*skipBurn,*transferTime,*burnTime;
     TransXCanvas *canvas;
 }
 - (instancetype)initWithFlightView:(FlightView *)view {
@@ -17,12 +18,12 @@
         styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable|NSWindowStyleMaskUtilityWindow
         backing:NSBackingStoreBuffered defer:NO];
     self=[super initWithWindow:panel];if(!self)return nil;
-    flightView=view;draftStops=[NSMutableArray new];lastSearchState=native::transx::SearchState::Idle;
+    flightView=view;draftStops=[NSMutableArray new];lastSearchState=native::transx::SearchState::Idle;lastSkipState=native::transx::BurnSkip::State::Idle;
     panel.title=@"Route Planner";panel.floatingPanel=YES;panel.releasedWhenClosed=NO;
     panel.appearance=[NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
     NSScrollView *scroll=[[NSScrollView alloc] initWithFrame:NSMakeRect(0,0,860,744)];
     scroll.hasVerticalScroller=YES;scroll.autohidesScrollers=YES;
-    FlippedGliderDocument *doc=[[FlippedGliderDocument alloc] initWithFrame:NSMakeRect(0,0,844,744)];
+    FlippedGliderDocument *doc=[[FlippedGliderDocument alloc] initWithFrame:NSMakeRect(0,0,844,786)];
     scroll.documentView=doc;panel.contentView=scroll;
     auto label=[&](NSString *value,CGFloat x,CGFloat y,CGFloat width,CGFloat height=22,CGFloat size=12){
         auto f=[NSTextField wrappingLabelWithString:value];f.frame=NSMakeRect(x,y,width,height);
@@ -85,7 +86,9 @@
     applyBurn=button(@"Apply burn",@selector(applyBurn:),18,651,126);
     align=button(@"Align with RCS",@selector(align:),150,651,140);
     release=button(@"Release",@selector(release:),296,651,102);
-    auto burnHelp=label(@"Window search matches the departure burn to the transfer. Manual edits may need further tuning.",18,691,410,48,11);
+    skipBurn=button(@"Skip to 1 day before burn",@selector(skipBurn:),18,690,210);
+    skipBurn.toolTip=@"Fast-forward to one day before estimated ignition, then pause. Space cancels.";
+    auto burnHelp=label(@"Window search matches the departure burn to the transfer. Manual edits may need further tuning.",18,729,410,48,11);
     burnHelp.textColor=NSColor.secondaryLabelColor;
 
     heading(@"TransX view",462,200,180);
@@ -166,7 +169,7 @@
     for(NSTextField *field in burnFields)field.enabled=hasRoute&&!searching;
     applyTransfer.enabled=transferAvailable;transferTime.enabled=transferAvailable;applyBurn.enabled=hasRoute&&!searching;burnTime.enabled=hasRoute&&!searching;
     estimate.enabled=!searching&&hasRoute&&route.targetStage>0&&(route.ejectStage>0||(route.targetStage==1&&session.selectedStage()==1));
-    findWindow.enabled=searching||(hasRoute&&route.targetStage>0);findWindow.title=searching?@"Cancel search":@"Find 1st window";
+    findWindow.enabled=searching||(hasRoute&&route.targetStage>0&&!v->burnSkip.running());findWindow.title=searching?@"Cancel search":@"Find 1st window";
     if(searching)message.stringValue=[NSString stringWithFormat:@"Searching the first encounter for low fuel use… %.0f%%",search.progress*100];
     else if(search.state!=lastSearchState){
         if(search.state==native::transx::SearchState::Complete){
@@ -175,9 +178,23 @@
         }else if(search.state==native::transx::SearchState::Failed)message.stringValue=transxString(search.message);
     }
     lastSearchState=search.state;
+    auto skipState=v->burnSkip.state();
+    if(skipState!=lastSkipState){
+        using SkipState=native::transx::BurnSkip::State;
+        switch(skipState){
+            case SkipState::Running:message.stringValue=@"Skipping to one day before ignition. Active engines and RCS remain simulated; Space cancels.";break;
+            case SkipState::Reached:message.stringValue=@"Reached one day before estimated ignition. Flight paused.";break;
+            case SkipState::Cancelled:message.stringValue=@"Skip cancelled. Flight paused.";break;
+            case SkipState::PlanChanged:message.stringValue=@"Skip stopped because the selected burn changed. Flight paused.";break;
+            case SkipState::FlightStopped:message.stringValue=@"Skip stopped because the flight paused or ended.";break;
+            default:break;
+        }
+        lastSkipState=skipState;
+    }
     graphChoice.enabled=hasRoute;canvas.hidden=!hasRoute;
     [graphChoice itemAtIndex:1].enabled=hasRoute&&route.legs.front().escape;
     if(![graphChoice itemAtIndex:graphChoice.indexOfSelectedItem].enabled)[graphChoice selectItemAtIndex:0];
+    skipBurn.title=v->burnSkip.running()?@"Cancel skip":@"Skip to 1 day before burn";skipBurn.enabled=v->burnSkip.running();
     if(!hasRoute){transferNote.stringValue=@"Select a route to edit its transfer.";burnNote.stringValue=@"Choose a step and set its maneuver.";approach.stringValue=@"No encounter selected";approachDetail.stringValue=@"";align.enabled=NO;release.enabled=v->flight.assist==Assist::Maneuver;return;}
     if(transferAvailable){
         const auto &leg=*std::find_if(route.legs.begin(),route.legs.end(),[](const auto &item){return !item.escape;});
@@ -217,7 +234,10 @@
         approachDetail.stringValue=route.targetStage?@"Apply transfer or burn settings to calculate an approach. The current route is not an automatic intercept.":@"There is no target encounter for this route.";
     }
     native::transx::BurnTiming timing;int selected=session.selectedStage();
-    burnNote.stringValue=session.stageTiming(selected,timing)?[NSString stringWithFormat:@"%@\nIgnition centers a full-thrust burn on the maneuver time.",burnTimingText(selected,timing)]:@"Set this step's maneuver to show the burn countdown and duration.";
+    BOOL hasTiming=session.stageTiming(selected,timing);
+    burnNote.stringValue=hasTiming?[NSString stringWithFormat:@"%@\nIgnition centers a full-thrust burn on the maneuver time.",burnTimingText(selected,timing)]:@"Set this step's maneuver to show the burn countdown and duration.";
+    skipBurn.enabled=v->burnSkip.running()||(!searching&&hasTiming&&timing.deltaV>.1&&timing.secondsToBurn-timing.duration*.5>86400.);
+    skipBurn.toolTip=hasTiming&&timing.secondsToBurn-timing.duration*.5<=86400.?@"The selected burn is already within one day.":@"Fast-forward to one day before estimated ignition, then pause. Space cancels.";
     VECTOR3 direction;align.enabled=!searching&&selected==1&&v->flight.rcs>0&&v->flight.assist!=Assist::Maneuver&&session.maneuverDirectionForStage(selected,direction);
     release.enabled=v->flight.assist==Assist::Maneuver;
 }
@@ -240,6 +260,7 @@
     if(!v->transxSession->createRoute(waypoints,next,error)){
         message.stringValue=transxString(error);[self refresh];return;
     }
+    if(v->burnSkip.running())[v skipToBurn:nil];
     if(v->flight.assist==Assist::Maneuver)v->flight.clearAssist();v->transxAlignDisplay=-1;
     v->transxSession->cancelWindowSearch();[draftStops removeAllObjects];
     route=std::move(next);hasRoute=YES;transferDirty=burnDirty=NO;lastValuesRefresh=0;
@@ -270,6 +291,7 @@
     if(!accepted){
         message.stringValue=@"TransX did not accept these values. Check the date and velocity magnitudes, or recreate the route.";return;
     }
+    if(departure&&v->burnSkip.running())[v skipToBurn:nil];
     if(departure)burnDirty=NO;else transferDirty=NO;
     lastValuesRefresh=0;message.stringValue=departure?@"Step maneuver applied. Align with RCS when it is current; fire the engine manually.":@"Transfer plan applied. Check the closest approach and tune the values.";
     [self refresh];[v.navigationPanel refresh];
@@ -293,8 +315,10 @@
 - (void)changeGraph:(id)sender {[self refresh];}
 - (void)changeStep:(id)sender {
     FlightView *v=flightView;if(!v||!v->transxSession)return;
+    int requested=(int)steps.selectedItem.tag;
+    if(v->burnSkip.running()){[v skipToBurn:nil];message.stringValue=@"Skip cancelled because the selected step changed.";}
     if(v->flight.assist==Assist::Maneuver&&v->transxAlignDisplay==native::transx::Session::RouteDisplay){v->flight.clearAssist();v->transxAlignDisplay=-1;}
-    v->transxSession->selectStage((int)steps.selectedItem.tag);burnDirty=NO;lastValuesRefresh=0;
+    v->transxSession->selectStage(requested);burnDirty=NO;lastValuesRefresh=0;
     [self refresh];v.hud.needsDisplay=YES;
 }
 - (void)align:(id)sender {
@@ -304,6 +328,10 @@
 - (void)release:(id)sender {
     if(flightView->flight.assist==Assist::Maneuver)flightView->flight.clearAssist();
     flightView->transxAlignDisplay=-1;[self refresh];
+}
+- (void)skipBurn:(id)sender {
+    if(!flightView)return;[flightView skipToBurn:sender];
+    message.stringValue=flightView->status?:@"";[self updateControls];
 }
 - (void)openTransX:(id)sender {[flightView showNavigation:nil];}
 - (void)returnToFlight:(id)sender {[flightView clearInput];[flightView.window makeKeyAndOrderFront:nil];[flightView.window makeFirstResponder:flightView];}

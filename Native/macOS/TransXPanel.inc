@@ -119,7 +119,7 @@
     }
     double now=CACurrentMediaTime();if(now-transxRefresh>.1){for(int d=0;d<2;++d)transxFrames[d]=transxSession->frame(d);[self.navigationPanel refresh];[self.routePanel refresh];transxRefresh=now;}
 }
-- (void)resetNavigation {BOOL active=transxSession!=nullptr;auto previousMfd=transxMfd;transxSession.reset();transxAlignDisplay=-1;navigationStatus=nil;if(active){[self ensureTransX];transxMfd=previousMfd;[self.navigationPanel refresh];[self.routePanel refresh];}}
+- (void)resetNavigation {BOOL active=transxSession!=nullptr;auto previousMfd=transxMfd;burnSkip.reset();transxSession.reset();transxAlignDisplay=-1;navigationStatus=nil;if(active){[self ensureTransX];transxMfd=previousMfd;[self.navigationPanel refresh];[self.routePanel refresh];}}
 - (void)operateTransXButton:(int)button display:(int)d {
     [self ensureTransX];transxMfd[d]=true;transxSession->button(d,button);transxFrames[d]=transxSession->frame(d);
     if(button==11){[self showNavigation:nil];[self.navigationPanel requestEntryForDisplay:d];}else[self.navigationPanel refresh];

@@ -5,6 +5,7 @@
 #import <simd/simd.h>
 #include "Flight.h"
 #include "TimeAcceleration.h"
+#include "TransX/BurnSkip.h"
 #include "Mesh.h"
 #include "Cockpit.h"
 #include "Surface.h"
@@ -66,6 +67,7 @@ struct GpuGroup { id<MTLBuffer> vertices,indices; NSUInteger count; size_t mater
     NSString *status,*navigationStatus;
     NSInteger navigationTarget;
     std::unique_ptr<native::transx::Session> transxSession;
+    native::transx::BurnSkip burnSkip;
     std::array<native::transx::Frame,3> transxFrames;
     std::array<bool,2> transxMfd;
     int transxAlignDisplay;
@@ -121,6 +123,7 @@ struct GpuGroup { id<MTLBuffer> vertices,indices; NSUInteger count; size_t mater
 - (void)openScenario:(id)sender;
 - (void)saveScenario:(id)sender;
 - (void)pauseFlight:(id)sender;
+- (void)skipToBurn:(id)sender;
 - (void)toggleHelp:(id)sender;
 - (void)clearInput;
 - (void)cycleWeather:(id)sender;
@@ -215,7 +218,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     NSRectFill(NSMakeRect(0,0,w,28));
     text(@"Orbiter",26,h-44,22,white);
     text([NSString stringWithFormat:@"Delta-glider  /  %s  /  %@",f.name.c_str(),bodyName],26,h-66,12,muted);
-    text([NSString stringWithFormat:@"%@   ·   %.0f×   ·   T+ %.0f s",f.paused?@"PAUSED":@"FLIGHT",f.warp,f.elapsed],w-320,h-37,12,ink,YES);
+    text(v->burnSkip.running()?[NSString stringWithFormat:@"SKIPPING   ·   T+ %.0f s",f.elapsed]:[NSString stringWithFormat:@"%@   ·   %.0f×   ·   T+ %.0f s",f.paused?@"PAUSED":@"FLIGHT",f.warp,f.elapsed],w-320,h-37,12,ink,YES);
     text([NSString stringWithFormat:@"Metal  ·  ARM64  ·  %.0f fps",v->fps],w-320,h-57,11,muted,YES);
     text([simulationDate(f.mjd+f.elapsed/86400.) stringByAppendingString:@" UTC"],w-320,h-80,11,muted,YES);
     if(burn)text(burn,w-320,h-103,11,ink,YES);
@@ -447,6 +450,10 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     input.roll=(held[12]?1.:0)-(held[14]?1.:0); input.translate=(held[13]?1.:0)-(held[1]?1.:0);
     input.lateral=(held[2]?1.:0)-(held[0]?1.:0); input.vertical=(held[6]?1.:0)-(held[38]?1.:0);
     input.leftBrake=held[43]?1:0;input.rightBrake=held[47]?1:0;
+    if(burnSkip.running()&&(input.pitch||input.yaw||input.roll||input.translate||input.lateral||input.vertical||
+       held[30]||held[33]||held[24]||held[27]||held[69]||held[78])){
+        burnSkip.cancel(flight);status=@"Skip cancelled by manual control · paused";
+    }
     if(held[30]) flight.setHoverThrottle(flight.glider.hover+dt*.35);
     if(held[33]) flight.setHoverThrottle(flight.glider.hover-dt*.35);
     if(held[24]||held[69]) flight.throttle=std::min(1.,flight.throttle+dt*.4);
@@ -457,7 +464,17 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     if(activeCockpitControl>=100&&activeCockpitControl<124&&transxSession){int id=activeCockpitControl-100,b=id%12;if(b==8||b==9)transxSession->button(id/12,b,true);}
     if(panelView)[self.panel2D tick];
     [self updateNavigation];
-    flight.advance(dt,input);
+    if(burnSkip.running()){
+        burnSkip.advance(flight,*transxSession);
+        using SkipState=native::transx::BurnSkip::State;
+        switch(burnSkip.state()){
+            case SkipState::Reached:status=@"One day before estimated ignition · paused";break;
+            case SkipState::PlanChanged:status=@"Skip stopped because the selected burn changed · paused";break;
+            case SkipState::FlightStopped:status=@"Skip stopped because the flight paused or ended";break;
+            case SkipState::Cancelled:status=@"Skip cancelled · paused";break;
+            default:break;
+        }
+    }else flight.advance(dt,input);
     if(demoLadderQueued&&flight.glider.part(Part::Nose).open()) { flight.glider.command(Part::Ladder,1);demoLadderQueued=false; }
     dispatch_semaphore_wait(inflight,DISPATCH_TIME_FOREVER);
     id<CAMetalDrawable> drawable=self.currentDrawable;
@@ -761,7 +778,21 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     flight.glider.navLights=flight.glider.beacons=flight.glider.strobes=true;demoLadderQueued=true;
     status=@"Mechanism demonstration · original deployment timing at 10× · R restarts";
 }
-- (void)pauseFlight:(id)sender { flight.paused=!flight.paused; [self clearInput]; }
+- (void)pauseFlight:(id)sender {
+    if(burnSkip.running()){burnSkip.cancel(flight);status=@"Skip cancelled · paused";}
+    else flight.paused=!flight.paused;
+    [self clearInput];self.hud.needsDisplay=YES;
+}
+- (void)skipToBurn:(id)sender {
+    if(burnSkip.running()){burnSkip.cancel(flight);status=@"Skip cancelled · paused";}
+    else if(!transxSession)status=@"No planned burn. Configure a maneuver first.";
+    else{
+        std::string error;
+        if(!burnSkip.begin(flight,*transxSession,error))status=transxString(error);
+        else{[self clearInput];status=@"Skipping to one day before estimated ignition · Space cancels";}
+    }
+    self.hud.needsDisplay=YES;[self.routePanel refresh];
+}
 - (void)toggleHelp:(id)sender { helpVisible=!helpVisible; self.hud.needsDisplay=YES; }
 - (void)showError:(const char *)message { NSAlert *a=[NSAlert new]; a.messageText=@"Unable to load flight"; a.informativeText=[NSString stringWithUTF8String:message]; [a runModal]; }
 - (void)openScenario:(id)sender {
@@ -794,8 +825,8 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         case 41:[self selectNavButton:4];break;
         case 39:[self selectNavButton:3];break;
         case 45:flight.clearAssist();transxAlignDisplay=-1;break;
-        case 17:flight.warp=stepTimeAcceleration(flight.warp,true);status=[NSString stringWithFormat:@"Time acceleration %.0f×",flight.warp];break;
-        case 16:flight.warp=stepTimeAcceleration(flight.warp,false);status=[NSString stringWithFormat:@"Time acceleration %.0f×",flight.warp];break;
+        case 17:if(burnSkip.running())burnSkip.cancel(flight);flight.warp=stepTimeAcceleration(flight.warp,true);status=[NSString stringWithFormat:@"Time acceleration %.0f×",flight.warp];break;
+        case 16:if(burnSkip.running())burnSkip.cancel(flight);flight.warp=stepTimeAcceleration(flight.warp,false);status=[NSString stringWithFormat:@"Time acceleration %.0f×",flight.warp];break;
         case 9:[self cycleView:nil];break;
         case 46:[self showSystems:nil];break;
         case 5:flight.glider.toggle(Part::Gear);break;
@@ -1006,6 +1037,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         for(int sign:{-1,1}){NSMenuItem *item=[hudMenu addItemWithTitle:sign<0?@"Decrease Brightness":@"Increase Brightness" action:@selector(adjustHudBrightness:) keyEquivalent:@""];item.target=self.view;item.tag=sign;}
         NSMenuItem *planner=[nav addItemWithTitle:@"TransX… (F4)" action:@selector(showNavigation:) keyEquivalent:@"t"];planner.keyEquivalentModifierMask=NSEventModifierFlagCommand|NSEventModifierFlagShift;planner.target=self.view;
         NSMenuItem *routePlanner=[nav addItemWithTitle:@"Route Planner…" action:@selector(showRoutePlanner:) keyEquivalent:@"r"];routePlanner.keyEquivalentModifierMask=NSEventModifierFlagCommand|NSEventModifierFlagShift;routePlanner.target=self.view;
+        NSMenuItem *skip=[nav addItemWithTitle:@"Skip to 1 Day Before Burn" action:@selector(skipToBurn:) keyEquivalent:@""];skip.target=self.view;
         for(int d=0;d<2;++d){NSMenuItem *item=[nav addItemWithTitle:d?@"TransX on Right MFD":@"TransX on Left MFD" action:@selector(toggleTransXMFD:) keyEquivalent:@""];item.target=self.view;item.tag=d;}
         NSMenuItem *guide=[nav addItemWithTitle:@"TransX Quickstart…" action:@selector(showTransXGuide:) keyEquivalent:@""];guide.target=self.view;
         NSMenuItem *solarItem=[NSMenuItem new];solarItem.title=@"Solar System";[main addItem:solarItem];NSMenu *system=[NSMenu new];solarItem.submenu=system;
