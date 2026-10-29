@@ -95,5 +95,27 @@ int main(){try {
     ExhaustTrail ioTrail;for(int i=0;i<250;++i){io.advance(.1);ioTrail.update(io,.1);}
     auto ioSegments=ioTrail.segments(io);check(ioSegments.size()>100,"An Io engine burn creates connected vacuum volumes");
     for(const auto &s:ioSegments){Vector tip=io.position-io.forward*8.043;check(dotp(s.start.position-tip,io.forward)<1&&dotp(s.end.position-tip,io.forward)<1,"Io burn leaves no spurious volume in front of the ship");}
+    // Existing exhaust must evolve identically even if its source moves, turns or accelerates.
+    Flight source;source.reference=BodyId::Io;source.position={source.centralBody().radius+113000,0,0};source.velocity={0,0,1487};source.align(source.velocity);source.glider.mainLevel=1;
+    ExhaustTrail released;for(int i=0;i<20;++i){source.position+=source.velocity*.1;released.update(source,.1);}
+    size_t previousCount=released.puffs().size();Vector priorPosition=released.puffs().front().position;ExhaustTrail control=released;Flight moved=source,unmoved=source;
+    moved.position+=Vector(12000,-7000,3000);moved.velocity+=Vector(-3000,2000,5000);moved.align({1,0,0});
+    released.update(moved,.1);control.update(unmoved,.1);
+    for(size_t i=0;i<previousCount;++i){
+        check(released.puffs()[i].position.dist(control.puffs()[i].position)<1e-8,"Released exhaust position ignores subsequent source motion and rotation");
+        check(released.puffs()[i].velocity.dist(control.puffs()[i].velocity)<1e-8,"Released exhaust velocity ignores subsequent source acceleration");
+    }
+    check(released.puffs().front().position.dist(priorPosition)>1,"Released exhaust still drifts naturally through space");
+    Vector cameraOffset{60,35,-120},beforeCamera,afterCamera,changedReferenceCamera;
+    ExhaustCameraFrame beforeFrame(source,cameraOffset),afterFrame(moved,cameraOffset+source.position-moved.position);
+    const auto &worldPoint=released.puffs().front();
+    check(beforeFrame.relative(worldPoint.body,worldPoint.position,beforeCamera)&&afterFrame.relative(worldPoint.body,worldPoint.position,afterCamera)&&beforeCamera.dist(afterCamera)<1e-8,"A fixed camera sees the same smoke when the vessel moves and turns");
+    Flight changedReference=source;changedReference.changeReference(BodyId::Sun);ExhaustCameraFrame changedFrame(changedReference,cameraOffset);
+    check(changedFrame.relative(worldPoint.body,worldPoint.position,changedReferenceCamera)&&beforeCamera.dist(changedReferenceCamera)<.001,"A reference-body change leaves the smoke in the same world position");
+    Flight spin;spin.reference=BodyId::Io;spin.position={spin.centralBody().radius+113000,0,0};spin.velocity={0,0,0};spin.align({0,0,1});
+    spin.angularVelocity={0,1,0};spin.glider.mainLevel=1;ExhaustTrail spinning;spinning.update(spin,.15);
+    auto nozzleJet=gliderExhaust(spin).front();auto world=[&](Vector v){return spin.right*v.x+spin.up*v.y+spin.forward*v.z;};
+    Vector expected=spin.velocity+crossp(world(spin.angularVelocity),world(nozzleJet.position))+world(nozzleJet.direction)*1600;
+    check(!spinning.puffs().empty()&&spinning.puffs().front().velocity.dist(expected)<1e-8,"New exhaust inherits the nozzle's rotation only at release");
     std::cout<<checks<<" exhaust checks passed\n";
 }catch(const std::exception &e){std::cerr<<e.what()<<'\n';return 1;}}

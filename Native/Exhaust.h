@@ -25,6 +25,18 @@ struct ExhaustTrailSegment {
     BodyId body; ExhaustTrailPoint start,end;
     uint64_t stream; unsigned nozzle; bool vacuum;
 };
+// Convert points from their emission body's inertial frame to a camera origin.
+// The vessel's orientation is deliberately absent: released exhaust does not turn with it.
+class ExhaustCameraFrame {
+public:
+    ExhaustCameraFrame(const Flight &flight,const Vector &cameraOffset);
+    bool relative(BodyId body,const Vector &point,Vector &result);
+private:
+    BodyId reference;double date;Vector camera,referenceCenter;
+    bool haveReferenceCenter=false;
+    std::array<Vector,BodyCount> centers{};
+    std::array<bool,BodyCount> cached{};
+};
 // Emission samples remain in the emitting body's inertial frame as they disperse.
 class ExhaustTrail {
 public:

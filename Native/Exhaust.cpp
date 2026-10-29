@@ -2,6 +2,7 @@
 // Main visual exits are measured from the original deltaglider_ns.msh nozzle lips.
 #include "Exhaust.h"
 #include "Aerodynamics.h"
+#include "SolarSystem.h"
 #include <algorithm>
 #include <cmath>
 namespace native {
@@ -52,6 +53,22 @@ static PlumeShape pressureShape(double pressure,ExhaustKind kind) {
 }
 PlumeShape plumeShape(double altitude,ExhaustKind kind){return pressureShape(earthAtmosphere(altitude).p,kind);}
 PlumeShape plumeShape(const Flight &f,ExhaustKind kind){return pressureShape(bodyAtmosphere(f.reference,f.altitude()).p,kind);}
+ExhaustCameraFrame::ExhaustCameraFrame(const Flight &f,const Vector &offset)
+    :reference(f.reference),date(f.mjd+f.elapsed/86400),camera(f.position+offset){}
+bool ExhaustCameraFrame::relative(BodyId id,const Vector &point,Vector &result){
+    if((size_t)id>=BodyCount)return false;
+    Vector center;
+    if(id!=reference){
+        if(!ephemeridesReady())return false;
+        size_t index=(size_t)id;
+        if(!cached[index]){
+            if(!haveReferenceCenter){referenceCenter=bodyState(reference,date).position;haveReferenceCenter=true;}
+            centers[index]=bodyState(id,date).position-referenceCenter;cached[index]=true;
+        }
+        center=centers[index];
+    }
+    result=center+point-camera;return true;
+}
 
 static Vector atmosphericVelocity(BodyId id,const Vector &position){
     struct AirFrame{Vector pole,spin,equatorZ;double radius;};
@@ -107,8 +124,11 @@ void ExhaustTrail::update(const Flight &f,double dt,double humidity){
     auto world=[&](const Vector &v){return f.right*v.x+f.up*v.y+f.forward*v.z;};
     for(const auto &jet:gliderExhaust(f)){
         if(jet.id>=history.size())continue;
-        active[jet.id]=true;auto &h=history[jet.id];Vector position=f.position+world(jet.position),direction=world(jet.direction);
-        if(!h.active){h.position=position;h.direction=direction;h.velocity=f.velocity;h.remainder=0;h.active=true;}
+        active[jet.id]=true;auto &h=history[jet.id];Vector offset=world(jet.position),position=f.position+offset,direction=world(jet.direction);
+        // Released gas retains the nozzle's instantaneous inertial velocity,
+        // including the motion of an off-centre nozzle on a rotating vessel.
+        Vector nozzleVelocity=f.velocity+crossp(world(f.angularVelocity),offset);
+        if(!h.active){h.position=position;h.direction=direction;h.velocity=nozzleVelocity;h.remainder=0;h.active=true;}
         bool medium[2]={ambient>0,rarefied>0};
         for(int i=0;i<2;++i){if(medium[i]&&!h.mediumActive[i]){h.stream[i]=++nextStream;h.sequence[i]=0;}h.mediumActive[i]=medium[i];}
         double interval=jet.kind==ExhaustKind::Rcs?.30:.15;
@@ -118,7 +138,7 @@ void ExhaustTrail::update(const Flight &f,double dt,double humidity){
             Vector origin=h.position+(position-h.position)*fraction;
             Vector firingDirection=h.direction+(direction-h.direction)*fraction;
             if(firingDirection.length2()<1e-12)firingDirection=direction;else firingDirection.unify();
-            Vector firingVelocity=h.velocity+(f.velocity-h.velocity)*fraction;
+            Vector firingVelocity=h.velocity+(nozzleVelocity-h.velocity)*fraction;
             auto append=[&](bool vacuum,double weight){
                 double exhaustSpeed=vacuum?(jet.kind==ExhaustKind::Rcs?900:1600):(jet.kind==ExhaustKind::Rcs?40:120);
                 double life=vacuum?(jet.kind==ExhaustKind::Rcs?8:24):(jet.kind==ExhaustKind::Rcs?35:jet.kind==ExhaustKind::Main?240:180)*(.7+.6*humidity);
@@ -130,7 +150,7 @@ void ExhaustTrail::update(const Flight &f,double dt,double humidity){
             if(ambient>0)append(false,1);
             if(rarefied>0)append(true,rarefied);
         }
-        h.position=position;h.direction=direction;h.velocity=f.velocity;h.remainder=std::fmod(pending,interval);
+        h.position=position;h.direction=direction;h.velocity=nozzleVelocity;h.remainder=std::fmod(pending,interval);
     }
     for(size_t i=0;i<history.size();++i)if(!active[i])history[i]={};
     if(particles.size()>capacity)particles.erase(particles.begin(),particles.begin()+(particles.size()-capacity));

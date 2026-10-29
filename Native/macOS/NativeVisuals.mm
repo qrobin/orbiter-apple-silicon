@@ -1,6 +1,5 @@
 #import "NativeVisuals.h"
 #include "Exhaust.h"
-#include "SolarSystem.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -129,20 +128,13 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
     const double humidity[]={.25,.5,.75,.95};exhaustTrail.update(flight,dt,humidity[std::clamp((int)_weather,0,3)]);
     EffectUniforms step{};step.clock={(float)dt,(float)fmod(flight.elapsed,4096.),0,(float)count};step.offset=visualVector(offset);
     lastElapsed=flight.elapsed;haveFlight=YES;
-    visibleSmoke.clear();std::array<Vector,BodyCount> centers{};std::array<bool,BodyCount> cached{};
-    double date=flight.mjd+flight.elapsed/86400;Vector currentCenter;
+    visibleSmoke.clear();ExhaustCameraFrame cameraFrame(flight,offset);
     auto direction=[](simd_float4 v){return Vector(v.x,v.y,v.z);};
     Vector cameraForward=direction(f.forward),cameraRight=direction(f.right),cameraUp=direction(f.up);
     double aspect=f.screen.x/std::max(1.f,f.screen.y);
     for(const auto &p:exhaustTrail.segments(flight)){
-        Vector center;
-        if(p.body!=flight.reference){
-            if(!ephemeridesReady())continue;
-            size_t index=(size_t)p.body;
-            if(!cached[index]){if(!cached[(size_t)flight.reference]){currentCenter=bodyState(flight.reference,date).position;cached[(size_t)flight.reference]=true;}centers[index]=bodyState(p.body,date).position-currentCenter;cached[index]=true;}
-            center=centers[index];
-        }
-        Vector start=center+p.start.position-flight.position-offset,end=center+p.end.position-flight.position-offset;
+        Vector start,end;
+        if(!cameraFrame.relative(p.body,p.start.position,start)||!cameraFrame.relative(p.body,p.end.position,end))continue;
         Vector midpoint=(start+end)*.5;double z=dotp(midpoint,cameraForward),extent=(start-end).length()*.5+std::max(p.start.radius,p.end.radius);
         if(z+extent<.2||fabs(dotp(midpoint,cameraRight))>std::max(0.,z)*f.screen.z*aspect+extent||fabs(dotp(midpoint,cameraUp))>std::max(0.,z)*f.screen.z+extent)continue;
         double footprint=std::max(0.,z)*f.screen.z*1.2/std::max(1.f,f.screen.y);
