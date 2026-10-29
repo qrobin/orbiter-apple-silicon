@@ -15,7 +15,7 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
     FrameUniforms lastFrame;
     double lastElapsed;
     NSInteger lastWeather;
-    id<MTLTexture> hdr,lit,depth,trailLayer,msaaColor,msaaDepth,earthCloudMap,earthOceanMask;
+    id<MTLTexture> hdr,lit,depth,trailLayer,msaaColor,msaaDepth,earthCloudMap,earthOceanMask,earthOceanWaves;
     std::array<id<MTLTexture>,2> cloudHistory,cloudData,bloom;
     std::array<id<MTLBuffer>,3> smokeBuffers;
     ExhaustTrail exhaustTrail;
@@ -36,6 +36,9 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
     NSURL *oceanURL=[NSURL fileURLWithPath:[NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"earth-ocean-mask.png"]];
     earthOceanMask=[loader newTextureWithContentsOfURL:oceanURL options:@{MTKTextureLoaderOptionSRGB:@NO,MTKTextureLoaderOptionGenerateMipmaps:@YES,MTKTextureLoaderOptionOrigin:MTKTextureLoaderOriginTopLeft} error:&error];
     visualCheck(earthOceanMask,error);
+    NSURL *waveURL=[NSURL fileURLWithPath:[NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"earth-waves.png"]];
+    earthOceanWaves=[loader newTextureWithContentsOfURL:waveURL options:@{MTKTextureLoaderOptionSRGB:@NO,MTKTextureLoaderOptionGenerateMipmaps:@YES,MTKTextureLoaderOptionOrigin:MTKTextureLoaderOriginTopLeft} error:&error];
+    visualCheck(earthOceanWaves,error);
     auto kernel=[&](NSString *name){id<MTLComputePipelineState> p=[gpu newComputePipelineStateWithFunction:[library newFunctionWithName:name] error:&error];visualCheck(p,error);return p;};
     noiseKernel=kernel(@"makeCloudNoise");shadowKernel=kernel(@"cloudShadowMap");cloudKernel=kernel(@"marchClouds");
     extractKernel=kernel(@"extractBloom");blurKernel=kernel(@"blurBloom");
@@ -193,6 +196,7 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
 }
 - (id<MTLTexture>)satelliteClouds {return earthCloudMap;}
 - (id<MTLTexture>)oceanMask {return earthOceanMask;}
+- (id<MTLTexture>)oceanWaves {return earthOceanWaves;}
 - (NSUInteger)liveTrailPuffCount {return exhaustTrail.puffs().size();}
 - (NSString *)weatherName{return @[@"Clear",@"Scattered",@"Overcast",@"Storm",@"Regional"][_weather];}
 - (void)reset {historyValid=NO;haveFlight=NO;exhaustTrail.reset();}
