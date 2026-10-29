@@ -84,6 +84,14 @@ target_link_libraries(EarthRenderTests PRIVATE "-framework Cocoa" "-framework Me
 add_test(NAME Native.EarthMetal COMMAND EarthRenderTests)
 set_tests_properties(Native.EarthMetal PROPERTIES SKIP_RETURN_CODE 77)
 
+add_executable(SunsetRenderTests Tests/SunsetRenderTests.mm)
+target_include_directories(SunsetRenderTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/macOS)
+target_compile_options(SunsetRenderTests PRIVATE -fobjc-arc)
+target_compile_definitions(SunsetRenderTests PRIVATE ORBITER_TEST_DATA="${PROJECT_SOURCE_DIR}")
+target_link_libraries(SunsetRenderTests PRIVATE OrbiterFlightCore "-framework Cocoa" "-framework Metal" "-framework MetalKit")
+add_test(NAME Native.SunsetMetal COMMAND SunsetRenderTests)
+set_tests_properties(Native.SunsetMetal PROPERTIES SKIP_RETURN_CODE 77)
+
 add_executable(CockpitHudRenderTests Tests/CockpitHudRenderTests.mm macOS/CockpitHUD.mm)
 target_include_directories(CockpitHudRenderTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/macOS)
 target_compile_options(CockpitHudRenderTests PRIVATE -fobjc-arc)

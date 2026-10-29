@@ -113,8 +113,8 @@ float atmosphericColumn(float height,float mu,float scaleHeight,float radius,flo
 float3 earthSunTransmission(constant Frame &f){
     float height=max(0.0f,f.environment.x*f.body.x);
     float sunMu=dot(normalize(f.position.xyz),f.sun.xyz);
-    float r=atmosphericColumn(height,max(.05f,sunMu),8000.0f,f.body.x,1e25f);
-    float m=atmosphericColumn(height,max(.05f,sunMu),1200.0f,f.body.x,1e25f);
+    float r=atmosphericColumn(height,max(0.0f,sunMu),8000.0f,f.body.x,1e25f);
+    float m=atmosphericColumn(height,max(0.0f,sunMu),1200.0f,f.body.x,1e25f);
     return exp(-(float3(5.8e-6,13.5e-6,33.1e-6)*r+float3(2.1e-5)*m));
 }
 struct AirLight {float3 transmission,scattering;};
@@ -126,8 +126,23 @@ AirLight earthAirLight(constant Frame &f,float3 ray,float maximumDistance){
     float3 transmission=exp(-(betaR*r+betaM*m));
     float cosine=dot(ray,f.sun.xyz),phaseR=.75f*(1+cosine*cosine),g=.76f;
     float phaseM=(1-g*g)/pow(max(.03f,1+g*g-2*g*cosine),1.5f);
-    float sunlight=smoothstep(-.10f,.04f,dot(normalize(f.position.xyz),f.sun.xyz));
-    float3 scattered=earthSunTransmission(f)*sunlight*((1-exp(-betaR*r))*phaseR*.95f+(1-exp(-betaM*m))*phaseM*.13f);
+    float sunMu=dot(normalize(f.position.xyz),f.sun.xyz);
+    float sunlight=smoothstep(-.10f,.04f,sunMu);
+    // At sunset much of the visible sky scatters sunlight higher than the
+    // observer. Approximate that shorter solar path instead of applying the
+    // low-altitude, heavily reddened Sun transmission to the entire sky.
+    float twilight=1-smoothstep(.05f,.32f,sunMu);
+    float scatterHeight=2000+12000*max(0.0f,mu);
+    float solarR=atmosphericColumn(height,max(0.0f,sunMu),8000.0f,f.body.x,1e25f)*mix(1.0f,exp(-scatterHeight/8000.0f),twilight);
+    float solarM=atmosphericColumn(height,max(0.0f,sunMu),1200.0f,f.body.x,1e25f)*mix(1.0f,exp(-scatterHeight/1200.0f),twilight);
+    float3 incident=exp(-(betaR*solarR+betaM*solarM));
+    float3 scattered=incident*sunlight*((1-exp(-betaR*r))*phaseR*.95f+(1-exp(-betaM*m))*phaseM*.13f);
+    // A small broad skylight term approximates higher-order blue scattering,
+    // while low solar angles leave warmer light near the horizon.
+    float skyHeight=smoothstep(-.02f,.35f,mu);
+    float horizon=exp(-abs(mu)*10.0f),towardSun=.25f+.75f*pow(max(0.0f,cosine),2.0f);
+    scattered+=sunlight*twilight*(float3(.012,.035,.14)*skyHeight+float3(.09,.025,.003)*horizon*towardSun);
+    scattered*=mix(float3(1),float3(1.12,.84,.90),twilight*horizon*towardSun);
     return {transmission,scattered};
 }
 fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buffer(1)]],
@@ -189,8 +204,13 @@ fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buf
                 float fresnelWater=pow(1-max(0.0f,dot(waveNormal,-ray)),5.0f);
                 float waveLight=max(0.0f,dot(waveNormal,f.sun.xyz));
                 float3 ocean=base*(.025+waveLight*cloudShade)*day+base*.008*(1-day);
+                // The source globe's open-ocean pixels are almost black;
+                // add a subtle blue contribution from the sky at low altitude.
+                ocean+=float3(.001,.006,.018)*(.25f+.75f*day);
                 if(f.clouds.z>0){float3 tint=mix(float3(1,.58,.35),float3(.8,.87,1),smoothstep(.02f,.3f,dot(n,f.sun.xyz)));ocean+=base*tint*f.clouds.z*day*f.sun.w*(.025f+.07f*(1-cloudShade));}
-                ocean+=float3(.45,.55,.64)*(glint*.16f+fresnelWater*.15f)*day*cloudShade;
+                float lowSun=1-smoothstep(.05f,.35f,dot(n,f.sun.xyz));
+                float3 sunGlint=mix(float3(.45,.55,.64),float3(.65,.34,.22),lowSun);
+                ocean+=(sunGlint*glint*.16f+float3(.45,.55,.64)*fresnelWater*.15f)*day*cloudShade;
                 float crest=swell.b*.35f+waves.b*.25f+chop.b*.25f+ripples.b*.15f;
                 float foam=smoothstep(.60f,.78f,crest)*smoothstep(.04f,.17f,length(slope))*storm*.08f;
                 ocean=mix(ocean,float3(.5,.57,.58)*(.12+.88*day)*cloudShade,foam);

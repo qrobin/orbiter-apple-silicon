@@ -41,6 +41,7 @@ float cloudRegion(float3 p,constant FrameUniforms &f,texture2d<float> cloudMap) 
     constexpr sampler mapSampler(filter::linear,mip_filter::linear,s_address::repeat,t_address::clamp_to_edge);
     float observed=cloudMap.sample(mapSampler,terrestrialUV(p,f),level(0)).r;
     float region=smoothstep(.32f,.90f,observed);
+    if(f.weather.x>.5&&f.weather.x<1.5)region*=.18f;
     if(f.weather.x>2.5&&f.weather.x<3.5)region=max(region,.72f);
     else if(f.weather.x>1.5&&f.weather.x<2.5)region=max(region,.25f);
     return region;
@@ -116,12 +117,14 @@ kernel void marchClouds(constant FrameUniforms &f [[buffer(0)]],constant uint &f
     float2 roots=cloudShellRoots(cameraHeight,f.clouds.y,dot(normalize(f.position.xyz),ray),f.body.x);
     float start=max(0.0f,roots.x),end=min(roots.y,geometry);
     float2 inner=cloudShellRoots(cameraHeight,f.clouds.x,dot(normalize(f.position.xyz),ray),f.body.x);
-    if(cameraHeight>f.clouds.x&&inner.x>start)end=min(end,inner.x);
+    if(cameraHeight>f.clouds.x&&inner.y>inner.x&&inner.x>start)end=min(end,inner.x);
     float3 origin=normalize(f.position.xyz)*(f.body.x+cameraHeight);
     float3 radiance=0;float trans=1,weightedDistance=0,weight=0;
     if(f.clouds.z>0&&end>start){
-        float step=(end-start)/48.0f;
-        float3 center=normalize(origin+ray*((start+end)*.5));
+        float span=end-start;
+        // Sample the weather close to where the ray enters the cloud. Sampling
+        // the midpoint jumps tens of kilometres at a grazing inner-shell hit.
+        float3 center=normalize(origin+ray*(start+min(span*.25f,8000.0f)));
         float region=cloudRegion(center,f,cloudMap);
         float mu=dot(center,f.sun.xyz),day=smoothstep(-.08f,.12f,mu);
         float g=.55,cosTheta=dot(ray,f.sun.xyz);
@@ -130,7 +133,11 @@ kernel void marchClouds(constant FrameUniforms &f [[buffer(0)]],constant uint &f
         float3 ambient=mix(float3(.003,.005,.012),float3(.15,.20,.29),day);
         float jitter=visualRandom(id.x+id.y*1973u+frameIndex*26699u);
         for(int i=0;i<48;++i){
-            float t=start+(i+jitter)*step;float3 p=origin+ray*t;
+            // Allocate more samples near the camera. Uniform steps can skip
+            // an entire nearby cloud when a grazing ray travels hundreds of km.
+            float a=float(i)/48.0f,b=float(i+1)/48.0f;
+            float near=start+span*a*a,far=start+span*b*b,step=far-near;
+            float t=mix(near,far,jitter);float3 p=origin+ray*t;
             float density=cloudDensity(p,f,noise,region);if(density<.000002)continue;
             float lighting=cloudSunTransmittance(p,f,noise,region);
             // Multiple-scattering approximation: sunlight transmitted through
