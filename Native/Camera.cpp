@@ -58,6 +58,31 @@ void OrbitCamera::zoom(double scrollPoints){
     distance=std::clamp(distance*exp(std::clamp(-scrollPoints*.025,-30.,30.)),14.,MaxExternalCameraDistance);
 }
 double OrbitCamera::tanHalfFov()const{return tan((mode==ExternalCameraMode::GroundObserver?groundFov:50*RAD)*.5);}
+void FreeCamera::enter(BodyId bodyId,const Vector &eye,const Vector &look,const Vector &preferredUp){
+    reference=bodyId;position=eye;baseForward=look.length2()>1e-12?look.unit():Vector(0,0,1);
+    baseRight=crossp(preferredUp,baseForward);
+    if(baseRight.length2()<1e-12)baseRight=crossp(fabs(baseForward.y)<.9?Vector(0,1,0):Vector(1,0,0),baseForward);
+    baseRight.unify();baseUp=crossp(baseForward,baseRight).unit();yaw=pitch=0;active=true;
+}
+Vector FreeCamera::direction()const{return (baseForward*(cos(yaw)*cos(pitch))+baseRight*(sin(yaw)*cos(pitch))+baseUp*sin(pitch)).unit();}
+Vector FreeCamera::right()const{return (baseRight*cos(yaw)-baseForward*sin(yaw)).unit();}
+Vector FreeCamera::up()const{return crossp(direction(),right()).unit();}
+void FreeCamera::drag(double x,double y){
+    if(!std::isfinite(x)||!std::isfinite(y))return;yaw=std::remainder(yaw+x*.006,Pi2);pitch=std::clamp(pitch-y*.006,-1.55,1.55);
+}
+void FreeCamera::move(double side,double vertical,double forward,double seconds){
+    if(!std::isfinite(side)||!std::isfinite(vertical)||!std::isfinite(forward)||!std::isfinite(seconds)||seconds<=0)return;
+    Vector v=right()*side+baseUp*vertical+direction()*forward;if(v.length2()>1)v.unify();
+    position+=v*(speed*std::min(seconds,.1));
+}
+void FreeCamera::adjustSpeed(double scrollPoints){
+    if(std::isfinite(scrollPoints))speed=std::clamp(speed*exp(std::clamp(scrollPoints*.025,-30.,30.)),1.,10000000.);
+}
+void FreeCamera::changeReference(BodyId next,double date){
+    if(next==reference)return;
+    if(ephemeridesReady())position+=bodyState(reference,date).position-bodyState(next,date).position;
+    reference=next;
+}
 void CockpitCamera::zoom(double scrollPoints){
     if(!std::isfinite(scrollPoints))return;
     fov=std::clamp(fov*exp(std::clamp(-scrollPoints*.025,-30.,30.)),15*RAD,85*RAD);

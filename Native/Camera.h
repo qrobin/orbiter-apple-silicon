@@ -18,6 +18,22 @@ struct OrbitCamera {
     bool setMode(ExternalCameraMode next,const Flight &flight,BodyId reference=BodyId::Earth);
     double tanHalfFov()const;
 };
+// A camera detached from the vessel, with no collision constraints.
+struct FreeCamera {
+    bool active=false;
+    int returnView=0;
+    BodyId reference=BodyId::Earth;
+    Vector position,baseForward{0,0,1},baseRight{1,0,0},baseUp{0,1,0};
+    double yaw=0,pitch=0,speed=250;
+    void enter(BodyId body,const Vector &eye,const Vector &direction,const Vector &up);
+    Vector direction() const;
+    Vector right() const;
+    Vector up() const;
+    void drag(double horizontalPoints,double verticalPoints);
+    void move(double side,double vertical,double forward,double realSeconds);
+    void adjustSpeed(double scrollPoints);
+    void changeReference(BodyId body,double mjd);
+};
 // Cockpit zoom changes the field of view, not the position of the pilot's eye.
 struct CockpitCamera {
     double fov=50*RAD;

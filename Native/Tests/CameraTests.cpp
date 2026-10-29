@@ -42,6 +42,13 @@ int main(){try {
     check(flight.altitude()+dotp(camera.offset(flight),flight.position.unit())>=1.5-1e-8,"Surface camera stays above ground");
     camera.yaw=0;camera.pitch=0;flight.position*=((EarthRadius+350000)/flight.position.length());flight.velocity=flight.position.unit()*20;
     auto offset=camera.offset(flight);check(std::isfinite(offset.length()),"Camera has a stable frame during radial motion");
+    FreeCamera free;Flight probe;Vector originalPosition=probe.position,originalVelocity=probe.velocity;
+    free.enter(BodyId::Earth,{EarthRadius+10,0,0},{-1,0,0},{0,1,0});free.speed=500;free.move(0,0,1,.1);
+    check(free.position.length()<EarthRadius,"Free camera passes through planetary surfaces without collision");
+    check(probe.position.dist(originalPosition)==0&&probe.velocity.dist(originalVelocity)==0,"Free camera movement does not change the vessel");
+    Vector previousDirection=free.direction();free.drag(40,20);check(free.direction().dist(previousDirection)>.1&&fabs(dotp(free.direction(),free.up()))<1e-12,"Free camera look is stable and orthogonal");
+    Vector prior=free.position;free.move(1,1,1,.1);check(fabs(free.position.dist(prior)-50)<1e-6,"Free camera diagonal movement stays speed-limited");
+    double speed=free.speed;free.adjustSpeed(10);check(free.speed>speed,"Free camera travel speed is adjustable");
     Flight ship;ship.startOrbit(BodyId::Earth);OrbitCamera tracking;
     Vector initial=tracking.offset(ship).unit(),position=ship.position,velocity=ship.velocity;
     check(tracking.setMode(ExternalCameraMode::TargetRelative,ship,ship.reference),"Target-relative mode is available");
@@ -50,9 +57,9 @@ int main(){try {
     ship.align(-ship.right);check(tracking.offset(ship).dist(targetOffset)>1,"Target-relative camera follows vessel rotation");
     check(ship.position.dist(position)==0&&ship.velocity.dist(velocity)==0,"Camera changes do not modify flight state");
     check(tracking.setMode(ExternalCameraMode::AbsoluteDirection,ship,ship.reference),"Absolute-direction mode is available");
-    auto absolute=tracking.pose(ship);Vector beforeRoll=ship.right;ship.right=ship.up;ship.up=-beforeRoll;
-    check(tracking.offset(ship).dist(absolute.offset)<1e-9,"Absolute-direction position stays fixed while vessel rotates");
-    check(tracking.pose(ship).up.dist(absolute.up)>.001,"Absolute-direction camera roll follows the vessel");
+    auto absolutePose=tracking.pose(ship);Vector beforeRoll=ship.right;ship.right=ship.up;ship.up=-beforeRoll;
+    check(tracking.offset(ship).dist(absolutePose.offset)<1e-9,"Absolute-direction position stays fixed while vessel rotates");
+    check(tracking.pose(ship).up.dist(absolutePose.up)>.001,"Absolute-direction camera roll follows the vessel");
     check(tracking.setMode(ExternalCameraMode::GlobalFrame,ship,ship.reference),"Global-frame mode is available");
     auto global=tracking.pose(ship);ship.align(-ship.right);
     check(tracking.offset(ship).dist(global.offset)<1e-9&&tracking.pose(ship).up.dist(global.up)<1e-9,"Global-frame position and roll ignore vessel attitude");
@@ -66,6 +73,8 @@ int main(){try {
     check(!tracking.setMode(ExternalCameraMode::TargetTo,ship,BodyId::Mars),"A distant reference requires ephemerides");
     loadEphemerides(std::filesystem::path(ORBITER_TEST_DATA)/"Src/Celbody");
     check(tracking.setMode(ExternalCameraMode::TargetTo,ship,BodyId::Mars),"Distant target-to reference is available with ephemerides");
+    double freeDate=ship.mjd+ship.elapsed/86400;Vector absolute=bodyState(free.reference,freeDate).position+free.position;
+    free.changeReference(BodyId::Sun,freeDate);check((bodyState(free.reference,freeDate).position+free.position).dist(absolute)<1e-4,"Free camera preserves its world position when gravity reference changes");
     double date=ship.mjd+ship.elapsed/86400;Vector mars=(bodyState(BodyId::Mars,date).position-bodyState(ship.reference,date).position-ship.position).unit();
     check(dotp(-tracking.offset(ship).unit(),mars)>.999999,"Distant target-to follows ephemeris position");
     Flight shifted=ship;shifted.changeReference(BodyId::Sun);

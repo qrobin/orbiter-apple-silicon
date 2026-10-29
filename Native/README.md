@@ -151,6 +151,7 @@ The native animation registry contains **63 components extracted from upstream s
 | F6 | Toggle altitude hold at current height |
 | F7 | Toggle zero vertical speed hold |
 | F8 | Cycle target-relative, absolute-direction and global-frame external cameras |
+| F9 | Toggle the collision-free camera |
 | [ / ] | Decrease / increase hover throttle |
 | , / . | Hold left / right wheel brake; hold both to stop |
 | Option-W | Toggle parking brake |
@@ -186,6 +187,8 @@ The native animation registry contains **63 components extracted from upstream s
 | F2 | Show / hide external orbit or surface attitude diagram |
 | ⌘O / ⌘S | Open / save scenario |
 | ⌘Q | Quit |
+
+Press **F9** or choose **Camera → Free Camera** to detach the camera from the ship. W/A/S/D move it, Q/E move down/up, dragging looks around, and scrolling changes travel speed. The camera can pass through meshes and surfaces; its movement does not steer the spacecraft. F9 returns to the previous view, and C returns to the external view. The simulation continues unless paused.
 
 Use the **Camera** menu to select an external mode. Target-relative follows the ship's orientation; absolute direction holds the camera's world direction while following the ship's roll; global frame holds both direction and roll. The target-to/from submenus choose a Solar System body and lock the camera along that line. Ground observer starts on the current solid body's surface, tracks the ship, moves across the surface when dragged, and zooms its field of view when scrolled. External tracking cameras can zoom out to 1,000 km to inspect long exhaust trails. **C** and **V** cycle the three main views, and the selected external mode is retained when returning to it.
 
