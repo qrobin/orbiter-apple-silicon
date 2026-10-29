@@ -40,7 +40,9 @@ int main(){@autoreleasepool{
     id<MTLCommandQueue> queue=[gpu newCommandQueue];id<MTLCommandBuffer> setup=[queue commandBuffer];id<MTLComputeCommandEncoder> setupEncoder=[setup computeCommandEncoder];[setupEncoder setComputePipelineState:noiseKernel];[setupEncoder setTexture:noise atIndex:0];[setupEncoder dispatchThreads:MTLSizeMake(128,128,128) threadsPerThreadgroup:MTLSizeMake(4,4,4)];[setupEncoder endEncoding];[setup commit];[setup waitUntilCompleted];require(setup.error==nil,"Noise setup failed");
     MTLDepthStencilDescriptor *ds=[MTLDepthStencilDescriptor new];ds.depthCompareFunction=MTLCompareFunctionAlways;ds.depthWriteEnabled=YES;auto skyDepth=[gpu newDepthStencilStateWithDescriptor:ds];ds.depthCompareFunction=MTLCompareFunctionGreater;auto objectDepth=[gpu newDepthStencilStateWithDescriptor:ds];
     auto project=std::filesystem::path(ORBITER_TEST_DATA);loadEphemerides(project/"Src/Celbody");require(loadEarthWeatherMap(project/"Native/Assets/earth-clouds.r8"),"Weather map failed");
-    Flight flight;flight.load(project/"Native/Assets/Scenarios/Hawaii sunset.scn");for(int i=0;i<60;++i)flight.advance(.05);
+    Flight flight;flight.load(project/"Native/Assets/Scenarios/Hawaii sunset.scn");
+    NSString *elapsed=NSProcessInfo.processInfo.environment[@"ORBITER_SUNSET_ELAPSED"];
+    int steps=elapsed?std::clamp((int)(elapsed.doubleValue/.05),0,100000):60;for(int i=0;i<steps;++i)flight.advance(.05);
     if(NSString *later=NSProcessInfo.processInfo.environment[@"ORBITER_SUNSET_LATER"]){
         double lat,lon;bodyCoordinates(BodyId::Earth,flight.position,flight.mjd,flight.elapsed,lat,lon);
         flight.mjd+=later.doubleValue/86400.;auto surface=bodySurface(BodyId::Earth,lat,lon,flight.mjd,flight.elapsed);
@@ -54,7 +56,7 @@ int main(){@autoreleasepool{
     f.screen={(float)width,(float)height,(float)tan(25*RAD),(float)(b.rotation(date)/Pi2)};f.environment={(float)(eye.length()/b.radius-1),(float)(eye.length()-b.radius),0,(float)flight.elapsed};
     f.body={(float)b.radius,1,13000,0};f.haze={.1,.33,.75,78000};f.equatorX=v4(b.equatorX(),1);f.pole=v4(b.pole());f.equatorZ=v4(b.equatorZ());f.surfaceColor=v4(b.color,(int)b.id);
     f.weather={(float)flight.weatherPreset,(float)flight.currentWeather().storm,(float)flight.currentWeather().rain,0};f.weatherWind=v4(flight.airRelativeVelocity());
-    CelestialUniforms s{};double distance=(bodyState(BodyId::Earth,date).position+eye).length();s.directionRadius=v4(sunDirection,(float)(body(BodyId::Sun).radius/distance));s.axisX=v4({1,0,0});s.pole=v4({0,1,0},2);s.axisZ=v4({0,0,1},1);s.light=v4({0,1,0},(float)distance);s.material=v4({1,.8,.4},0);
+    CelestialUniforms s{};double distance=(bodyState(BodyId::Earth,date).position+eye).length();s.directionRadius=v4(sunDirection,(float)(body(BodyId::Sun).radius/distance));f.sunShape={s.directionRadius.w,0,0,0};s.axisX=v4({1,0,0});s.pole=v4({0,1,0},2);s.axisZ=v4({0,0,1},1);s.light=v4({0,1,0},(float)distance);s.material=v4({1,.8,.4},0);
     auto render=[&](bool withClouds){
         f.clouds={1800,6500,withClouds?.48f:0,0};f.environment.z=0;double gpuMs=0;
         for(uint32_t frame=0;frame<6;++frame){
@@ -93,6 +95,15 @@ int main(){@autoreleasepool{
         double nearOcean=0,nearHorizon=0;for(int x=0;x<(int)width;++x){nearOcean+=channel(cloudy,x,550,0)+channel(cloudy,x,550,1)+channel(cloudy,x,550,2);nearHorizon+=channel(cloudy,x,145,0)+channel(cloudy,x,145,1)+channel(cloudy,x,145,2);}
         require(nearOcean+90*width<nearHorizon,"Scattered weather leaves the ocean visible");
         size_t changed=0;for(size_t i=0;i<cloudy.size();i+=4)if(abs(int(cloudy[i])-int(clear[i]))>3)++changed;require(changed>1000,"The Hawaii scene retains visible clouds");
+        float solarRadius=f.sunShape.x;f.sunShape.x=0;auto noHalo=render(false);f.sunShape.x=solarRadius;
+        size_t haloPixels=0;for(size_t i=0;i<clear.size();i+=4)if(int(clear[i])>int(noHalo[i])+3)++haloPixels;
+        require(haloPixels>100,"Atmospheric scattering creates a visible halo around the Sun");
+        f.sun.w=0;auto eclipsed=render(false);f.sunShape.x=0;auto eclipsedNoHalo=render(false);
+        require(eclipsed==eclipsedNoHalo,"The atmospheric halo disappears when the Sun is occluded");
+        f.sun.w=1;f.sunShape.x=solarRadius;f.position=v4(eye.unit()*(1+150000./b.radius));f.environment.x=150000./b.radius;f.environment.y=150000;
+        auto high=render(false);f.sunShape.x=0;auto highNoHalo=render(false);
+        size_t highHalo=0;for(size_t i=0;i<high.size();i+=4)if(int(high[i])>int(highNoHalo[i])+3)++highHalo;
+        require(highHalo<haloPixels/20,"The solar halo fades when the observer is above the atmosphere");
     }
     printf("Hawaii sun elevation %.2f deg; camera height %.0f m\n",Deg(asin(dotp(eye.unit(),sunDirection))),eye.length()-b.radius);
     return 0;

@@ -117,6 +117,12 @@ float3 earthSunTransmission(constant Frame &f){
     float m=atmosphericColumn(height,max(0.0f,sunMu),1200.0f,f.body.x,1e25f);
     return exp(-(float3(5.8e-6,13.5e-6,33.1e-6)*r+float3(2.1e-5)*m));
 }
+float earthSunHaze(constant Frame &f){
+    float height=max(0.0f,f.environment.x*f.body.x),sunMu=max(0.0f,dot(normalize(f.position.xyz),f.sun.xyz));
+    float r=atmosphericColumn(height,sunMu,8000.0f,f.body.x,1e25f);
+    float m=atmosphericColumn(height,sunMu,1200.0f,f.body.x,1e25f);
+    return 1-exp(-(r*1.35e-5f+m*2.1e-5f));
+}
 struct AirLight {float3 transmission,scattering;};
 AirLight earthAirLight(constant Frame &f,float3 ray,float maximumDistance){
     float height=max(0.0f,f.environment.x*f.body.x),mu=dot(normalize(f.position.xyz),ray);
@@ -136,13 +142,13 @@ AirLight earthAirLight(constant Frame &f,float3 ray,float maximumDistance){
     float solarR=atmosphericColumn(height,max(0.0f,sunMu),8000.0f,f.body.x,1e25f)*mix(1.0f,exp(-scatterHeight/8000.0f),twilight);
     float solarM=atmosphericColumn(height,max(0.0f,sunMu),1200.0f,f.body.x,1e25f)*mix(1.0f,exp(-scatterHeight/1200.0f),twilight);
     float3 incident=exp(-(betaR*solarR+betaM*solarM));
-    float3 scattered=incident*sunlight*((1-exp(-betaR*r))*phaseR*.95f+(1-exp(-betaM*m))*phaseM*.13f);
+    float3 scattered=incident*sunlight*((1-exp(-betaR*r))*phaseR*.95f+(1-exp(-betaM*m))*phaseM*mix(.13f,.085f,twilight));
     // A small broad skylight term approximates higher-order blue scattering,
     // while low solar angles leave warmer light near the horizon.
     float skyHeight=smoothstep(-.02f,.35f,mu);
     float horizon=exp(-abs(mu)*10.0f),towardSun=.25f+.75f*pow(max(0.0f,cosine),2.0f);
-    scattered+=sunlight*twilight*(float3(.012,.035,.14)*skyHeight+float3(.09,.025,.003)*horizon*towardSun);
-    scattered*=mix(float3(1),float3(1.12,.84,.90),twilight*horizon*towardSun);
+    scattered+=sunlight*twilight*(float3(.012,.035,.26)*skyHeight+float3(.09,.025,.003)*horizon*towardSun);
+    scattered*=mix(float3(1),float3(1.18,.54,1.0),twilight*horizon*towardSun);
     return {transmission,scattered};
 }
 fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buffer(1)]],
@@ -230,6 +236,17 @@ fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buf
         if(atmosphereDisc>0&&b<0){float closest=sqrt(max(0.0f,dot(origin,origin)-b*b));float glow=exp(-max(0.0f,closest-1)*radius/max(1.0f,f.body.z))*.7;float3 n=normalize(origin-ray*b);float light=smoothstep(-.3f,.4f,dot(n,f.sun.xyz));float orbital=smoothstep(f.haze.w*.45f,f.haze.w,height*radius);color+=f.haze.rgb*glow*light*min(1.0f,f.body.y)*orbital;}
     }
     if(f.pole.w>0){float den=dot(ray,f.pole.xyz);if(abs(den)>.00001){float t=-dot(origin,f.pole.xyz)/den;float3 point=origin+ray*t;float r=length(point);if(t>0&&t<distance&&r>f.pole.w&&r<f.equatorZ.w){float4 ring=ringMaterial(point,ray,f.pole.xyz,f.pole.w,f.equatorZ.w,f.sun.xyz,rings);color=mix(color,ring.rgb,ring.a);if(ring.a>.05)distance=t;}}}
+    // Atmospheric forward scattering creates an aureole larger than the
+    // physical solar disc; cloud and surface depth can still obscure it.
+    if(earth&&distance>1e24f&&f.sun.w>0&&f.sunShape.x>0){
+        float cosine=dot(ray,f.sun.xyz),radius=clamp(f.sunShape.x,.00001f,.05f);
+        float angle2=max(0.0f,2*(1-cosine));
+        if(angle2<radius*radius*900){
+            float haze=earthSunHaze(f),width=radius*(1.15f+4.5f*haze);
+            float core=exp(-angle2/(2*width*width)),wing=exp(-sqrt(angle2)/(width*1.8f));
+            color+=earthSunTransmission(f)*f.sun.w*haze*(core*3.0f+wing*.22f);
+        }
+    }
     float depth=distance<1e24?.2/max(.0001f,distance*radius*dot(ray,f.forward.xyz)):0;
     return {float4(color,1),clamp(depth,0.0f,1.0f)};
 }

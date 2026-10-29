@@ -16,6 +16,10 @@ fragment SkyOutput celestialFragment(CelestialRaster in [[stage_in]],constant Fr
         float2 uv=float2(atan2(equ.z,equ.x)/(2*M_PI_F)+.5+b.axisX.w,acos(clamp(equ.y,-1.0f,1.0f))/M_PI_F);
         float3 surface=planetMaterial(normal,uv,b.material.rgb,int(b.material.w),b.axisZ.w>.5,map);
         float light=max(0.0f,dot(normal,b.light.xyz));color=surface*(.008+light);if(b.pole.w>1.5)color=surface*80;alpha=1;
+        if(b.pole.w>1.5&&int(f.surfaceColor.w)==3){
+            float edge=radius*(.025f+.28f*earthSunHaze(f));
+            alpha=smoothstep(0.0f,edge,radius-perpendicular);
+        }
     }
     if(b.rings.x>0){float den=dot(ray,b.pole.xyz);if(abs(den)>.00001){float t=dot(center,b.pole.xyz)/den;float3 point=(ray*t-center)/radius;float r=length(point);if(t>0&&t<distance&&r>b.rings.x&&r<b.rings.y){float4 ring=ringMaterial(point,ray,b.pole.xyz,b.rings.x,b.rings.y,b.light.xyz,rings);color=alpha>.99?mix(color,ring.rgb,ring.a):ring.rgb;alpha=max(alpha,ring.a);if(ring.a>.03)distance=t;}}}
     if(alpha<.01)discard_fragment();

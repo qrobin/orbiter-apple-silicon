@@ -91,6 +91,8 @@ target_compile_definitions(SunsetRenderTests PRIVATE ORBITER_TEST_DATA="${PROJEC
 target_link_libraries(SunsetRenderTests PRIVATE OrbiterFlightCore "-framework Cocoa" "-framework Metal" "-framework MetalKit")
 add_test(NAME Native.SunsetMetal COMMAND SunsetRenderTests)
 set_tests_properties(Native.SunsetMetal PROPERTIES SKIP_RETURN_CODE 77)
+add_test(NAME Native.SunsetLateMetal COMMAND SunsetRenderTests)
+set_tests_properties(Native.SunsetLateMetal PROPERTIES SKIP_RETURN_CODE 77 ENVIRONMENT "ORBITER_SUNSET_ELAPSED=970")
 
 add_executable(CockpitHudRenderTests Tests/CockpitHudRenderTests.mm macOS/CockpitHUD.mm)
 target_include_directories(CockpitHudRenderTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/macOS)
