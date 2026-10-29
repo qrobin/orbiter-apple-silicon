@@ -20,8 +20,9 @@ int main(){try{
     auto storm=earthWeather(dryPosition,date,3),clear=earthWeather(dryPosition,date,0);
     check(storm.rain>.5&&storm.wind.length()>15&&clear.rain==0&&clear.wind.length()==0,"Storm has rain and strong winds; clear is calm");
     double wet=updateGlassWetness(0,1,100,5),drying=updateGlassWetness(wet,0,100,5);
-    check(wet>.8&&drying>0&&drying<wet,"Cockpit glass gets wet in rain and dries gradually afterwards");
+    check(wet>.5&&drying>0&&drying<wet,"Cockpit glass gets wet in rain and dries gradually afterwards");
     check(updateGlassWetness(wet,0,100,0)==wet&&updateGlassWetness(wet,0,250,5)<drying,"Paused wetness is stable and faster airflow clears water sooner");
+    check(updateGlassWetness(0,1,250,30)<updateGlassWetness(0,1,0,30)*.5,"Fast flight reduces water accumulation even in continuing rain");
     check(fabs(dotp(storm.wind,dryPosition.unit()))<1e-8,"Weather wind follows the local surface");
     bool sawLightning=false;
     for(int i=0;i<3800;++i){

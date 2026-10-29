@@ -30,8 +30,10 @@ double updateGlassWetness(double wetness,double rain,double airspeed,double dt){
     rain=std::isfinite(rain)?std::clamp(rain,0.,1.):0;
     airspeed=std::isfinite(airspeed)?std::clamp(airspeed,0.,10000.):0;
     if(!std::isfinite(dt)||dt<=0)return wetness;
-    double rate=rain>wetness?.5:.035+airspeed*.0002;
-    return rain+(wetness-rain)*exp(-rate*dt);
+    // Faster airflow sweeps water away even during continuing rainfall.
+    double target=rain*(.18+.82/(1+airspeed/120));
+    double rate=target>wetness?.5:.035+airspeed*.0002;
+    return target+(wetness-target)*exp(-rate*dt);
 }
 WeatherSample earthWeather(const Vector &position,double mjd,int preset,bool effects){
     WeatherSample result;if(preset<=0||!std::isfinite(mjd)||position.length2()<1)return result;

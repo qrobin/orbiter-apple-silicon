@@ -142,7 +142,7 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
     }
     _emitterCount=count;double dt=haveFlight?flight.elapsed-lastElapsed:0;
     auto weather=flight.currentWeather();double humidity=std::clamp(.25+weather.cloud*.45+weather.storm*.3,0.,1.);
-    glassWetness=haveFlight?updateGlassWetness(glassWetness,weather.rain,flight.airRelativeVelocity().length(),dt):weather.rain;
+    glassWetness=updateGlassWetness(glassWetness,weather.rain,flight.airRelativeVelocity().length(),dt);
     exhaustTrail.update(flight,dt,humidity);
     EffectUniforms step{};step.clock={(float)dt,(float)fmod(flight.elapsed,4096.),0,(float)count};step.offset=visualVector(offset);
     lastElapsed=flight.elapsed;haveFlight=YES;

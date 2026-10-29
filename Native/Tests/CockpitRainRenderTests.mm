@@ -35,9 +35,9 @@ int main(){@autoreleasepool{try{
     [scene replaceRegion:MTLRegionMake2D(0,0,width,height) mipmapLevel:0 withBytes:background.data() bytesPerRow:width*4];
     td=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatDepth32Float width:width height:height mipmapped:NO];td.usage=MTLTextureUsageRenderTarget;td.storageMode=MTLStorageModePrivate;id<MTLTexture> depth=[gpu newTextureWithDescriptor:td];
     id<MTLCommandQueue> queue=[gpu newCommandQueue];simd_float4x4 model={};model.columns[0]={1,0,0,0};model.columns[1]={0,1,0,0};model.columns[2]={0,0,1,0};model.columns[3]={0,-1.467f,-6.782f,1};
-    auto render=[&](float rain,float time,bool occluded,float yaw){
+    auto render=[&](float rain,float time,bool occluded,float yaw,float speed=80){
         FrameUniforms f{};f.right={cosf(yaw),0,-sinf(yaw),0};f.up={0,1,0,0};f.forward={sinf(yaw),0,cosf(yaw),0};
-        f.position={0,1,0,0};f.sun={0,1,0,1};f.weather={3,.9f,rain,0};f.weatherWind={0,0,80,0};f.environment.w=time;f.screen={width,height,.466f,0};
+        f.position={0,1,0,0};f.sun={0,1,0,1};f.weather={3,.9f,rain,0};f.weatherWind={0,0,speed,0};f.environment.w=time;f.screen={width,height,.466f,0};
         f.projection.columns[0]={1/.466f,0,0,0};f.projection.columns[1]={0,1/.466f,0,0};f.projection.columns[2]={0,0,0,-1};f.projection.columns[3]={0,0,.2f,0};
         id<MTLCommandBuffer> cb=[queue commandBuffer];id<MTLBlitCommandEncoder> blit=[cb blitCommandEncoder];
         [blit copyFromTexture:scene sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0,0,0) sourceSize:MTLSizeMake(width,height,1) toTexture:output destinationSlice:0 destinationLevel:0 destinationOrigin:MTLOriginMake(0,0,0)];[blit endEncoding];
@@ -57,6 +57,10 @@ int main(){@autoreleasepool{try{
     check(visible>100&&visible<width*height/4,"Droplets appear on a bounded part of the original glass");
     check(differences(wet,later)>100,"Rainwater moves across the glass over time");
     check(differences(wet,turned)>100,"Wet glass follows the cockpit view");
+    auto slow=render(1,1,false,0,0),slowLater=render(1,1.1f,false,0,0),fast=render(1,1,false,0,250),fastLater=render(1,1.1f,false,0,250);
+    auto slowMotion=differences(slow,slowLater),fastMotion=differences(fast,fastLater);
+    std::cout<<"Drop motion: stationary "<<slowMotion<<", fast "<<fastMotion<<'\n';
+    check(fastMotion>slowMotion*2&&fastMotion>100,"Airflow makes droplets move faster over the canopy");
     NSString *path=NSProcessInfo.processInfo.environment[@"ORBITER_RAIN_PREVIEW"];
     if(path.length){NSBitmapImageRep *out=[[NSBitmapImageRep alloc] initWithBitmapDataPlanes:nullptr pixelsWide:width pixelsHigh:height bitsPerSample:8 samplesPerPixel:4 hasAlpha:YES isPlanar:NO colorSpaceName:NSCalibratedRGBColorSpace bytesPerRow:width*4 bitsPerPixel:32];memcpy(out.bitmapData,wet.data(),wet.size());[[out representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:path atomically:YES];}
     std::cout<<"cockpit rain geometry and refraction verified\n";return 0;
