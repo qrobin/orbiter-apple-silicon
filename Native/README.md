@@ -4,7 +4,15 @@ A partial native Apple Silicon port of the supplied Orbiter source. It includes 
 
 ## TransX
 
-Press **F4** (or **Fn-F4** when macOS uses the function key for a system action), or choose **Navigation → TransX…**. The module is compiled directly from `Src/Plugin/TransX`: its stage handling, orbit and encounter calculations, escape/encounter/slingshot plans, original plots, variable controls, help and serialization are reused. The previous custom transfer-planner interface and its Lambert implementation have been removed.
+Press **F4** (or **Fn-F4** when macOS uses the function key for a system action), or choose **Navigation → TransX…**. The module is compiled directly from `Src/Plugin/TransX`: its stage handling, orbit and encounter calculations, escape/encounter/slingshot plans, original plots, variable controls, help and serialization are reused. The earlier independent transfer planner and its Lambert implementation have been removed.
+
+### Route Planner
+
+Choose **Navigation → Route Planner…** or press **Command-Shift-R** for a simpler editor of the same TransX plan. Select a destination and choose **Create route**: the planner creates the necessary escape and target stages, such as Earth → Sun → Mars. This replaces the shared TransX plan; the original TransX window and both cockpit MFDs remain available. An existing compatible plan is picked up when the planner reopens, including after loading a saved scenario.
+
+For a direct planetary transfer, use **Transfer** to set the TransX ejection date and velocity components. The velocity here is the planned departure velocity relative to the body being left, not the engine burn. **Use Hohmann estimate** supplies an approximate prograde starting value; apply it and tune the date and components while watching the original TransX graph and closest-approach estimate. The estimate indicates whether it comes from the transfer plan, the burn maneuver, or only the current orbit. **In 1 h** sets a date relative to the current simulation time. Dates use MJD and velocities use metres per second.
+
+Set the actual first-stage maneuver separately under **Departure burn** and choose **Apply burn**. Use the graph menu to compare the transfer, escape, and maneuver views. **Align with RCS** follows the original TransX maneuver direction; fire and stop the main engines yourself. The planner does not automatically solve an intercept or match the burn to the desired escape trajectory. Later encounters, slingshots, and routes with multiple escape stages may require further work in the original TransX window.
 
 The native window exposes the original twelve MFD actions with readable labels and tooltips. **Left MFD / Right MFD** keeps the two original view states separate. The variable menu jumps to an existing TransX variable; **Enter value** and **Apply value** use its original entry/validation path. Numeric expressions such as `100+`, `100-` and `x` retain their TransX meaning. Native entry also accepts literal zero and legal planet/moon names for the current stage. In the display, H/F/R/W, period/comma, brackets, =/−, X/E invoke the original MFD keys after clicking the display. **Return to flight** restores normal flight keyboard control.
 

@@ -239,19 +239,30 @@ bool transxstate::restoresave(FILEHANDLE scn)
 	int length;
 	if (!oapiReadScenario_nextline(scn,buffer))
 	{
+#ifdef ORBITER_NATIVE
+		return false;
+#else
 		initfunctions();
 		return true;
+#endif
 	}
 	parser.parseline(buffer);
-	unsigned int numfunctions;
+	unsigned int numfunctions=0;
+#ifdef ORBITER_NATIVE
+	if (!parser.getlineelement(0,&member,&length) || strcmp(member,"FNumber")!=0) return false;
+#endif
 	if (parser.getlineelement(1,&member,&length))
 	{
-		sscanf(member,"%i",&numfunctions);
+		if (sscanf(member,"%u",&numfunctions)!=1) return false;
 	}
 	else
 	{
+#ifdef ORBITER_NATIVE
+		return false;
+#else
 		initfunctions();
 		return false;
+#endif
 	}
 	OBJHANDLE thmajor=oapiGetGbodyByIndex(0);//should be the central sun - only a safe stand-in anyway until real values loaded
 	if (numfunctions<1 || numfunctions>100)

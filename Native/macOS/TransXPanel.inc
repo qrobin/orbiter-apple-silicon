@@ -14,6 +14,7 @@
     [self.flightView rotateTransXGraph:self.display horizontal:event.deltaX vertical:event.deltaY];
 }
 - (void)keyDown:(NSEvent *)event {
+    if(self.display==native::transx::Session::RouteDisplay){[super keyDown:event];return;}
     NSString *key=event.charactersIgnoringModifiers.lowercaseString;if(!key.length)return;
     unichar c=[key characterAtIndex:0];const char *keys="hfrw.,[]=-xe";int button=-1;
     for(int i=0;i<12;++i)if(c==keys[i])button=i;if(c=='+')button=8;
@@ -106,17 +107,18 @@
 @implementation FlightView (NavigationControls)
 - (void)ensureTransX {
     if(transxSession)return;transxSession=std::make_unique<native::transx::Session>(flight);transxMfd[0]=true;
-    for(int d=0;d<2;++d)transxFrames[d]=transxSession->frame(d);
+    for(int d=0;d<3;++d)transxFrames[d]=transxSession->frame(d);
 }
 - (void)showNavigation:(id)sender {[self ensureTransX];if(!self.navigationPanel)self.navigationPanel=[[TransXPanel alloc] initWithFlightView:self];[self clearInput];[self.navigationPanel showWindow:nil];[self.navigationPanel.window makeKeyAndOrderFront:nil];}
 - (void)updateNavigation {
     if(!transxSession)return;transxSession->tick();
     if(flight.assist==Assist::Maneuver&&transxAlignDisplay>=0){VECTOR3 target;
-        if(transxSession->maneuverDirection(transxAlignDisplay,target))flight.maneuverDirection={target.x,target.y,target.z};else{flight.assist=Assist::Free;transxAlignDisplay=-1;}
+        bool valid=transxAlignDisplay==native::transx::Session::RouteDisplay?transxSession->maneuverDirectionForStage(1,target):transxSession->maneuverDirection(transxAlignDisplay,target);
+        if(valid)flight.maneuverDirection={target.x,target.y,target.z};else{flight.assist=Assist::Free;transxAlignDisplay=-1;}
     }
-    double now=CACurrentMediaTime();if(now-transxRefresh>.1){for(int d=0;d<2;++d)transxFrames[d]=transxSession->frame(d);[self.navigationPanel refresh];transxRefresh=now;}
+    double now=CACurrentMediaTime();if(now-transxRefresh>.1){for(int d=0;d<2;++d)transxFrames[d]=transxSession->frame(d);[self.navigationPanel refresh];[self.routePanel refresh];transxRefresh=now;}
 }
-- (void)resetNavigation {BOOL active=transxSession!=nullptr;auto previousMfd=transxMfd;transxSession.reset();transxAlignDisplay=-1;navigationStatus=nil;if(active){[self ensureTransX];transxMfd=previousMfd;[self.navigationPanel refresh];}}
+- (void)resetNavigation {BOOL active=transxSession!=nullptr;auto previousMfd=transxMfd;transxSession.reset();transxAlignDisplay=-1;navigationStatus=nil;if(active){[self ensureTransX];transxMfd=previousMfd;[self.navigationPanel refresh];[self.routePanel refresh];}}
 - (void)operateTransXButton:(int)button display:(int)d {
     [self ensureTransX];transxMfd[d]=true;transxSession->button(d,button);transxFrames[d]=transxSession->frame(d);
     if(button==11){[self showNavigation:nil];[self.navigationPanel requestEntryForDisplay:d];}else[self.navigationPanel refresh];

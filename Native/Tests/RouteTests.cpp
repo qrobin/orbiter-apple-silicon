@@ -2,6 +2,7 @@
 #include "Flight.h"
 #include "SolarSystem.h"
 #include <cmath>
+#include <fstream>
 #include <iostream>
 #include <stdexcept>
 using namespace native;
@@ -40,6 +41,10 @@ int main(){try{
           "Departure alignment remains available while viewing the transfer stage");
     session.button(0,1);session.frame(0);
     check(session.frame(0).stage==2,"Set the left MFD to the transfer stage");
+    session.button(0,1);session.frame(0);
+    check(session.frame(0).stage==3&&session.routeMatches(route),"An empty arrival stage keeps the route recognized");
+    transx::Route arrivalRoute;
+    check(session.currentRoute(arrivalRoute)&&arrivalRoute.destination==BodyId::Mars,"Route can be recovered after opening the arrival stage");
     auto invalid=burn;invalid.plane=NAN;
     check(!session.setRouteValues(route,true,invalid)&&session.routeValues(route,true,readback)&&near(readback.prograde,burn.prograde),
           "Invalid input leaves the burn unchanged");
@@ -84,6 +89,11 @@ int main(){try{
     transx::RouteValues values;
     check(restored.routeValues(route,false,values)&&near(values.prograde,3000),"Saved ejection values are restored");
     check(restored.routeValues(route,true,values)&&near(values.prograde,3500),"Saved burn values are restored");
+    auto malformed=(std::filesystem::temp_directory_path()/"orbiter-malformed-route.scn").string();
+    {std::ofstream out(malformed);out<<"Ship  GL-01\nFNumber invalid\n";}
+    restored.load(malformed);std::filesystem::remove(malformed);
+    check(restored.routeMatches(route)&&restored.routeValues(route,true,values)&&near(values.prograde,3500),
+          "Malformed saved data does not replace the existing plan");
     }
     std::filesystem::remove(saved);
     flight.startOrbit(BodyId::Io);

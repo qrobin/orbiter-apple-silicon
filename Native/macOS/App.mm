@@ -36,6 +36,11 @@ struct GpuGroup { id<MTLBuffer> vertices,indices; NSUInteger count; size_t mater
 @class FlightView;
 @class GliderPanel;
 @class TransXPanel;
+@interface RoutePanel : NSWindowController
+- (instancetype)initWithFlightView:(FlightView *)view;
+- (void)refresh;
+- (void)updateControls;
+@end
 @interface Panel2DView : NSView
 @property(nonatomic,weak) FlightView *flightView;
 - (void)setDisplayImage:(NSBitmapImageRep *)image index:(int)display;
@@ -58,7 +63,7 @@ struct GpuGroup { id<MTLBuffer> vertices,indices; NSUInteger count; size_t mater
     NSString *status,*navigationStatus;
     NSInteger navigationTarget;
     std::unique_ptr<native::transx::Session> transxSession;
-    std::array<native::transx::Frame,2> transxFrames;
+    std::array<native::transx::Frame,3> transxFrames;
     std::array<bool,2> transxMfd;
     int transxAlignDisplay;
     double transxRefresh;
@@ -96,6 +101,7 @@ struct GpuGroup { id<MTLBuffer> vertices,indices; NSUInteger count; size_t mater
 @property(nonatomic,strong) FlightHUD *hud;
 @property(nonatomic,strong) GliderPanel *systemsPanel;
 @property(nonatomic,strong) TransXPanel *navigationPanel;
+@property(nonatomic,strong) RoutePanel *routePanel;
 @property(nonatomic,strong) Panel2DView *panel2D;
 - (void)resetFlight:(id)sender;
 - (void)demonstrateGlider:(id)sender;
@@ -143,6 +149,9 @@ struct GpuGroup { id<MTLBuffer> vertices,indices; NSUInteger count; size_t mater
 - (void)toggleTransXMFD:(NSMenuItem *)sender;
 - (void)loadTransXScenario:(NSString *)path;
 - (void)saveTransXScenario:(NSString *)path;
+@end
+@interface FlightView (RouteControls)
+- (void)showRoutePlanner:(id)sender;
 @end
 @interface FlightView (GliderControls)
 - (void)showSystems:(id)sender;
@@ -894,6 +903,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
 @end
 #include "GliderPanel.inc"
 #include "TransXPanel.inc"
+#include "RoutePanel.inc"
 #include "Panel2D.inc"
 
 @interface AppDelegate : NSObject<NSApplicationDelegate,NSWindowDelegate>
@@ -949,6 +959,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         NSMenuItem *colour=[hudMenu addItemWithTitle:@"Cycle HUD Colour (Option-H)" action:@selector(cycleHudColour:) keyEquivalent:@""];colour.target=self.view;
         for(int sign:{-1,1}){NSMenuItem *item=[hudMenu addItemWithTitle:sign<0?@"Decrease Brightness":@"Increase Brightness" action:@selector(adjustHudBrightness:) keyEquivalent:@""];item.target=self.view;item.tag=sign;}
         NSMenuItem *planner=[nav addItemWithTitle:@"TransX… (F4)" action:@selector(showNavigation:) keyEquivalent:@"t"];planner.keyEquivalentModifierMask=NSEventModifierFlagCommand|NSEventModifierFlagShift;planner.target=self.view;
+        NSMenuItem *routePlanner=[nav addItemWithTitle:@"Route Planner…" action:@selector(showRoutePlanner:) keyEquivalent:@"r"];routePlanner.keyEquivalentModifierMask=NSEventModifierFlagCommand|NSEventModifierFlagShift;routePlanner.target=self.view;
         for(int d=0;d<2;++d){NSMenuItem *item=[nav addItemWithTitle:d?@"TransX on Right MFD":@"TransX on Left MFD" action:@selector(toggleTransXMFD:) keyEquivalent:@""];item.target=self.view;item.tag=d;}
         NSMenuItem *guide=[nav addItemWithTitle:@"TransX Quickstart…" action:@selector(showTransXGuide:) keyEquivalent:@""];guide.target=self.view;
         NSMenuItem *solarItem=[NSMenuItem new];solarItem.title=@"Solar System";[main addItem:solarItem];NSMenu *system=[NSMenu new];solarItem.submenu=system;

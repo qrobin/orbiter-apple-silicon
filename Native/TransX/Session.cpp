@@ -177,12 +177,24 @@ bool Session::routeMatches(const Route &route){
     if(route.origin!=impl->flight.reference||route.legs.empty())return false;
     auto *state=impl->display(RouteDisplay).nativeView()->nativeState();
     const auto &last=route.legs.back();int expected=last.stage+(last.escape?1:0);
-    if(state->getnumfunctions()!=expected)return false;
+    int count=state->getnumfunctions();
+    if(count!=expected){
+        // FWD on the final target opens its arrival stage without changing the
+        // route. Keep recognizing that common original-MFD workflow.
+        if(last.escape||count!=expected+1)return false;
+        auto *arrival=state->getbasefn(count);OBJHANDLE major=nullptr,minor=nullptr;
+        if(!arrival||arrival->gethmajor()!=oapiGetGbodyByName(body(route.destination).name))return false;
+        arrival->handlesfornextfunction(&major,&minor);if(major||minor)return false;
+    }
     for(const auto &leg:route.legs){
         auto *base=state->getbasefn(leg.stage);if(!base||base->gethmajor()!=oapiGetGbodyByName(body(leg.center).name))return false;
         OBJHANDLE major=nullptr,minor=nullptr;base->handlesfornextfunction(&major,&minor);
         if(major!=oapiGetGbodyByName(body(leg.next).name)||
            (leg.escape?minor!=base->gethmajor():minor!=nullptr))return false;
+    }
+    if(route.ejectStage){
+        auto *base=state->getbasefn(route.ejectStage);
+        if(!base||!base->getplanpointer()||base->getplanpointer()->getplanid()!=2)return false;
     }
     return true;
 }
@@ -196,7 +208,7 @@ bool Session::currentRoute(Route &route){
         if(!base||base->gethmajor()!=oapiGetGbodyByName(body(center).name))return false;
         OBJHANDLE major=nullptr,minor=nullptr;base->handlesfornextfunction(&major,&minor);
         if(!major){
-            if(stage!=count||candidate.legs.empty()||!candidate.legs.back().escape)return false;
+            if(stage!=count||candidate.legs.empty())return false;
             break;
         }
         char name[80]={};oapiGetObjectName(major,name,sizeof(name));BodyId next;
