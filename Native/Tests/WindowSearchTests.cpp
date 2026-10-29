@@ -69,5 +69,11 @@ int main(){try{
     check(onwardResult.state==transx::SearchState::Complete&&session.routeMatches(onward)&&
         onwardResult.missDistance<sphereOfInfluence(BodyId::Jupiter,onwardResult.arrivalMJD),
         std::string("Search the next leg after entering Mars orbit: ")+onwardResult.message);
+    check(session.alignStage(1)&&flight.assist==Assist::Maneuver,"The new current-stage burn can be aligned with RCS");flight.clearAssist();
+    session.save(saved);session.load(saved);std::filesystem::remove(saved);
+    transx::Route savedOnward;transx::Approach savedApproach;
+    check(session.currentRoute(savedOnward)&&savedOnward.ejectStage==2&&session.routeApproach(savedOnward,savedApproach)&&
+        savedApproach.distance<sphereOfInfluence(BodyId::Jupiter,savedApproach.mjd),
+        "A solved onward Sling Direct leg survives scenario save and reload");
     std::cout<<"window search checks passed\n";
 }catch(const std::exception &error){std::cerr<<error.what()<<'\n';return 1;}}
