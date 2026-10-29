@@ -118,7 +118,7 @@ struct GpuGroup { id<MTLBuffer> vertices,indices; NSUInteger count; size_t mater
 - (void)resetFlight:(id)sender;
 - (void)demonstrateGlider:(id)sender;
 - (void)startSurface:(id)sender;
-- (void)startOceanFlight:(id)sender;
+- (void)startAtmosphericFlight:(NSMenuItem *)sender;
 - (void)startOrbit:(id)sender;
 - (void)startHoverPractice:(id)sender;
 - (void)toggleHoverHold:(id)sender;
@@ -781,17 +781,24 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
 }
 - (void)resetFlight:(id)sender {
     [self clearInput];freeCamera.active=false;[visuals reset];demoLadderQueued=false;
-    if(restartBody>=0)flight.startOrbit((BodyId)restartBody);
-    else {if(!restartScenario)restartScenario=resource(@"Scenarios/DG Mk4 in orbit.scn");flight.load(restartScenario.fileSystemRepresentation);}
+    flight.weatherPreset=(int)visuals.weather;
+    if(restartBody>=0){flight.startOrbit((BodyId)restartBody);flight.weatherPreset=(int)visuals.weather;}
+    else {if(!restartScenario)restartScenario=resource(@"Scenarios/DG Mk4 in orbit.scn");flight.load(restartScenario.fileSystemRepresentation);visuals.weather=flight.weatherPreset;}
     flight.automaticReferenceChanges=true;[self resetNavigation];if(restartBody<0&&restartScenario)[self loadTransXScenario:restartScenario];
-    status=[NSString stringWithFormat:@"%s %@ · Press F1 for controls",flight.centralBody().name,flight.groundContact?@"surface flight":@"orbit"];
+    status=[NSString stringWithFormat:@"%s %@ · Press F1 for controls",flight.centralBody().name,flight.groundContact?@"surface flight":flight.reference==BodyId::Earth&&flight.altitude()<120000?@"atmospheric flight":@"orbit"];
 
 }
 - (void)startSurface:(id)sender {
     restartBody=-1;restartScenario=resource(@"Scenarios/Cape Canaveral native.scn");[self resetFlight:nil];
     externalCamera.setMode(ExternalCameraMode::OrbitalChase,flight,flight.reference);externalCamera.yaw=-.55;externalCamera.pitch=.22;externalCamera.distance=43;[self setViewMode:0];
 }
-- (void)startOceanFlight:(id)sender {restartBody=-1;restartScenario=resource(@"Scenarios/Atlantic Ocean flight.scn");[self resetFlight:nil];[self setViewMode:1];}
+- (void)startAtmosphericFlight:(NSMenuItem *)sender {
+    NSArray<NSString *> *files=@[@"Atlantic Ocean flight.scn",@"Hawaii sunset.scn",@"Gulf of Mexico storm.scn",@"Mediterranean clear flight.scn"];
+    if(sender.tag<0||sender.tag>=(NSInteger)files.count)return;
+    restartBody=-1;restartScenario=resource([@"Scenarios/" stringByAppendingString:files[sender.tag]]);
+    [self resetFlight:nil];[self setViewMode:1];status=[sender.title stringByAppendingString:@" · Press M for flight stabilization"];
+    self.hud.needsDisplay=YES;[self.window makeFirstResponder:self];
+}
 - (void)startOrbit:(id)sender {restartBody=-1;restartScenario=resource(@"Scenarios/DG Mk4 in orbit.scn");[self resetFlight:nil];}
 - (void)startHoverPractice:(id)sender {
     restartBody=-1;restartScenario=resource(@"Scenarios/Cape Canaveral hover.scn");[self resetFlight:nil];
@@ -843,7 +850,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
 - (void)openScenario:(id)sender {
     [self clearInput]; BOOL wasPaused=flight.paused; flight.paused=true;
     NSOpenPanel *panel=[NSOpenPanel openPanel]; panel.allowedContentTypes=@[[UTType typeWithFilenameExtension:@"scn"]]; panel.message=@"Choose a Solar System scenario focused on a standard DeltaGlider.";
-    if([panel runModal]==NSModalResponseOK) { try { flight.load(panel.URL.fileSystemRepresentation);[visuals resetForReferenceChange];[self resetNavigation];[self loadTransXScenario:panel.URL.path]; restartBody=-1;restartScenario=panel.URL.path;status=panel.URL.lastPathComponent; }
+    if([panel runModal]==NSModalResponseOK) { try { flight.weatherPreset=(int)visuals.weather;flight.load(panel.URL.fileSystemRepresentation);visuals.weather=flight.weatherPreset;[visuals resetForReferenceChange];[self resetNavigation];[self loadTransXScenario:panel.URL.path]; restartBody=-1;restartScenario=panel.URL.path;status=panel.URL.lastPathComponent; }
         catch(const std::exception &e) { [self showError:e.what()]; flight.paused=wasPaused; } }
     else flight.paused=wasPaused;
     previous=CACurrentMediaTime();
@@ -973,8 +980,8 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     if(item.action==@selector(setWeather:))return flight.reference==BodyId::Earth;
     return YES;
 }
-- (void)cycleWeather:(id)sender {visuals.weather=(visuals.weather+1)%5;status=[NSString stringWithFormat:@"Weather: %@ · F3 changes weather",[visuals weatherName]];self.hud.needsDisplay=YES;}
-- (void)setWeather:(NSMenuItem *)sender {visuals.weather=sender.tag;status=[NSString stringWithFormat:@"Weather: %@",[visuals weatherName]];self.hud.needsDisplay=YES;}
+- (void)cycleWeather:(id)sender {visuals.weather=(visuals.weather+1)%5;flight.weatherPreset=(int)visuals.weather;status=[NSString stringWithFormat:@"Weather: %@ · F3 changes weather",[visuals weatherName]];self.hud.needsDisplay=YES;}
+- (void)setWeather:(NSMenuItem *)sender {visuals.weather=sender.tag;flight.weatherPreset=(int)visuals.weather;status=[NSString stringWithFormat:@"Weather: %@",[visuals weatherName]];self.hud.needsDisplay=YES;}
 - (void)keyUp:(NSEvent *)event { [self updateModifierThrottle:event];if(event.keyCode<held.size()) held[event.keyCode]=false; }
 - (void)mouseDown:(NSEvent *)event {
     [self.window makeFirstResponder:self];activeCockpitControl=-1;lastDragPoint=event.locationInWindow;haveDragPoint=true;
@@ -1086,7 +1093,9 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         NSArray *viewTitles=@[@"External View",@"3D Cockpit View",@"2D Instrument Panel View"];
         for(int i=0;i<3;++i){NSMenuItem *item=[fm addItemWithTitle:viewTitles[i] action:@selector(chooseView:) keyEquivalent:@""];item.target=self.view;item.tag=i;}
         NSMenuItem *surface=[fm addItemWithTitle:@"Cape Canaveral — Surface Flight" action:@selector(startSurface:) keyEquivalent:@""];surface.target=self.view;
-        NSMenuItem *ocean=[fm addItemWithTitle:@"Atlantic Ocean — Atmospheric Flight" action:@selector(startOceanFlight:) keyEquivalent:@""];ocean.target=self.view;
+        NSMenuItem *atmospheric=[fm addItemWithTitle:@"Atmospheric Flight" action:nil keyEquivalent:@""];NSMenu *flights=[NSMenu new];atmospheric.submenu=flights;
+        NSArray<NSString *> *flightNames=@[@"Atlantic Ocean — Regional Weather",@"Hawaii — Sunset",@"Gulf of Mexico — Storm",@"Mediterranean — Clear Day"];
+        for(int i=0;i<(int)flightNames.count;++i){NSMenuItem *item=[flights addItemWithTitle:flightNames[i] action:@selector(startAtmosphericFlight:) keyEquivalent:@""];item.target=self.view;item.tag=i;}
         NSMenuItem *practice=[fm addItemWithTitle:@"Cape Canaveral — Hover Practice" action:@selector(startHoverPractice:) keyEquivalent:@""];practice.target=self.view;
         NSMenuItem *hoverAtt=[fm addItemWithTitle:@"Toggle Hover Auto Attitude (F5)" action:@selector(toggleHoverAttitude:) keyEquivalent:@""];hoverAtt.target=self.view;
         NSMenuItem *holdAlt=[fm addItemWithTitle:@"Hold Current Altitude (F6)" action:@selector(holdCurrentAltitude:) keyEquivalent:@""];holdAlt.target=self.view;

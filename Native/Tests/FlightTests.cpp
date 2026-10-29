@@ -9,9 +9,10 @@ int checks=0;
 void check(bool b,const char *message) { ++checks; if(!b) throw std::runtime_error(message); }
 int main() { try {
     auto root=std::filesystem::path(ORBITER_TEST_DATA);
+    check(loadEarthWeatherMap(root/"Native/Assets/earth-clouds.r8"),"weather data loads");
     Flight ocean;ocean.load(root/"Native/Assets/Scenarios/Atlantic Ocean flight.scn");
     check(ocean.reference==BodyId::Earth&&fabs(ocean.altitude()-5000)<1&&!ocean.groundContact,"Atlantic scenario starts airborne at 5 km");
-    check(fabs((ocean.velocity-crossp(ocean.centralBody().spin(),ocean.position)).length()-250)<.1,"Atlantic scenario starts at 250 m/s relative to the air");
+    check(fabs(ocean.airRelativeVelocity().length()-250)<.1,"Atlantic scenario starts at 250 m/s relative to the air");
     check(dotp(ocean.forward,ocean.airRelativeVelocity().unit())>.999,"Atlantic scenario points into the airflow");
     Flight flight; flight.load(root/"Scenarios/Delta-glider/DG Mk4 in orbit.scn");
     check(flight.name=="GL-01","scenario focus"); check(flight.altitude()>100000&&flight.altitude()<800000,"scenario altitude");

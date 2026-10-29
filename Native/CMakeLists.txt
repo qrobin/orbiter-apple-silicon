@@ -112,6 +112,11 @@ target_link_libraries(AtmosphericControlTests PRIVATE OrbiterFlightCore)
 target_compile_definitions(AtmosphericControlTests PRIVATE ORBITER_TEST_DATA="${PROJECT_SOURCE_DIR}")
 add_test(NAME Native.AtmosphericControl COMMAND AtmosphericControlTests)
 
+add_executable(AtmosphericScenarioTests Tests/AtmosphericScenarioTests.cpp)
+target_link_libraries(AtmosphericScenarioTests PRIVATE OrbiterFlightCore)
+target_compile_definitions(AtmosphericScenarioTests PRIVATE ORBITER_TEST_DATA="${PROJECT_SOURCE_DIR}")
+add_test(NAME Native.AtmosphericScenarios COMMAND AtmosphericScenarioTests)
+
 add_executable(WeatherTests Tests/WeatherTests.cpp)
 target_link_libraries(WeatherTests PRIVATE OrbiterFlightCore)
 target_compile_definitions(WeatherTests PRIVATE ORBITER_TEST_DATA="${PROJECT_SOURCE_DIR}")

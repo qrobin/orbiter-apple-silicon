@@ -129,11 +129,12 @@ void Flight::toggleAssist(Assist mode) {
 }
 void Flight::load(const std::filesystem::path &path) {
     std::ifstream file(path); if(!file) throw std::runtime_error("Cannot open scenario.");
-    Flight candidate; std::string line, focus, blockName;
+    Flight candidate; candidate.weatherPreset=weatherPreset;std::string line, focus, blockName;
     BodyRotationState savedRotation;bool hasRotationState=false,environment=false;
     bool ships=false, selected=false, found=false, orbiting=false, landed=false, gotPos=false, gotVel=false, gotSurface=false, gearSpecified=false, gotVrot=false;
     double longitude=0,latitude=0,headingAngle=0,clearance=2.53;
     bool gotElements=false; double vals[7]={}; Vector arot,vrot; bool hasArot=false;
+    bool hasAtmosphericHolds=false;std::array<int,4> holdEnabled{};std::array<double,4> holdTargets{};
     // Read focus and date first; vessel blocks can appear in any order.
     while(std::getline(file,line)) {
         std::istringstream s(line); std::string key; s>>key;
@@ -142,6 +143,7 @@ void Flight::load(const std::filesystem::path &path) {
         if(key=="Ship") s>>focus;
         if(key=="Date") { std::string format; s>>format; if(format=="MJD") s>>candidate.mjd; }
         if(environment&&key=="BODYROTATION") {int paused=-1;if(!(s>>paused>>savedRotation.offset>>savedRotation.frozenDate)||(paused!=0&&paused!=1))throw std::runtime_error("Invalid body rotation state.");savedRotation.paused=paused;hasRotationState=true;}
+        if(environment&&key=="NATIVE_WEATHER") {int preset=-1;if(!(s>>preset)||preset<0||preset>4)throw std::runtime_error("Invalid native weather preset.");candidate.weatherPreset=preset;}
     }
     file.clear(); file.seekg(0);
     while(std::getline(file,line)) {
@@ -169,6 +171,11 @@ void Flight::load(const std::filesystem::path &path) {
         if(key=="HUDBrightness") s>>candidate.hud.brightness;
         if(key=="HUDColour") s>>candidate.hud.colour;
         if(key=="DGMAIN") s>>candidate.throttle;
+        if(key=="NATIVE_ATMOSPHERIC_HOLDS") {
+            for(int i=0;i<4;++i)if(!(s>>holdEnabled[i]>>holdTargets[i])||(holdEnabled[i]!=0&&holdEnabled[i]!=1)||!std::isfinite(holdTargets[i]))
+                throw std::runtime_error("Invalid atmospheric hold state.");
+            hasAtmosphericHolds=true;
+        }
         if(key=="RPOS") gotPos=bool(s>>candidate.position.x>>candidate.position.y>>candidate.position.z);
         if(key=="RVEL") gotVel=bool(s>>candidate.velocity.x>>candidate.velocity.y>>candidate.velocity.z);
         if(key=="ELEMENTS") { gotElements=true; for(double &v: vals) if(!(s>>v)) gotElements=false; }
@@ -216,6 +223,15 @@ void Flight::load(const std::filesystem::path &path) {
     }
     if(!landed||nativeCartesian||gotVrot) candidate.angularVelocity=vrot*RAD;
     candidate.groundContact=landed;
+    if(hasAtmosphericHolds){
+        for(int i=0;i<4;++i){
+            candidate.captureAtmosphericTarget(i);
+            if(!candidate.setAtmosphericTarget(i,holdTargets[i])&&holdEnabled[i])throw std::runtime_error("Invalid atmospheric hold target.");
+        }
+        candidate.atmospheric.targetsInitialized=true;
+        // If flight conditions no longer permit a hold, leave it disengaged.
+        for(int i=0;i<4;++i)if(holdEnabled[i])candidate.setAtmosphericHold(i,true);
+    }
     *this=candidate;rollback.committed=true;
 }
 void Flight::save(const std::filesystem::path &path) const {
@@ -224,6 +240,7 @@ void Flight::save(const std::filesystem::path &path) const {
     f<<std::setprecision(16)<<"BEGIN_ENVIRONMENT\n  System Sol\n  Date MJD "<<mjd+elapsed/86400.0<<'\n';
     auto rotation=bodyRotationState();if(rotation.paused||rotation.offset!=0)
         f<<"  BODYROTATION "<<(rotation.paused?1:0)<<' '<<rotation.offset<<' '<<rotation.frozenDate<<'\n';
+    f<<"  NATIVE_WEATHER "<<weatherPreset<<'\n';
     f<<"END_ENVIRONMENT\n\nBEGIN_FOCUS\n  Ship "<<name<<"\nEND_FOCUS\n\nBEGIN_SHIPS\n"<<name
      <<":DeltaGlider\n  STATUS "<<(groundContact?"Landed":"Orbiting")<<' '<<centralBody().name<<"\n  RPOS "<<position.x<<' '<<position.y<<' '<<position.z
      <<"\n  RVEL "<<velocity.x<<' '<<velocity.y<<' '<<velocity.z
@@ -233,6 +250,11 @@ void Flight::save(const std::filesystem::path &path) const {
      <<"\n  HUDMode "<<hud.mode<<"\n  HUDBrightness "<<hud.brightness<<"\n  HUDColour "<<hud.colour<<'\n';
     if(groundContact) {double lat,lng;bodyCoordinates(reference,position,mjd,elapsed,lat,lng);f<<"  POS "<<Deg(lng)<<' '<<Deg(lat)<<"\n  HEADING "<<Deg(heading())<<"\n  ALT "<<altitude()<<'\n';}
     f<<"  DGMAIN "<<throttle<<'\n';
+    if(atmospheric.engaged()){
+        f<<"  NATIVE_ATMOSPHERIC_HOLDS";
+        for(int i=0;i<4;++i)f<<' '<<(atmospheric.active[i]?1:0)<<' '<<atmospheric.target[i];
+        f<<'\n';
+    }
     glider.save(f);
     f<<"END\nEND_SHIPS\n";
     f.flush(); if(!f) throw std::runtime_error("Writing the scenario failed.");
