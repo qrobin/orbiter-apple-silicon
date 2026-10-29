@@ -154,27 +154,37 @@ bool Session::displayView(int display,int stage,int mode){
 bool Session::routeView(int stage,int mode){return stage>0&&displayView(RouteDisplay,stage,mode);}
 
 bool Session::createRoute(BodyId destination,Route &route,std::string &error){
+    return createRoute(std::vector<BodyId>{destination},route,error);
+}
+bool Session::createRoute(const std::vector<BodyId> &waypoints,Route &route,std::string &error){
     const auto valid=[](BodyId id){return (int)id>=0&&(int)id<(int)BodyId::Count;};
     BodyId origin=impl->flight.reference;
-    if(!valid(origin)||!valid(destination)||origin==destination){error="Choose a different destination.";return false;}
+    if(!valid(origin)||waypoints.empty()||waypoints.size()>12){error="Choose between one and twelve destinations.";return false;}
+    BodyId previous=origin;
+    for(auto destination:waypoints){
+        if(!valid(destination)||destination==previous){error="Choose a different destination for each consecutive step.";return false;}
+        previous=destination;
+    }
 
-    // Walk the original body's hierarchy: escape up to the common parent,
-    // then target each child down to the destination.
-    std::vector<BodyId> originPath,destinationPath;
-    for(BodyId id=origin;;id=body(id).parent){originPath.push_back(id);if(id==BodyId::Sun)break;}
-    for(BodyId id=destination;;id=body(id).parent){destinationPath.push_back(id);if(id==BodyId::Sun)break;}
-    BodyId common=BodyId::Sun;
-    for(auto id:originPath)if(std::find(destinationPath.begin(),destinationPath.end(),id)!=destinationPath.end()){common=id;break;}
-    Route candidate;candidate.origin=origin;candidate.destination=destination;
+    // Walk the original body hierarchy for each stop. Targeting a body opens
+    // its next TransX stage before a subsequent escape or encounter.
+    Route candidate;candidate.origin=origin;candidate.destination=waypoints.back();candidate.waypoints=waypoints;
     int stage=1;BodyId current=origin;
-    while(current!=common){auto next=body(current).parent;candidate.legs.push_back({current,next,stage++,true});current=next;}
-    std::vector<BodyId> descent;
-    for(BodyId id=destination;id!=common;id=body(id).parent)descent.push_back(id);
-    std::reverse(descent.begin(),descent.end());
-    for(size_t i=0;i<descent.size();++i){
-        if(!candidate.targetStage)candidate.targetStage=stage;
-        candidate.legs.push_back({current,descent[i],stage,false});current=descent[i];
-        if(i+1<descent.size())++stage;
+    for(size_t stop=0;stop<waypoints.size();++stop){
+        BodyId destination=waypoints[stop];std::vector<BodyId> originPath,destinationPath;
+        for(BodyId id=current;;id=body(id).parent){originPath.push_back(id);if(id==BodyId::Sun)break;}
+        for(BodyId id=destination;;id=body(id).parent){destinationPath.push_back(id);if(id==BodyId::Sun)break;}
+        BodyId common=BodyId::Sun;
+        for(auto id:originPath)if(std::find(destinationPath.begin(),destinationPath.end(),id)!=destinationPath.end()){common=id;break;}
+        while(current!=common){auto next=body(current).parent;candidate.legs.push_back({current,next,stage++,true});current=next;}
+        std::vector<BodyId> descent;
+        for(BodyId id=destination;id!=common;id=body(id).parent)descent.push_back(id);
+        std::reverse(descent.begin(),descent.end());
+        for(size_t i=0;i<descent.size();++i){
+            if(!candidate.targetStage)candidate.targetStage=stage;
+            candidate.legs.push_back({current,descent[i],stage,false});current=descent[i];
+            if(i+1<descent.size()||stop+1<waypoints.size())++stage;
+        }
     }
 
     Frame original[2]={frame(0),frame(1)};
@@ -269,6 +279,12 @@ bool Session::currentRoute(Route &route){
     }
     if(candidate.legs.empty())return false;
     candidate.destination=center;
+    for(size_t i=0;i<candidate.legs.size();++i){
+        const auto &leg=candidate.legs[i];
+        if(!leg.escape&&i+1<candidate.legs.size()&&candidate.legs[i+1].escape&&candidate.legs[i+1].center==leg.next)
+            candidate.waypoints.push_back(leg.next);
+    }
+    if(candidate.waypoints.empty()||candidate.waypoints.back()!=center)candidate.waypoints.push_back(center);
     if(!routeMatches(candidate))return false;
     route=std::move(candidate);return true;
 }

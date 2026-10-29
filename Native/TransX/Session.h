@@ -15,6 +15,7 @@ struct RouteLeg { BodyId center, next; int stage; bool escape; };
 struct Route {
     BodyId origin=BodyId::Sun, destination=BodyId::Sun;
     std::vector<RouteLeg> legs;
+    std::vector<BodyId> waypoints;
     int targetStage=0, ejectStage=0;
 };
 struct RouteValues { double date=0, prograde=0, outward=0, plane=0; };
@@ -55,6 +56,7 @@ public:
     bool stageTiming(int stage,BurnTiming &timing);
     bool alignStage(int stage);
     bool createRoute(BodyId destination,Route &route,std::string &error);
+    bool createRoute(const std::vector<BodyId> &waypoints,Route &route,std::string &error);
     bool currentRoute(Route &route);
     bool routeMatches(const Route &route);
     bool routeView(int stage,int mode);

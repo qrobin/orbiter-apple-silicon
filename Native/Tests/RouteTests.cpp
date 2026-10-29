@@ -85,6 +85,16 @@ int main(){try{
     transx::Route sun;check(session.createRoute(BodyId::Sun,sun,error),(std::string("Escape into the parent system works: ")+error).c_str());
     check(session.routeMatches(sun),"Parent escape matches the TransX state");
     check(sun.targetStage==0&&sun.legs.size()==1&&sun.legs[0].escape,"Parent escape is not presented as an intercept");
+    transx::Route multi;
+    check(session.createRoute(std::vector<BodyId>{BodyId::Mars,BodyId::Jupiter},multi,error)&&session.routeMatches(multi),
+          "A route can contain multiple destination steps");
+    check(multi.legs.size()==4&&multi.legs[1].next==BodyId::Mars&&multi.legs[2].escape&&multi.legs[3].next==BodyId::Jupiter,
+          "Multiple steps use consecutive original TransX encounter and escape stages");
+    transx::Route recoveredMulti;
+    check(session.currentRoute(recoveredMulti)&&recoveredMulti.waypoints.size()==2&&recoveredMulti.waypoints[0]==BodyId::Mars&&
+          recoveredMulti.waypoints[1]==BodyId::Jupiter,"Multiple destinations can be recovered from the saved stages");
+    check(!session.createRoute(std::vector<BodyId>{BodyId::Mars,BodyId::Mars},multi,error)&&session.routeMatches(multi),
+          "Repeated consecutive destinations do not replace the existing plan");
     for(const auto &target:bodies()){
         if(target.id==flight.reference)continue;
         transx::Route candidate;
