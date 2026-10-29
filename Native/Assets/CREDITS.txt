@@ -28,3 +28,11 @@ Copyright 2007-9 Steve Arch, Duncan Sharpe; 2011 atomicdryad;
 2013 Dimitris Gatsoulis and Szymon Ender. MIT/X11 license, included in
 Docs/TransX/Licence.txt. Original Delta-glider MFD areas and atlas labels
 are ported from Src/Vessel/DeltaGlider/MfdSubsys.cpp.
+
+Earth cloud coverage: derived from NASA/Goddard Space Flight Center Scientific
+Visualization Studio's equirectangular Earth with and without clouds (SVS 3615).
+https://svs.gsfc.nasa.gov/3615/
+Clouded: https://svs.gsfc.nasa.gov/vis/a000000/a003600/a003615/flat_earth03.jpg
+Clear: https://svs.gsfc.nasa.gov/vis/a000000/a003600/a003615/earth_noClouds.0330.jpg
+The underlying cloud composite is from multiple satellites on 2007-07-01; it is
+historical imagery, not live weather. Extracted with tools/extract_satellite_clouds.py.

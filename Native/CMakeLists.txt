@@ -76,6 +76,14 @@ target_link_libraries(ExhaustRenderTests PRIVATE "-framework Foundation" "-frame
 add_test(NAME Native.ExhaustMetal COMMAND ExhaustRenderTests)
 set_tests_properties(Native.ExhaustMetal PROPERTIES SKIP_RETURN_CODE 77)
 
+add_executable(EarthRenderTests Tests/EarthRenderTests.mm)
+target_include_directories(EarthRenderTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/macOS)
+target_compile_options(EarthRenderTests PRIVATE -fobjc-arc)
+target_compile_definitions(EarthRenderTests PRIVATE ORBITER_TEST_DATA="${PROJECT_SOURCE_DIR}")
+target_link_libraries(EarthRenderTests PRIVATE "-framework Cocoa" "-framework Metal" "-framework MetalKit")
+add_test(NAME Native.EarthMetal COMMAND EarthRenderTests)
+set_tests_properties(Native.EarthMetal PROPERTIES SKIP_RETURN_CODE 77)
+
 add_executable(CameraTests Tests/CameraTests.cpp)
 target_link_libraries(CameraTests PRIVATE OrbiterFlightCore)
 target_compile_definitions(CameraTests PRIVATE ORBITER_TEST_DATA="${PROJECT_SOURCE_DIR}")

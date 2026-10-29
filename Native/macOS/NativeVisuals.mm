@@ -1,4 +1,5 @@
 #import "NativeVisuals.h"
+#import <MetalKit/MetalKit.h>
 #include "Exhaust.h"
 #include <algorithm>
 #include <array>
@@ -14,7 +15,7 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
     FrameUniforms lastFrame;
     double lastElapsed;
     NSInteger lastWeather;
-    id<MTLTexture> hdr,lit,depth,trailLayer,msaaColor,msaaDepth;
+    id<MTLTexture> hdr,lit,depth,trailLayer,msaaColor,msaaDepth,earthCloudMap;
     std::array<id<MTLTexture>,2> cloudHistory,cloudData,bloom;
     std::array<id<MTLBuffer>,3> smokeBuffers;
     ExhaustTrail exhaustTrail;
@@ -28,6 +29,10 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
 - (instancetype)initWithDevice:(id<MTLDevice>)device library:(id<MTLLibrary>)library queue:(id<MTLCommandQueue>)queue samples:(NSUInteger)count {
     if(!(self=[super init]))return nil;gpu=device;samples=count;_weather=1;lastWeather=-1;
     NSError *error=nil;
+    MTKTextureLoader *loader=[[MTKTextureLoader alloc] initWithDevice:device];
+    NSURL *cloudURL=[NSURL fileURLWithPath:[NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"earth-clouds.png"]];
+    earthCloudMap=[loader newTextureWithContentsOfURL:cloudURL options:@{MTKTextureLoaderOptionSRGB:@NO,MTKTextureLoaderOptionGenerateMipmaps:@YES,MTKTextureLoaderOptionOrigin:MTKTextureLoaderOriginTopLeft} error:&error];
+    visualCheck(earthCloudMap,error);
     auto kernel=[&](NSString *name){id<MTLComputePipelineState> p=[gpu newComputePipelineStateWithFunction:[library newFunctionWithName:name] error:&error];visualCheck(p,error);return p;};
     noiseKernel=kernel(@"makeCloudNoise");shadowKernel=kernel(@"cloudShadowMap");cloudKernel=kernel(@"marchClouds");
     extractKernel=kernel(@"extractBloom");blurKernel=kernel(@"blurBloom");
@@ -112,7 +117,7 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
     [e setBytes:&f length:sizeof(f) atIndex:0];[e setBytes:&jitter length:sizeof(jitter) atIndex:1];
     [e setTexture:_cloudNoise atIndex:0];[e setTexture:depth atIndex:1];[e setTexture:cloudHistory[previous] atIndex:2];[e setTexture:cloudData[previous] atIndex:3];[e setTexture:cloudHistory[index] atIndex:4];[e setTexture:cloudData[index] atIndex:5];[self dispatch:e texture:cloudHistory[index]];[e endEncoding];
     MTLRenderPassDescriptor *pass=[MTLRenderPassDescriptor renderPassDescriptor];pass.colorAttachments[0].texture=lit;pass.colorAttachments[0].loadAction=MTLLoadActionDontCare;pass.colorAttachments[0].storeAction=MTLStoreActionStore;
-    id<MTLRenderCommandEncoder> r=[cb renderCommandEncoderWithDescriptor:pass];r.label=@"Depth-aware cloud composite";[r setRenderPipelineState:compositePipeline];[r setFragmentBytes:&f length:sizeof(f) atIndex:0];[r setFragmentTexture:hdr atIndex:0];[r setFragmentTexture:cloudHistory[index] atIndex:1];[r setFragmentTexture:cloudData[index] atIndex:2];[r setFragmentTexture:depth atIndex:3];[r drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];[r endEncoding];
+    id<MTLRenderCommandEncoder> r=[cb renderCommandEncoderWithDescriptor:pass];r.label=@"Depth-aware cloud composite";[r setRenderPipelineState:compositePipeline];[r setFragmentBytes:&f length:sizeof(f) atIndex:0];[r setFragmentTexture:hdr atIndex:0];[r setFragmentTexture:cloudHistory[index] atIndex:1];[r setFragmentTexture:cloudData[index] atIndex:2];[r setFragmentTexture:depth atIndex:3];[r setFragmentTexture:earthCloudMap atIndex:4];[r drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];[r endEncoding];
     ++historyIndex;lastFrame=f;historyValid=YES;
 }
 - (void)encodeExhaust:(id<MTLCommandBuffer>)cb frame:(const FrameUniforms &)f flight:(const Flight &)flight offset:(Vector)offset {

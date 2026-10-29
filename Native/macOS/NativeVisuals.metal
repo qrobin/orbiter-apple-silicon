@@ -145,7 +145,8 @@ kernel void marchClouds(constant FrameUniforms &f [[buffer(0)]],constant uint &f
 }
 fragment float4 compositeClouds(SkyRaster in [[stage_in]],constant FrameUniforms &f [[buffer(0)]],
                                 texture2d<float> scene [[texture(0)]],texture2d<float> clouds [[texture(1)]],
-                                texture2d<float> cloudData [[texture(2)]],texture2d<float,access::read> depth [[texture(3)]]) {
+                                texture2d<float> cloudData [[texture(2)]],texture2d<float,access::read> depth [[texture(3)]],
+                                texture2d<float> earthCloudMap [[texture(4)]]) {
     float2 uv=float2(in.uv.x,1-in.uv.y);constexpr sampler s(filter::linear,address::clamp_to_edge);
     float3 ray=viewRay(uv,f);uint2 pixel=min(uint2(uv*f.screen.xy),uint2(f.screen.xy)-1);
     float geometry=depthDistance(depth.read(pixel).r,ray,f);
@@ -159,6 +160,26 @@ fragment float4 compositeClouds(SkyRaster in [[stage_in]],constant FrameUniforms
         cloud+=clouds.sample(s,q)*w;total+=w;
     }
     cloud/=max(total,.0001f);
+    // Orbital-scale cloud structure comes from a satellite composite. Blend
+    // into the volumetric layer for aircraft and low-altitude views.
+    float cameraHeight=f.environment.x*f.body.x;
+    float orbital=smoothstep(50000.0f,350000.0f,cameraHeight);
+    if(orbital>0&&f.clouds.z>0){
+        float3 origin=normalize(f.position.xyz)*(f.body.x+cameraHeight);
+        float2 shell=cloudShellRoots(cameraHeight,(f.clouds.x+f.clouds.y)*.5f,dot(normalize(origin),ray),f.body.x);
+        float distance=shell.x;
+        if(shell.y>shell.x&&distance>0&&distance<geometry){
+            float3 point=origin+ray*distance,normal=normalize(point);
+            constexpr sampler mapSampler(filter::linear,mip_filter::linear,s_address::repeat,t_address::clamp_to_edge);
+            float mask=earthCloudMap.sample(mapSampler,terrestrialUV(point,f)).r;
+            float coverage=saturate(mask*min(1.5f,f.clouds.z/.48f));
+            float mu=max(.18f,abs(dot(normal,ray)));
+            float alpha=1-pow(max(.001f,1-coverage),1/mu);
+            float daylight=smoothstep(-.08f,.10f,dot(normal,f.sun.xyz));
+            float3 illumination=mix(float3(.005,.008,.018),float3(.85,.91,1.0)*(0.55+0.65*max(0.0f,dot(normal,f.sun.xyz))),daylight);
+            cloud=mix(cloud,float4(illumination*alpha,alpha),orbital);
+        }else cloud*=1-orbital;
+    }
     return float4(scene.sample(s,uv).rgb*(1-cloud.a)+cloud.rgb,1);
 }
 float3 exhaustBasis(float3 d){return normalize(cross(d,abs(d.y)<.9?float3(0,1,0):float3(1,0,0)));}
