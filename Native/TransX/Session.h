@@ -28,6 +28,12 @@ struct BurnTiming {
     double secondsToBurn=0,duration=0,deltaV=0,propellant=0;
     bool sufficientFuel=false;
 };
+enum class SearchState { Idle,Running,Complete,Failed };
+struct SearchStatus {
+    SearchState state=SearchState::Idle;
+    double progress=0,arrivalMJD=0,departureDV=0,captureDV=0,missDistance=0;
+    std::string message;
+};
 struct Approach {
     double distance=0, relativeSpeed=0, mjd=0;
     int source=0; // 1: TransX plan, 2: manoeuvre, 3: current orbit
@@ -55,6 +61,10 @@ public:
     bool setStageManeuver(int stage,const RouteValues &values);
     bool stageTiming(int stage,BurnTiming &timing);
     bool alignStage(int stage);
+    bool beginWindowSearch(const Route &route,std::string &error);
+    void stepWindowSearch(size_t budget=16);
+    void cancelWindowSearch();
+    SearchStatus windowSearchStatus() const;
     bool createRoute(BodyId destination,Route &route,std::string &error);
     bool createRoute(const std::vector<BodyId> &waypoints,Route &route,std::string &error);
     bool currentRoute(Route &route);

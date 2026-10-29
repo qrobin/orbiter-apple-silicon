@@ -47,6 +47,10 @@ private:
 	class mapfunction *mappointer;
 	class plan *planpointer;
 	int interceptwith;
+#ifdef ORBITER_NATIVE
+    double nativeArrivalMJD=0;
+    bool nativeArrivalPending=false;
+#endif
 	OrbitTime mode2orbittime,deltavel;
 protected:
 	Intercept primary;
@@ -72,6 +76,8 @@ public:
     bool nativeApproach(double *distance,double *speed,double *mjd,int *source);
     void nativeManeuverValues(double *date,double *prograde,double *outward,double *plane,bool *enabled);
     bool nativeSetManeuver(double date,double prograde,double outward,double plane);
+    void nativeSetInterceptSource(int source);
+    bool nativeSeedIntercept(double mjd);
 #endif
 	void calculate(VECTOR3 *targetvel);
 	int calcnewview(int oldview,bool firststage);

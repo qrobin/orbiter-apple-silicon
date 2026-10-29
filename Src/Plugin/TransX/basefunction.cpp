@@ -64,6 +64,10 @@ basefunction::basefunction(class transxstate *tstate, class basefunction *tprevi
 	hcontext=templbase->hcontext;
 	iplan=templbase->iplan;
 	interceptwith=templbase->interceptwith;
+#ifdef ORBITER_NATIVE
+    nativeArrivalMJD=templbase->nativeArrivalMJD;
+    nativeArrivalPending=nativeArrivalMJD>0;
+#endif
 	oldorbitsahead=templbase->oldorbitsahead;
 	previousexists=templbase->previousexists;
 	valid=initialisevars();
@@ -347,6 +351,9 @@ void basefunction::saveself(FILEHANDLE scn)
 	savehandle(scn,hminor);
 	savehandle(scn,hmajtarget);
 	vars.saveallvariables(scn);
+#ifdef ORBITER_NATIVE
+    if(nativeArrivalMJD>0){char buffer[80];snprintf(buffer,sizeof(buffer),"NativeArrival %.15g",nativeArrivalMJD);oapiWriteLine(scn,buffer);}
+#endif
 	oapiWriteScenario_string(scn, (char*)"Finish", (char*)"BaseFunction");
 }
 
@@ -368,7 +375,16 @@ void basefunction::restoreself(FILEHANDLE scn)
 	m_minor.updatecentralbody(hmajor);
 	if (!loadhandle(scn,&hmajtarget)) return;
 	if (!vars.loadallvariables(scn)) return;
+#ifdef ORBITER_NATIVE
+    char *line;
+    while(oapiReadScenario_nextline(scn,line)){
+        double arrival=0;
+        if(sscanf(line,"NativeArrival %lf",&arrival)==1&&std::isfinite(arrival)&&arrival>0){nativeArrivalMJD=arrival;nativeArrivalPending=true;}
+        if(!strncmp(line,"Finish",6))break;
+    }
+#else
 	findfinish(scn);
+#endif
 }
 
 
@@ -725,6 +741,15 @@ void basefunction::calculate(VECTOR3 *targetvel)
 		if (hypormaj.isvalid()) interceptwith=2;
 		if (planorbit.isvalid()) interceptwith=1;
 	}
+#ifdef ORBITER_NATIVE
+    if(nativeArrivalPending&&target.isvalid()){
+        const OrbitElements &trajectory=interceptwith==2?hypormaj:craft;
+        if((interceptwith==2||interceptwith==3)&&trajectory.isvalid()){
+            primary.nativeSeed(trajectory,target,(nativeArrivalMJD-simstartMJD)*SECONDS_PER_DAY);
+            nativeArrivalPending=false;
+        }
+    }
+#endif
 	if (target.isvalid() && interceptwith==3 && craft.isvalid())
 	{
 		primary.updateintercept(craft,target,orbitnum);
@@ -1093,6 +1118,17 @@ bool basefunction::nativeSetManeuver(double date,double prograde,double outward,
     m_manoeuvremode=1;m_updbaseorbit=1;m_ejdate=date;
     m_prograde=prograde;m_outwardvel=outward;m_chplvel=plane;
     processvisiblevars(4);addaction(0);return true;
+}
+void basefunction::nativeSetInterceptSource(int source)
+{
+    m_intwith=source;nativeArrivalMJD=0;nativeArrivalPending=false;primary.resetintercept();addaction(0);
+}
+bool basefunction::nativeSeedIntercept(double mjd)
+{
+    const OrbitElements &trajectory=(int)m_intwith==2?hypormaj:craft;
+    if(!trajectory.isvalid()||!target.isvalid()||!std::isfinite(mjd))return false;
+    nativeArrivalMJD=mjd;nativeArrivalPending=false;
+    primary.nativeSeed(trajectory,target,(mjd-simstartMJD)*SECONDS_PER_DAY);addaction(0);return true;
 }
 bool basefunction::nativeApproach(double *distance,double *speed,double *mjd,int *source)
 {

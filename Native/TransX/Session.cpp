@@ -1,5 +1,7 @@
 #include "Session.h"
+#include "WindowSearch.h"
 #include "Flight.h"
+#include "SolarSystem.h"
 #include "transx.h"
 #include "viewstate.h"
 #include "shiplist.h"
@@ -11,6 +13,10 @@ struct Session::Impl {
     Flight &flight;
     std::unique_ptr<TransxMFD> mfd[3];
     basefunction *selectedBase=nullptr;
+    std::unique_ptr<WindowSearch> search;
+    Route searchRoute;
+    SearchStatus searchStatus;
+    Flight searchFlight;
     struct GraphRotation {double yaw=0,pitch=0;} rotation[3];
     explicit Impl(Flight &f):flight(f){
         bind(&f);mapfunction::getthemap();
@@ -134,6 +140,75 @@ bool Session::alignStage(int stage){
     VECTOR3 direction;if(stage!=1||impl->flight.rcs<=0||!maneuverDirectionForStage(stage,direction))return false;
     auto &flight=impl->flight;flight.clearAssist();flight.maneuverDirection={direction.x,direction.y,direction.z};
     flight.assist=Assist::Maneuver;flight.glider.rcsMode=1;return true;
+}
+bool Session::beginWindowSearch(const Route &route,std::string &error){
+    if(!routeMatches(route)||!route.targetStage){error="Choose a route with a target first.";return false;}
+    if(route.targetStage!=1&&route.ejectStage!=route.targetStage){error="This route starts with multiple escape stages; search is available after reaching the parent system.";return false;}
+    auto *state=impl->display(RouteDisplay).nativeView()->nativeState();
+    auto *departure=state->getbasefn(1),*target=state->getbasefn(route.targetStage);
+    if(!departure||!target){error="TransX stages are not ready.";return false;}
+    VECTOR3 v;departure->calculate(&v);target->calculate(&v);
+    const auto &origin=route.ejectStage?target->getminororbit():departure->getcraftorbit();
+    const auto &destination=target->gettargetorbit();
+    auto leg=std::find_if(route.legs.begin(),route.legs.end(),[](const RouteLeg &item){return !item.escape;});
+    if(leg==route.legs.end()){error="There is no target encounter to search.";return false;}
+    try{impl->search=std::make_unique<WindowSearch>(impl->flight,leg->next,route.ejectStage!=0,origin,destination);}
+    catch(const std::exception &exception){error=exception.what();return false;}
+    impl->searchFlight=impl->flight;impl->searchRoute=route;impl->searchStatus={};
+    impl->searchStatus.state=SearchState::Running;impl->searchStatus.message="Searching transfer windows for lowest estimated fuel use.";
+    error.clear();return true;
+}
+void Session::cancelWindowSearch(){impl->search.reset();impl->searchStatus={};}
+SearchStatus Session::windowSearchStatus()const{return impl->searchStatus;}
+void Session::stepWindowSearch(size_t budget){
+    if(!impl->search||impl->searchStatus.state!=SearchState::Running)return;
+    auto fail=[&](const std::string &message){impl->searchStatus.state=SearchState::Failed;impl->searchStatus.message=message;impl->search.reset();};
+    if(!routeMatches(impl->searchRoute)){fail("The TransX route changed while searching.");return;}
+    impl->search->step(budget);impl->searchStatus.progress=impl->search->progress();
+    if(impl->search->running())return;
+    if(!impl->search->result()){std::string message=impl->search->error();fail(message);return;}
+    auto solution=*impl->search->result();auto &flight=impl->flight;auto &start=impl->searchFlight;
+    if(flight.reference!=start.reference||flight.mjd!=start.mjd||flight.mjd+flight.elapsed/86400.>=solution.burn.date){fail("Flight time or reference changed; search again from the current orbit.");return;}
+    Elements orbit=start.orbit();Vector expectedPosition,expectedVelocity;orbit.PosVel(expectedPosition,expectedVelocity,flight.elapsed);
+    if(expectedPosition.dist(flight.position)>1000||expectedVelocity.dist(flight.velocity)>1){fail("The spacecraft orbit changed during the search; search again.");return;}
+    std::unique_ptr<FILE,decltype(&fclose)> backup(tmpfile(),&fclose);
+    if(!backup){fail("Unable to preserve the existing TransX plan.");return;}
+    frame(0);shipptrs::refreshsave();impl->display(0).WriteStatus(backup.get());
+    if(fflush(backup.get())!=0||ftell(backup.get())<=0){fail("Unable to preserve the existing TransX plan.");return;}
+    auto restore=[&](const std::string &message){rewind(backup.get());impl->display(0).ReadStatus(backup.get());
+        for(int i=0;i<128;++i)tick();impl->selectedBase=nullptr;fail(message);};
+    if((solution.hasTransfer&&!setRouteValues(impl->searchRoute,false,solution.transfer))||!setStageManeuver(1,solution.burn)){
+        restore("TransX could not apply the candidate; the previous plan was restored.");return;
+    }
+    // Show the trajectory produced by the maneuver itself, including the
+    // inherited escape, rather than a separate idealized ejection plan.
+    auto *state=impl->display(RouteDisplay).nativeView()->nativeState();
+    auto *departure=state->getbasefn(1),*target=state->getbasefn(impl->searchRoute.targetStage);
+    if(!departure||!target){restore("The TransX stages changed; the previous plan was restored.");return;}
+    departure->nativeSetInterceptSource(2);
+    if(target!=departure)target->nativeSetInterceptSource(3);
+    for(int i=0;i<256;++i)tick();
+    target->nativeSeedIntercept(solution.arrivalMJD);
+    for(int i=0;i<256;++i)tick();
+    Approach approach;
+    auto leg=std::find_if(impl->searchRoute.legs.begin(),impl->searchRoute.legs.end(),[](const RouteLeg &item){return !item.escape;});
+    bool valid=leg!=impl->searchRoute.legs.end()&&routeApproach(impl->searchRoute,approach)&&
+        approach.source==(target==departure?2:3)&&approach.mjd>solution.burn.date&&
+        fabs(approach.mjd-solution.arrivalMJD)<30&&approach.relativeSpeed>0&&
+        approach.distance<sphereOfInfluence(leg->next,approach.mjd)*.9;
+    if(valid){
+        const auto &destination=body(leg->next);double speed2=approach.relativeSpeed*approach.relativeSpeed;
+        double h2=approach.distance*approach.distance*speed2,mu=destination.mu();
+        double periapsis=h2/(mu*(1+sqrt(1+h2*speed2/(mu*mu))));
+        double atmosphere=leg->next==BodyId::Earth?120000.:destination.atmosphereLimit;
+        valid=std::isfinite(periapsis)&&periapsis>destination.radius+atmosphere;
+    }
+    if(!valid){restore("TransX did not confirm a safe encounter; the previous plan was restored.");return;}
+    impl->searchStatus.state=SearchState::Complete;impl->searchStatus.progress=1;
+    impl->searchStatus.arrivalMJD=solution.arrivalMJD;impl->searchStatus.departureDV=solution.departureDV;
+    impl->searchStatus.captureDV=solution.captureDV;impl->searchStatus.missDistance=approach.distance;
+    impl->searchStatus.message="Window applied. Review the TransX closest approach and the manual burn.";
+    impl->search.reset();
 }
 
 bool Session::displayView(int display,int stage,int mode){

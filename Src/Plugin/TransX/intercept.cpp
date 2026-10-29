@@ -48,6 +48,18 @@ void Intercept::resetintercept()
 	fullorbits=halforbits=-1;
 }
 
+#ifdef ORBITER_NATIVE
+void Intercept::nativeSeed(const OrbitElements &craft,const OrbitElements &target,double time)
+{
+    craft.timetovectors(time-craft.gettimestamp(),&iceptalpha,&icraftvel);
+    target.timetovectors(time-target.gettimestamp(),&iceptbeta,&itargetvel);
+    icraftpos=iceptalpha;itargetpos=iceptbeta;
+    icepttimeoffset=time-target.gettimestamp();itimeintercept=time;
+    iceptradius=length(iceptbeta);fullorbits=0;halforbits=0;
+    gain=1;lasttimecorrection=0;newintercept=false;iceptmethod=2;
+}
+#endif
+
 void Intercept::adjustorbitsdown()
 {
 	if (halforbits>0)

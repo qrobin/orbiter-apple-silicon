@@ -53,6 +53,9 @@ class Intercept
 		bool getvalid(){return !newintercept;};
 		void ShouldUpdateBarycenter( bool bset ) { shouldUpdateBarycenter = bset; }
 		void resetintercept();
+#ifdef ORBITER_NATIVE
+        void nativeSeed(const OrbitElements &craft,const OrbitElements &target,double time);
+#endif
 		void getpositions(VECTOR3 *craftpos, VECTOR3 *targetpos) const;
 		void getvelocities(VECTOR3 *craftvel, VECTOR3 *targetvel) const;
 		void getrelpos(VECTOR3 *relpos) const;
