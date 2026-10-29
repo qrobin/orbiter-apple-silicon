@@ -37,6 +37,13 @@ int main(){try{
     check(session.setRouteValues(route,true,burn),"Burn variables configure original maneuver");
     check(session.routeValues(route,true,readback)&&near(readback.date,burn.date)&&near(readback.prograde,burn.prograde)&&
           near(readback.outward,burn.outward)&&near(readback.plane,burn.plane),"Burn variables round trip through TransX");
+    transx::StageInfo firstStep,secondStep;
+    check(session.stageCount()==2&&session.stageInfo(1,firstStep)&&firstStep.enabled&&near(firstStep.maneuver.prograde,3500),
+          "The first TransX stage exposes its maneuver and reference");
+    transx::RouteValues later={flight.mjd+120,40,-20,5};
+    check(session.setStageManeuver(2,later)&&session.stageInfo(2,secondStep)&&secondStep.enabled&&
+          secondStep.reference==BodyId::Sun&&near(secondStep.maneuver.prograde,40),"A second stage stores an independent maneuver");
+    check(session.stageInfo(1,firstStep)&&near(firstStep.maneuver.prograde,3500),"Editing a later step does not change the departure burn");
     VECTOR3 direction;check(session.routeView(2,2)&&session.maneuverDirectionForStage(1,direction)&&near(length(direction),1),
           "Departure alignment remains available while viewing the transfer stage");
     session.button(0,1);session.frame(0);
@@ -78,6 +85,7 @@ int main(){try{
     check(session.createRoute(BodyId::Mars,route,error),"Restore a Mars route for serialization");
     ejection={flight.mjd+20,3000,200,-50};burn={flight.mjd+.01,3500,100,50};
     check(session.setRouteValues(route,false,ejection)&&session.setRouteValues(route,true,burn),"Set values before save");
+    check(session.setStageManeuver(2,later),"Set the later maneuver before saving");
     session.frame(0);session.save(saved);
     }
     {
@@ -89,6 +97,8 @@ int main(){try{
     transx::RouteValues values;
     check(restored.routeValues(route,false,values)&&near(values.prograde,3000),"Saved ejection values are restored");
     check(restored.routeValues(route,true,values)&&near(values.prograde,3500),"Saved burn values are restored");
+    transx::StageInfo laterStep;
+    check(restored.stageInfo(2,laterStep)&&laterStep.enabled&&near(laterStep.maneuver.prograde,40),"A later maneuver survives scenario serialization");
     auto malformed=(std::filesystem::temp_directory_path()/"orbiter-malformed-route.scn").string();
     {std::ofstream out(malformed);out<<"Ship  GL-01\nFNumber invalid\n";}
     restored.load(malformed);std::filesystem::remove(malformed);

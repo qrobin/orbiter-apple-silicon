@@ -70,6 +70,8 @@ public:
 #ifdef ORBITER_NATIVE
     bool nativeManeuverVector(VECTOR3 *direction);
     bool nativeApproach(double *distance,double *speed,double *mjd,int *source);
+    void nativeManeuverValues(double *date,double *prograde,double *outward,double *plane,bool *enabled);
+    bool nativeSetManeuver(double date,double prograde,double outward,double plane);
 #endif
 	void calculate(VECTOR3 *targetvel);
 	int calcnewview(int oldview,bool firststage);

@@ -18,6 +18,11 @@ struct Route {
     int targetStage=0, ejectStage=0;
 };
 struct RouteValues { double date=0, prograde=0, outward=0, plane=0; };
+struct StageInfo {
+    BodyId reference=BodyId::Sun;
+    RouteValues maneuver;
+    bool enabled=false;
+};
 struct Approach {
     double distance=0, relativeSpeed=0, mjd=0;
     int source=0; // 1: TransX plan, 2: manoeuvre, 3: current orbit
@@ -38,6 +43,9 @@ public:
     void load(const std::string &path);
     bool maneuverDirection(int display,VECTOR3 &direction);
     bool maneuverDirectionForStage(int stage,VECTOR3 &direction);
+    int stageCount();
+    bool stageInfo(int stage,StageInfo &info);
+    bool setStageManeuver(int stage,const RouteValues &values);
     bool createRoute(BodyId destination,Route &route,std::string &error);
     bool currentRoute(Route &route);
     bool routeMatches(const Route &route);

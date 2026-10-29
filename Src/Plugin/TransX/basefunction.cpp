@@ -1081,6 +1081,19 @@ VECTOR3 basefunction::GetLineOfNodes()
 }
 
 #ifdef ORBITER_NATIVE
+void basefunction::nativeManeuverValues(double *date,double *prograde,double *outward,double *plane,bool *enabled)
+{
+    *date=m_ejdate.getvalue();*prograde=m_prograde.getvalue();*outward=m_outwardvel.getvalue();
+    *plane=m_chplvel.getvalue();*enabled=(int)m_manoeuvremode==1;
+}
+bool basefunction::nativeSetManeuver(double date,double prograde,double outward,double plane)
+{
+    if(!std::isfinite(date)||date<0||date>1e20||!std::isfinite(prograde)||fabs(prograde)>1e8||
+       !std::isfinite(outward)||fabs(outward)>1e8||!std::isfinite(plane)||fabs(plane)>1e8)return false;
+    m_manoeuvremode=1;m_updbaseorbit=1;m_ejdate=date;
+    m_prograde=prograde;m_outwardvel=outward;m_chplvel=plane;
+    processvisiblevars(4);addaction(0);return true;
+}
 bool basefunction::nativeApproach(double *distance,double *speed,double *mjd,int *source)
 {
     if(!interceptflag||!primary.getvalid()||!hmajtarget)return false;

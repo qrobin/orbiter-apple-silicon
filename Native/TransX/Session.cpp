@@ -94,6 +94,19 @@ bool Session::maneuverDirectionForStage(int stage,VECTOR3 &direction){
     double magnitude=length(direction);
     if(!std::isfinite(magnitude)||magnitude<.1)return false;direction/=magnitude;return true;
 }
+int Session::stageCount(){return impl->display(RouteDisplay).nativeView()->nativeState()->getnumfunctions();}
+bool Session::stageInfo(int stage,StageInfo &info){
+    auto *base=impl->display(RouteDisplay).nativeView()->nativeState()->getbasefn(stage);if(!base)return false;
+    char name[80]={};oapiGetObjectName(base->gethmajor(),name,sizeof(name));
+    try{info.reference=findBody(name);}catch(...){return false;}
+    auto &v=info.maneuver;base->nativeManeuverValues(&v.date,&v.prograde,&v.outward,&v.plane,&info.enabled);
+    return std::isfinite(v.date)&&std::isfinite(v.prograde)&&std::isfinite(v.outward)&&std::isfinite(v.plane);
+}
+bool Session::setStageManeuver(int stage,const RouteValues &values){
+    auto *base=impl->display(RouteDisplay).nativeView()->nativeState()->getbasefn(stage);
+    if(!base||!base->nativeSetManeuver(values.date,values.prograde,values.outward,values.plane))return false;
+    for(int i=0;i<32;++i)tick();return true;
+}
 
 bool Session::displayView(int display,int stage,int mode){
     if(stage<0||mode<1||mode>4)return false;
