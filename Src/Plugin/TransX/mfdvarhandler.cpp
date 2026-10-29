@@ -100,6 +100,8 @@ bool MFDvarhandler::loadallvariables(FILEHANDLE scn)
 
 MFDvarhandler::MFDvarhandler()
 {
+	current=NULL;
+	currviewmode=-1;
 	for (int a=0;a<5;a++)currvariable[a]=0;
 	listhead.empty();
 	variterator=listhead.getiterator();

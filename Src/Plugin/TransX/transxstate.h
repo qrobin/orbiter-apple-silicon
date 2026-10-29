@@ -61,6 +61,9 @@ public:
 	void setshipptrs(class shipptrs *ptr){shipptrs=ptr;};
 	void showinitialstage(oapi::Sketchpad *sketchpad,int linespacing,int tw);
 	bool checkbasefunction();//checks if first function should now be deleted due to non-validity
+#ifdef ORBITER_NATIVE
+	bool nativeRestart() { return restartallfunctions(); }
+#endif
 private:
 	bool initfunctions();
 	bool initialisevars();

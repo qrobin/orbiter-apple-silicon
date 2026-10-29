@@ -69,6 +69,7 @@ public:
 	void onplaceindeletebuffer();//Do not call unless you know what it's for.
 #ifdef ORBITER_NATIVE
     bool nativeManeuverVector(VECTOR3 *direction);
+    bool nativeApproach(double *distance,double *speed,double *mjd,int *source);
 #endif
 	void calculate(VECTOR3 *targetvel);
 	int calcnewview(int oldview,bool firststage);

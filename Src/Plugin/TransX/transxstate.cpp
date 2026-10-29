@@ -256,9 +256,26 @@ bool transxstate::restoresave(FILEHANDLE scn)
 	OBJHANDLE thmajor=oapiGetGbodyByIndex(0);//should be the central sun - only a safe stand-in anyway until real values loaded
 	if (numfunctions<1 || numfunctions>100)
 	{// No proper state to load
+#ifdef ORBITER_NATIVE
+		return false;
+#else
 		initfunctions();
 		return true;
+#endif
 	}
+#ifdef ORBITER_NATIVE
+	// The native host already created the default plan before scenario loading.
+	// Retire it before reading the saved stages instead of appending to it.
+	for (auto *function : baselist)
+	{
+		todeletelist.push_back(function);
+		function->delist();
+		function->onplaceindeletebuffer();
+	}
+	baselist.clear();
+	shipptrs->resetshift();
+	addaction(0);
+#endif
 	bool success=true;
 	unsigned int a;
 	basefunction *temp=NULL;

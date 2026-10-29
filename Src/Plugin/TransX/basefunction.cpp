@@ -1081,6 +1081,16 @@ VECTOR3 basefunction::GetLineOfNodes()
 }
 
 #ifdef ORBITER_NATIVE
+bool basefunction::nativeApproach(double *distance,double *speed,double *mjd,int *source)
+{
+    if(!interceptflag||!primary.getvalid()||!hmajtarget)return false;
+    VECTOR3 position,velocity;
+    primary.getrelpos(&position);primary.getrelvel(&velocity);
+    *distance=length(position);*speed=length(velocity);
+    *mjd=oapiTime2MJD(primary.gettimeintercept());*source=interceptwith;
+    return std::isfinite(*distance)&&std::isfinite(*speed)&&std::isfinite(*mjd)
+        &&*distance>=0&&*speed>=0&&*source>=1&&*source<=3;
+}
 bool basefunction::nativeManeuverVector(VECTOR3 *direction)
 {
     VECTOR3 targetvel;calculate(&targetvel);
