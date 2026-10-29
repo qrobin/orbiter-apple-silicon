@@ -182,7 +182,7 @@
     if(skipState!=lastSkipState){
         using SkipState=native::transx::BurnSkip::State;
         switch(skipState){
-            case SkipState::Running:message.stringValue=@"Skipping to one day before ignition. Active engines and RCS remain simulated; Space cancels.";break;
+            case SkipState::Running:message.stringValue=@"Skipping to one day before ignition. Engine and RCS settings are kept; Space cancels.";break;
             case SkipState::Reached:message.stringValue=@"Reached one day before estimated ignition. Flight paused.";break;
             case SkipState::Cancelled:message.stringValue=@"Skip cancelled. Flight paused.";break;
             case SkipState::PlanChanged:message.stringValue=@"Skip stopped because the selected burn changed. Flight paused.";break;
