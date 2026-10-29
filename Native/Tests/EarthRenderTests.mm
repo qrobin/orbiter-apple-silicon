@@ -1,6 +1,7 @@
 #import <Cocoa/Cocoa.h>
 #import <MetalKit/MetalKit.h>
 #include "VisualTypes.h"
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <vector>
@@ -66,6 +67,17 @@ int main(){@autoreleasepool{
     require(detail>1000,"8K satellite clouds add visible structure in low orbit");
     NSString *orbitPath=NSProcessInfo.processInfo.environment[@"ORBITER_LOW_ORBIT_PREVIEW"];
     if(orbitPath.length){NSBitmapImageRep *rep=[[NSBitmapImageRep alloc] initWithBitmapDataPlanes:nullptr pixelsWide:width pixelsHigh:height bitsPerSample:8 samplesPerPixel:4 hasAlpha:YES isPlanar:NO colorSpaceName:NSCalibratedRGBColorSpace bytesPerRow:width*4 bitsPerPixel:32];memcpy(rep.bitmapData,orbitalHigh.data(),orbitalHigh.size());[[rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:orbitPath atomically:YES];}
+    // The local horizontal direction is not an atmosphere boundary: sky
+    // colours immediately above and below it must not form a rectangular band.
+    f.position={0,0,1+5000.0f/6371010,0};f.environment={5000.0f/6371010,5000,0,1};
+    f.right={0,1,0,0};f.up={0,0,1,0};f.forward={1,0,0,0};f.sun={0,0,1,1};f.weather={0,0,0,0};
+    auto daylightSky=render(0);auto pixel=[&](const std::vector<unsigned char> &v,int x,int y,int channel){return int(v[(size_t(y)*width+x)*4+channel]);};
+    int seam=0;for(int c=0;c<3;++c)seam=std::max(seam,abs(pixel(daylightSky,width/2,height/2-1,c)-pixel(daylightSky,width/2,height/2+1,c)));
+    printf("Atmospheric horizontal seam difference: %d\n",seam);require(seam<25,"The atmospheric sky must not have a hard horizontal band");
+    NSString *airPath=NSProcessInfo.processInfo.environment[@"ORBITER_ATMOSPHERE_PREVIEW"];
+    if(airPath.length){NSBitmapImageRep *rep=[[NSBitmapImageRep alloc] initWithBitmapDataPlanes:nullptr pixelsWide:width pixelsHigh:height bitsPerSample:8 samplesPerPixel:4 hasAlpha:YES isPlanar:NO colorSpaceName:NSCalibratedRGBColorSpace bytesPerRow:width*4 bitsPerPixel:32];memcpy(rep.bitmapData,daylightSky.data(),daylightSky.size());[[rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:airPath atomically:YES];}
+    f.sun={0,0,-1,1};auto nightSky=render(0);
+    require(pixel(daylightSky,width/2,height/2-10,2)>pixel(nightSky,width/2,height/2-10,2)+20,"Earth's sky responds to sunlight");
     // The same composition pass should produce precipitation and a local bolt
     // only when the simulation supplies an active storm and flash.
     f.position={0,0,1+5000.0f/6371010,0};f.environment={5000.0f/6371010,5000,0,1};
@@ -77,6 +89,19 @@ int main(){@autoreleasepool{
     f.lightning.w=1;auto lightning=render(.91f);size_t flashes=0;
     for(size_t i=0;i<lightning.size();i+=4)if(int(lightning[i])>int(rainy[i])+8)++flashes;
     require(flashes>100,"Lightning must illuminate the local storm view");
+    // Render the real celestial shader in HDR so the Sun's brightness and
+    // atmospheric attenuation are checked before display tone mapping.
+    MTLRenderPipelineDescriptor *sunDescriptor=[MTLRenderPipelineDescriptor new];sunDescriptor.vertexFunction=[library newFunctionWithName:@"celestialVertex"];sunDescriptor.fragmentFunction=[library newFunctionWithName:@"celestialFragment"];sunDescriptor.colorAttachments[0].pixelFormat=MTLPixelFormatRGBA32Float;sunDescriptor.depthAttachmentPixelFormat=MTLPixelFormatDepth32Float;
+    id<MTLRenderPipelineState> sunPipeline=[device newRenderPipelineStateWithDescriptor:sunDescriptor error:&error];require(sunPipeline!=nil,"Sun pipeline failed");
+    id<MTLTexture> sunColor=texture(MTLPixelFormatRGBA32Float,64,64,MTLTextureUsageRenderTarget|MTLTextureUsageShaderRead);
+    MTLTextureDescriptor *sd=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatDepth32Float width:64 height:64 mipmapped:NO];sd.usage=MTLTextureUsageRenderTarget;sd.storageMode=MTLStorageModePrivate;id<MTLTexture> sunDepth=[device newTextureWithDescriptor:sd];
+    FrameUniforms sunFrame{};sunFrame.position={0,0,1,0};sunFrame.forward={0,0,1,0};sunFrame.right={1,0,0,0};sunFrame.up={0,1,0,0};sunFrame.sun={0,0,1,1};sunFrame.screen={64,64,.1,0};sunFrame.body={6371010,1,13000,0};
+    CelestialUniforms sunBody{};sunBody.directionRadius={0,0,1,.02f};sunBody.axisX={1,0,0,0};sunBody.pole={0,1,0,2};sunBody.axisZ={0,0,1,1};sunBody.light={0,0,1,1};sunBody.material={1,1,1,0};
+    auto renderSun=[&](bool earthAtmosphere){sunFrame.surfaceColor.w=earthAtmosphere?3:0;id<MTLCommandBuffer> cb=[queue commandBuffer];MTLRenderPassDescriptor *pass=[MTLRenderPassDescriptor renderPassDescriptor];pass.colorAttachments[0].texture=sunColor;pass.colorAttachments[0].loadAction=MTLLoadActionClear;pass.colorAttachments[0].storeAction=MTLStoreActionStore;pass.depthAttachment.texture=sunDepth;pass.depthAttachment.loadAction=MTLLoadActionClear;pass.depthAttachment.clearDepth=0;pass.depthAttachment.storeAction=MTLStoreActionStore;
+        id<MTLRenderCommandEncoder> e=[cb renderCommandEncoderWithDescriptor:pass];[e setDepthStencilState:depthState];[e setRenderPipelineState:sunPipeline];[e setVertexBytes:&sunFrame length:sizeof(sunFrame) atIndex:0];[e setVertexBytes:&sunBody length:sizeof(sunBody) atIndex:1];[e setFragmentBytes:&sunFrame length:sizeof(sunFrame) atIndex:0];[e setFragmentBytes:&sunBody length:sizeof(sunBody) atIndex:1];[e setFragmentTexture:white atIndex:0];[e setFragmentTexture:white atIndex:1];[e drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];[e endEncoding];[cb commit];[cb waitUntilCompleted];require(cb.error==nil,"Sun render failed");std::array<float,4> pixel;[sunColor getBytes:pixel.data() bytesPerRow:sizeof(pixel) fromRegion:MTLRegionMake2D(32,32,1,1) mipmapLevel:0];return pixel;};
+    auto sunVacuum=renderSun(false),sunInAir=renderSun(true);
+    require(sunVacuum[0]>50&&sunInAir[0]>30,"The Sun emits bright HDR light");
+    require(sunInAir[2]<sunVacuum[2]*.9f,"Atmospheric scattering attenuates sunlight more strongly at short wavelengths");
     // Animated waves must appear over water and leave the land material still.
     f.position={1+5000.0f/6371010,0,0,0};f.environment={5000.0f/6371010,5000,0,1};
     f.forward={-1,0,0,0};f.right={0,0,1,0};f.up={0,1,0,0};f.sun={.8,.4,.447,1};f.weather={3,.8f,0,0};f.lightning.w=0;

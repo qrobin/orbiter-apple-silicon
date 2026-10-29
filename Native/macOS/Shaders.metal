@@ -77,6 +77,48 @@ float4 ringMaterial(float3 point,float3 ray,float3 pole,float inner,float outer,
     bool shadow=dot(point,sun)<0&&length(cross(point,sun))<1;
     return float4(c.rgb*(shadow?.09f:.35f+.65f*abs(dot(pole,sun))),optical);
 }
+// Approximate exponential air columns along a spherical atmosphere. The
+// smooth grazing-angle expression avoids a discontinuity at the local horizon.
+float atmosphericColumn(float height,float mu,float scaleHeight,float radius,float maximumDistance){
+    float density=exp(-max(0.0f,height)/scaleHeight);
+    float denominator=max(.0001f,mu+sqrt(mu*mu+2*scaleHeight/radius));
+    float column=min(2000000.0f,2*scaleHeight*density/denominator);
+    if(maximumDistance<1e20f)column=min(column,maximumDistance*(density+1)*.5f);
+    // A camera above the dense air can still see a long sunlit path through
+    // it. Approximate surface-bound rays and limb-grazing rays separately.
+    if(height>30000.0f&&mu<0){
+        float ratio=1+height/radius,external;
+        if(maximumDistance<1e20f){
+            float surfaceMu=sqrt(max(0.0f,ratio*ratio*mu*mu-(ratio*ratio-1)));
+            external=2*scaleHeight/(surfaceMu+sqrt(surfaceMu*surfaceMu+2*scaleHeight/radius));
+        }else{
+            float closest=radius*(ratio*sqrt(max(0.0f,1-mu*mu))-1);
+            external=exp(-max(0.0f,closest)/scaleHeight)*sqrt(2*M_PI_F*radius*scaleHeight);
+        }
+        column=mix(column,external*.35f,smoothstep(30000.0f,90000.0f,height));
+    }
+    return column;
+}
+float3 earthSunTransmission(constant Frame &f){
+    float height=max(0.0f,f.environment.x*f.body.x);
+    float sunMu=dot(normalize(f.position.xyz),f.sun.xyz);
+    float r=atmosphericColumn(height,max(.05f,sunMu),8000.0f,f.body.x,1e25f);
+    float m=atmosphericColumn(height,max(.05f,sunMu),1200.0f,f.body.x,1e25f);
+    return exp(-(float3(5.8e-6,13.5e-6,33.1e-6)*r+float3(2.1e-5)*m));
+}
+struct AirLight {float3 transmission,scattering;};
+AirLight earthAirLight(constant Frame &f,float3 ray,float maximumDistance){
+    float height=max(0.0f,f.environment.x*f.body.x),mu=dot(normalize(f.position.xyz),ray);
+    float r=atmosphericColumn(height,mu,8000.0f,f.body.x,maximumDistance);
+    float m=atmosphericColumn(height,mu,1200.0f,f.body.x,maximumDistance);
+    float3 betaR=float3(5.8e-6,13.5e-6,33.1e-6),betaM=float3(2.1e-5);
+    float3 transmission=exp(-(betaR*r+betaM*m));
+    float cosine=dot(ray,f.sun.xyz),phaseR=.75f*(1+cosine*cosine),g=.76f;
+    float phaseM=(1-g*g)/pow(max(.03f,1+g*g-2*g*cosine),1.5f);
+    float sunlight=smoothstep(-.10f,.04f,dot(normalize(f.position.xyz),f.sun.xyz));
+    float3 scattered=earthSunTransmission(f)*sunlight*((1-exp(-betaR*r))*phaseR*.95f+(1-exp(-betaM*m))*phaseM*.13f);
+    return {transmission,scattered};
+}
 fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buffer(1)]],
     texture2d<float> map [[texture(0)]],texture2d<float> shadows [[texture(1)]],texture2d<float> rings [[texture(2)]],
     texture2d<float> oceanMask [[texture(3)]],texture2d<float> cloudMap [[texture(4)]],texture2d<float> oceanWaves [[texture(5)]]) {
@@ -89,10 +131,15 @@ fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buf
     float dayAtCamera=smoothstep(-.18f,.12f,dot(normalize(origin),f.sun.xyz));
     float air=saturate(exp(-max(0.0f,height)*radius/max(1.0f,f.body.z))*dayAtCamera*f.body.y);
     float elevation=max(0.0f,dot(ray,normalize(origin)));
-    float3 airColor=mix(f.haze.rgb*1.6,f.haze.rgb*.55,pow(elevation,.35f));sky=mix(sky,airColor,air*.98);
+    float3 airColor=mix(f.haze.rgb*1.6,f.haze.rgb*.55,pow(elevation,.35f));
+    bool earth=int(f.surfaceColor.w)==3;
+    float surfaceDistance=disc>=0&&b<0?c/max(1e-12f,-b+sqrt(disc)):1e25;
+    AirLight earthAir={float3(1),float3(0)};
+    if(earth){earthAir=earthAirLight(f,ray,surfaceDistance<1e24?surfaceDistance*radius:1e25);sky=sky*earthAir.transmission+earthAir.scattering;}
+    else sky=mix(sky,airColor,air*.98);
     float distance=1e25;float3 color=sky;
     if(disc>=0&&b<0){
-        float t=c/max(1e-12f,-b+sqrt(disc));distance=t;float3 n=normalize(origin+ray*t);float2 uv=terrestrialUV(n,f);
+        float t=surfaceDistance;distance=t;float3 n=normalize(origin+ray*t);float2 uv=terrestrialUV(n,f);
         float3 base=planetMaterial(n,uv,f.surfaceColor.rgb,int(f.surfaceColor.w),f.equatorX.w>.5,map);
         float day=smoothstep(-.06f,.06f,dot(n,f.sun.xyz)),light=max(0.0f,dot(n,f.sun.xyz));
         float cloudShade=shadows.sample(s,in.position.xy/f.screen.xy).r;
@@ -131,14 +178,17 @@ fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buf
                 color=mix(color,ocean,water);
             }
         }
-        if(f.body.w>1.5)color=base*12;
+        if(f.body.w>1.5)color=base*80;
         float detail=1-.10*hash(floor(n*radius/2));color*=mix(1.0f,detail,exp(-max(0.0f,height)*radius/1800));
-        float fresnel=pow(1-max(0.0f,dot(n,-ray)),4.0f);
-        color=mix(color,f.haze.rgb*(.3+.7*day),fresnel*.55*min(1.0f,f.body.y));
-        color=mix(color,airColor,air*(1-exp(-t*radius/35000))*.8);
+        if(earth)color=color*earthAir.transmission+earthAir.scattering;
+        else {
+            float fresnel=pow(1-max(0.0f,dot(n,-ray)),4.0f);
+            color=mix(color,f.haze.rgb*(.3+.7*day),fresnel*.55*min(1.0f,f.body.y));
+            color=mix(color,airColor,air*(1-exp(-t*radius/35000))*.8);
+        }
     }else if(f.body.y>0){
         float limit=1+f.haze.w/radius;float atmosphereDisc=b*b-(dot(origin,origin)-limit*limit);
-        if(atmosphereDisc>0&&b<0){float closest=sqrt(max(0.0f,dot(origin,origin)-b*b));float glow=exp(-max(0.0f,closest-1)*radius/max(1.0f,f.body.z))*.7;float3 n=normalize(origin-ray*b);float light=smoothstep(-.3f,.4f,dot(n,f.sun.xyz));color+=f.haze.rgb*glow*light*min(1.0f,f.body.y);}
+        if(atmosphereDisc>0&&b<0){float closest=sqrt(max(0.0f,dot(origin,origin)-b*b));float glow=exp(-max(0.0f,closest-1)*radius/max(1.0f,f.body.z))*.7;float3 n=normalize(origin-ray*b);float light=smoothstep(-.3f,.4f,dot(n,f.sun.xyz));float orbital=smoothstep(f.haze.w*.45f,f.haze.w,height*radius);color+=f.haze.rgb*glow*light*min(1.0f,f.body.y)*orbital;}
     }
     if(f.pole.w>0){float den=dot(ray,f.pole.xyz);if(abs(den)>.00001){float t=-dot(origin,f.pole.xyz)/den;float3 point=origin+ray*t;float r=length(point);if(t>0&&t<distance&&r>f.pole.w&&r<f.equatorZ.w){float4 ring=ringMaterial(point,ray,f.pole.xyz,f.pole.w,f.equatorZ.w,f.sun.xyz,rings);color=mix(color,ring.rgb,ring.a);if(ring.a>.05)distance=t;}}}
     float depth=distance<1e24?.2/max(.0001f,distance*radius*dot(ray,f.forward.xyz)):0;
