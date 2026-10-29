@@ -18,7 +18,7 @@ cd orbiter-apple-silicon
 
 The script builds `build/macos-arm64/Native/Orbiter Native.app`, runs the native tests and applies a local ad-hoc signature. Developer ID signing and notarization are not yet provided.
 
-Start with **M** for the glider systems panel, **V** to cycle external, 3D cockpit and 2D instrument-panel views, **+ / −** for main throttle, **X** to cut engines, **Space** to pause, and **T / Y** to change time acceleration. **F1** shows the controls. The **Flight** menu includes a mechanism demonstration.
+Start with **M** for the glider systems panel, **C** (or **V**) to cycle external, 3D cockpit and 2D instrument-panel views, **Shift / Control** for main throttle, **X** to cut engines, **Space** to pause, and **T / R** to change time acceleration. W/S pitch the nose down/up; A/D control yaw. **F1** shows the controls. The **Flight** menu includes a mechanism demonstration.
 
 See the [native guide](Native/README.md) for all controls, supported scenarios, capture options and implementation details.
 
