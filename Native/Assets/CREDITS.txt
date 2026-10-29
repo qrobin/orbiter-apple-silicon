@@ -29,14 +29,16 @@ Copyright 2007-9 Steve Arch, Duncan Sharpe; 2011 atomicdryad;
 Docs/TransX/Licence.txt. Original Delta-glider MFD areas and atlas labels
 are ported from Src/Vessel/DeltaGlider/MfdSubsys.cpp.
 
-Earth cloud coverage: derived from NASA/Goddard Space Flight Center Scientific
-Visualization Studio's equirectangular Earth with and without clouds (SVS 3615).
-https://svs.gsfc.nasa.gov/3615/
-Clouded: https://svs.gsfc.nasa.gov/vis/a000000/a003600/a003615/flat_earth03.jpg
-Clear: https://svs.gsfc.nasa.gov/vis/a000000/a003600/a003615/earth_noClouds.0330.jpg
-The underlying cloud composite is from multiple satellites on 2007-07-01; it is
-historical imagery, not live weather. Extracted with tools/extract_satellite_clouds.py.
-The corresponding earth-clouds.r8 stores the same opacity bytes for regional simulation.
+Earth cloud coverage: an 8192 × 4096 snapshot of Matt Eason's Live Cloud Maps.
+https://github.com/matteason/live-cloud-maps
+https://clouds.matteason.co.uk/images/8192x4096/clouds.jpg
+Source snapshot retrieved 2026-10-29; SHA-256 of the JPEG:
+d871cc4615e32a2116c40c0c02aec05257224a8f3e95a420a27823f27ef8dfb5
+Contains modified EUMETSAT data. Project code and images are released under
+CC0 1.0, subject to the EUMETSAT attribution above. The bundled map is a fixed
+snapshot, not live weather; polar areas are filled by mirrored source data.
+Converted to grayscale and reduced for earth-clouds.r8 with
+tools/prepare_cloud_snapshot.py.
 
 Earth ocean mask: inverted alpha channel from NASA's Scientific Visualization
 Studio Blue Marble land layer (SVS 4439), resampled to 4096 × 2048.

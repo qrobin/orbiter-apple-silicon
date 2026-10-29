@@ -31,7 +31,7 @@ WeatherSample earthWeather(const Vector &position,double mjd,int preset,bool eff
     double altitude=position.length()-body(BodyId::Earth).radius;
     result.cloud=coverage(lat,lon);double clouds=smooth(.06,.78,result.cloud);
     if(preset==3)result.storm=.65+.35*clouds;
-    else if(preset==4)result.storm=smooth(.38,.86,result.cloud);
+    else if(preset==4)result.storm=smooth(.72,.97,result.cloud);
     else if(preset==2)result.storm=.25*smooth(.60,.95,result.cloud);
     double atmosphere=1-smooth(12000,30000,std::max(0.,altitude));
     double rainHeight=1-smooth(7000,10500,std::max(0.,altitude));

@@ -105,7 +105,7 @@ fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buf
             float water=smoothstep(.35f,.75f,oceanMask.sample(s,uv).r)*waveFade;
             if(water>.001f){
                 float regional=cloudMap.sample(s,uv).r;
-                float storm=f.weather.x>2.5&&f.weather.x<3.5?.9f:(f.weather.x>3.5?smoothstep(.38f,.86f,regional):0.0f);
+                float storm=f.weather.x>2.5&&f.weather.x<3.5?.9f:(f.weather.x>3.5?smoothstep(.72f,.97f,regional):0.0f);
                 float lon=(uv.x-.5f)*2*M_PI_F,lat=(.5f-uv.y)*M_PI_F;
                 float2 metres=float2(lon*cos(lat),lat)*radius;
                 // A directional ocean spectrum supplies many irregular wave

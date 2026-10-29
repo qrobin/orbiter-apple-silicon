@@ -40,7 +40,7 @@ float2 terrestrialUV(float3 p,constant FrameUniforms &f) {
 float cloudRegion(float3 p,constant FrameUniforms &f,texture2d<float> cloudMap) {
     constexpr sampler mapSampler(filter::linear,mip_filter::linear,s_address::repeat,t_address::clamp_to_edge);
     float observed=cloudMap.sample(mapSampler,terrestrialUV(p,f),level(0)).r;
-    float region=smoothstep(.015f,.48f,observed);
+    float region=smoothstep(.32f,.90f,observed);
     if(f.weather.x>2.5&&f.weather.x<3.5)region=max(region,.72f);
     else if(f.weather.x>1.5&&f.weather.x<2.5)region=max(region,.25f);
     return region;
@@ -110,6 +110,9 @@ kernel void marchClouds(constant FrameUniforms &f [[buffer(0)]],constant uint &f
     uint2 full=min(uint2(uv*float2(depth.get_width(),depth.get_height())),uint2(depth.get_width()-1,depth.get_height()-1));
     float geometry=depthDistance(depth.read(full).r,ray,f);
     float cameraHeight=f.environment.x*f.body.x;
+    // Above the transition the full-resolution satellite shell completely
+    // replaces this volume. Avoid its 48-step march and sunlight samples.
+    if(cameraHeight>=120000.0f){result.write(float4(0),id);data.write(float4(geometry,0,0,0),id);return;}
     float2 roots=cloudShellRoots(cameraHeight,f.clouds.y,dot(normalize(f.position.xyz),ray),f.body.x);
     float start=max(0.0f,roots.x),end=min(roots.y,geometry);
     float2 inner=cloudShellRoots(cameraHeight,f.clouds.x,dot(normalize(f.position.xyz),ray),f.body.x);
@@ -157,7 +160,7 @@ kernel void marchClouds(constant FrameUniforms &f [[buffer(0)]],constant uint &f
 fragment float4 compositeClouds(SkyRaster in [[stage_in]],constant FrameUniforms &f [[buffer(0)]],
                                 texture2d<float> scene [[texture(0)]],texture2d<float> clouds [[texture(1)]],
                                 texture2d<float> cloudData [[texture(2)]],texture2d<float,access::read> depth [[texture(3)]],
-                                texture2d<float> earthCloudMap [[texture(4)]]) {
+                                texture2d<float> earthCloudMap [[texture(4)]],texture3d<float> noise [[texture(5)]]) {
     float2 uv=float2(in.uv.x,1-in.uv.y);constexpr sampler s(filter::linear,address::clamp_to_edge);
     float3 ray=viewRay(uv,f);uint2 pixel=min(uint2(uv*f.screen.xy),uint2(f.screen.xy)-1);
     float geometry=depthDistance(depth.read(pixel).r,ray,f);
@@ -174,7 +177,7 @@ fragment float4 compositeClouds(SkyRaster in [[stage_in]],constant FrameUniforms
     // Orbital-scale cloud structure comes from a satellite composite. Blend
     // into the volumetric layer for aircraft and low-altitude views.
     float cameraHeight=f.environment.x*f.body.x;
-    float orbital=smoothstep(50000.0f,350000.0f,cameraHeight);
+    float orbital=smoothstep(40000.0f,120000.0f,cameraHeight);
     if(orbital>0&&f.clouds.z>0){
         float3 origin=normalize(f.position.xyz)*(f.body.x+cameraHeight);
         float2 shell=cloudShellRoots(cameraHeight,(f.clouds.x+f.clouds.y)*.5f,dot(normalize(origin),ray),f.body.x);
@@ -183,13 +186,28 @@ fragment float4 compositeClouds(SkyRaster in [[stage_in]],constant FrameUniforms
             float3 point=origin+ray*distance,normal=normalize(point);
             constexpr sampler mapSampler(filter::linear,mip_filter::linear,s_address::repeat,t_address::clamp_to_edge);
             float mask=earthCloudMap.sample(mapSampler,terrestrialUV(point,f)).r;
-            float coverage=saturate(mask*min(1.5f,f.clouds.z/.48f));
+            float coverage=saturate(smoothstep(.32f,.90f,mask)*min(1.5f,f.clouds.z/.48f));
+            float detailLight=1;
+            // At low orbital altitude, add sub-map cloud structure sampled
+            // from the existing 3D noise volume. Fade before it aliases from afar.
+            float detailWeight=1-smoothstep(220000.0f,900000.0f,cameraHeight);
+            if(detailWeight>0&&coverage>.01f){
+                constexpr sampler noiseSampler(filter::linear,address::repeat);
+                float3 samplePoint=terrestrial(point,f)+float3(f.environment.w*14,0,f.environment.w*7);
+                float broad=noise.sample(noiseSampler,samplePoint/28000.0f).r;
+                float fine=noise.sample(noiseSampler,samplePoint/6500.0f).g;
+                float variation=(broad-.5f)*.45f+(fine-.5f)*.25f;
+                coverage=saturate(coverage+variation*detailWeight*smoothstep(.03f,.4f,coverage)*(1-.5f*coverage));
+                detailLight=clamp(1+variation*.55f*detailWeight,.75f,1.15f);
+            }
             if(f.weather.x>2.5&&f.weather.x<3.5)coverage=max(coverage,.72f);
             else if(f.weather.x>1.5&&f.weather.x<2.5)coverage=max(coverage,.25f);
-            float mu=max(.18f,abs(dot(normal,ray)));
-            float alpha=1-pow(max(.001f,1-coverage),1/mu);
+            float viewCosine=abs(dot(normal,ray)),mu=max(.55f,viewCosine);
+            // Grazing cloud-shell intersections occupy less than a pixel and
+            // are heavily obscured by atmospheric haze at the horizon.
+            float alpha=(1-pow(max(.001f,1-coverage),1/mu))*smoothstep(.025f,.12f,viewCosine);
             float daylight=smoothstep(-.08f,.10f,dot(normal,f.sun.xyz));
-            float3 illumination=mix(float3(.005,.008,.018),float3(.85,.91,1.0)*(0.55+0.65*max(0.0f,dot(normal,f.sun.xyz))),daylight);
+            float3 illumination=mix(float3(.005,.008,.018),float3(.85,.91,1.0)*(0.30+0.42*max(0.0f,dot(normal,f.sun.xyz)))*mix(.70f,1.0f,mask)*detailLight,daylight);
             cloud=mix(cloud,float4(illumination*alpha,alpha),orbital);
         }else cloud*=1-orbital;
     }

@@ -10,7 +10,11 @@ int main(){try{
     check(loadEarthWeatherMap(std::filesystem::path(ORBITER_TEST_DATA)/"Native/Assets/earth-clouds.r8"),"Load satellite weather map");
     constexpr double date=51982.5292925579;
     auto position=[&](double lat,double lon,double altitude){return bodySurface(BodyId::Earth,Rad(lat),Rad(lon),date).up*(EarthRadius+altitude);};
-    Vector dryPosition=position(0,0,2000),cloudyPosition=position(35,140,2000);
+    Vector dryPosition,cloudyPosition;double minimum=2,maximum=-1;
+    for(int lat=-60;lat<=60;lat+=10)for(int lon=-180;lon<180;lon+=10){
+        Vector p=position(lat,lon,2000);double c=earthWeather(p,date,4,false).cloud;
+        if(c<minimum){minimum=c;dryPosition=p;}if(c>maximum){maximum=c;cloudyPosition=p;}
+    }
     auto dry=earthWeather(dryPosition,date,4),cloudy=earthWeather(cloudyPosition,date,4);
     check(cloudy.cloud>dry.cloud+.3&&cloudy.storm>dry.storm+.3,"Regional weather differs between satellite cloud systems");
     auto storm=earthWeather(dryPosition,date,3),clear=earthWeather(dryPosition,date,0);
@@ -19,7 +23,7 @@ int main(){try{
     bool sawLightning=false;
     for(int i=0;i<3800;++i){
         double now=date+i*.01/86400.;
-        Vector here=bodySurface(BodyId::Earth,0,0,now).up*(EarthRadius+2000);
+        Vector here=bodySurface(BodyId::Earth,Rad(10),Rad(-100),now).up*(EarthRadius+2000);
         auto sample=earthWeather(here,now,3);
         if(sample.flash>.1){sawLightning=true;check(sample.lightning.dist(here)<35000,"Lightning stays in the local storm cell");}
     }
