@@ -22,6 +22,12 @@ struct CelestialBody {
     Vector spin()const;
     double rotation(double mjd)const;
 };
+// Freeze axial rotation at the current simulation date without pausing orbits.
+struct BodyRotationState {bool paused=false;double offset=0,frozenDate=0;};
+bool bodyRotationsPaused();
+BodyRotationState bodyRotationState();
+bool restoreBodyRotationState(const BodyRotationState &state);
+void setBodyRotationsPaused(bool paused,double mjd);
 const std::array<CelestialBody,BodyCount> &bodies();
 const CelestialBody &body(BodyId id);
 BodyId findBody(std::string_view name);

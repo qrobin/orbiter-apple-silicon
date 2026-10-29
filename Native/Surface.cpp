@@ -5,7 +5,7 @@
 #include <algorithm>
 #include <cmath>
 namespace native {
-Vector earthSpin() { return Vector(0,cos(.4090928023),sin(.4090928023))*(Pi2/SiderealDay); }
+Vector earthSpin() { return body(BodyId::Earth).spin(); }
 SurfaceFrame bodySurface(BodyId id,double latitude,double longitude,double mjd,double elapsed) {
     const auto &b=body(id);double phi=longitude-b.rotation(mjd+elapsed/86400),cl=cos(latitude),sl=sin(latitude),cp=cos(phi),sp=sin(phi);
     Vector x=b.equatorX(),y=b.pole(),z=b.equatorZ();

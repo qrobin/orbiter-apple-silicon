@@ -130,14 +130,18 @@ void Flight::toggleAssist(Assist mode) {
 void Flight::load(const std::filesystem::path &path) {
     std::ifstream file(path); if(!file) throw std::runtime_error("Cannot open scenario.");
     Flight candidate; std::string line, focus, blockName;
+    BodyRotationState savedRotation;bool hasRotationState=false,environment=false;
     bool ships=false, selected=false, found=false, orbiting=false, landed=false, gotPos=false, gotVel=false, gotSurface=false, gearSpecified=false, gotVrot=false;
     double longitude=0,latitude=0,headingAngle=0,clearance=2.53;
     bool gotElements=false; double vals[7]={}; Vector arot,vrot; bool hasArot=false;
     // Read focus and date first; vessel blocks can appear in any order.
     while(std::getline(file,line)) {
         std::istringstream s(line); std::string key; s>>key;
+        if(key=="BEGIN_ENVIRONMENT")environment=true;
+        if(key=="END_ENVIRONMENT")environment=false;
         if(key=="Ship") s>>focus;
         if(key=="Date") { std::string format; s>>format; if(format=="MJD") s>>candidate.mjd; }
+        if(environment&&key=="BODYROTATION") {int paused=-1;if(!(s>>paused>>savedRotation.offset>>savedRotation.frozenDate)||(paused!=0&&paused!=1))throw std::runtime_error("Invalid body rotation state.");savedRotation.paused=paused;hasRotationState=true;}
     }
     file.clear(); file.seekg(0);
     while(std::getline(file,line)) {
@@ -179,6 +183,10 @@ void Flight::load(const std::filesystem::path &path) {
         }}
     }
     if(!found||(!orbiting&&!landed)) throw std::runtime_error("Choose a Solar System scenario focused on a DeltaGlider. Landed flights require a solid body and POS coordinates.");
+    // Scenario rotation metadata must be active while reconstructing landed
+    // coordinates; restore the previous session state if loading fails.
+    struct RotationRollback {BodyRotationState prior=bodyRotationState();bool committed=false;~RotationRollback(){if(!committed)restoreBodyRotationState(prior);}} rollback;
+    if(hasRotationState&&!restoreBodyRotationState(savedRotation))throw std::runtime_error("Invalid body rotation state.");
     bool nativeCartesian=gotPos&&gotVel;
     if(landed&&!nativeCartesian) {
         if(!gotSurface||!std::isfinite(latitude)||!std::isfinite(longitude)||!std::isfinite(headingAngle)||!std::isfinite(clearance)||fabs(latitude)>90||clearance<0||clearance>1000)
@@ -208,13 +216,15 @@ void Flight::load(const std::filesystem::path &path) {
     }
     if(!landed||nativeCartesian||gotVrot) candidate.angularVelocity=vrot*RAD;
     candidate.groundContact=landed;
-    *this=candidate;
+    *this=candidate;rollback.committed=true;
 }
 void Flight::save(const std::filesystem::path &path) const {
     std::ofstream f(path); if(!f) throw std::runtime_error("Cannot write scenario at that location.");
     Vector angles(atan2(forward.y,forward.z),-asin(std::clamp(forward.x,-1.,1.)),atan2(up.x,right.x));
-    f<<std::setprecision(16)<<"BEGIN_ENVIRONMENT\n  System Sol\n  Date MJD "<<mjd+elapsed/86400.0
-     <<"\nEND_ENVIRONMENT\n\nBEGIN_FOCUS\n  Ship "<<name<<"\nEND_FOCUS\n\nBEGIN_SHIPS\n"<<name
+    f<<std::setprecision(16)<<"BEGIN_ENVIRONMENT\n  System Sol\n  Date MJD "<<mjd+elapsed/86400.0<<'\n';
+    auto rotation=bodyRotationState();if(rotation.paused||rotation.offset!=0)
+        f<<"  BODYROTATION "<<(rotation.paused?1:0)<<' '<<rotation.offset<<' '<<rotation.frozenDate<<'\n';
+    f<<"END_ENVIRONMENT\n\nBEGIN_FOCUS\n  Ship "<<name<<"\nEND_FOCUS\n\nBEGIN_SHIPS\n"<<name
      <<":DeltaGlider\n  STATUS "<<(groundContact?"Landed":"Orbiting")<<' '<<centralBody().name<<"\n  RPOS "<<position.x<<' '<<position.y<<' '<<position.z
      <<"\n  RVEL "<<velocity.x<<' '<<velocity.y<<' '<<velocity.z
      <<"\n  AROT "<<Deg(angles.x)<<' '<<Deg(angles.y)<<' '<<Deg(angles.z)
@@ -238,6 +248,14 @@ void Flight::startOrbit(BodyId id){
     Vector sun=ephemeridesReady()&&id!=BodyId::Sun?(-bodyState(id,mjd).position).unit():Vector(.32,.84,-.44).unit();
     Vector radial=(sun*.95+b.pole()*.25).unit();position=radial*radius;
     velocity=crossp(b.pole(),radial).unit()*sqrt(b.mu()/radius);align(velocity);assist=Assist::Prograde;
+}
+void Flight::setRotationPaused(bool paused){
+    if(paused==bodyRotationsPaused())return;
+    Vector oldSpin=centralBody().spin();setBodyRotationsPaused(paused,mjd+elapsed/86400.);
+    if(groundContact){
+        Vector change=centralBody().spin()-oldSpin;velocity+=crossp(change,position);
+        angularVelocity+=Vector(dotp(change,right),dotp(change,up),dotp(change,forward));
+    }
 }
 void Flight::changeReference(BodyId next){
     if(next==reference)return;double date=mjd+elapsed/86400;auto old=bodyState(reference,date),target=bodyState(next,date);

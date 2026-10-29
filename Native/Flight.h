@@ -38,6 +38,7 @@ public:
     void startOrbit(BodyId body);
     void placeOnBody(double latitude,double longitude,double heading,double clearance=2.53);
     void changeReference(BodyId body);
+    void setRotationPaused(bool paused);
     void updateReference();
     Vector position, velocity, right{1,0,0}, up{0,1,0}, forward{0,0,1}, angularVelocity;
     double mjd=51982.5292925579, elapsed=0, fuel=MainCapacity*.553, rcs=RcsCapacity*.9;

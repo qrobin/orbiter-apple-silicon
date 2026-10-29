@@ -92,6 +92,11 @@ target_link_libraries(CockpitHudRenderTests PRIVATE OrbiterFlightCore "-framewor
 add_test(NAME Native.CockpitHudMetal COMMAND CockpitHudRenderTests)
 set_tests_properties(Native.CockpitHudMetal PROPERTIES SKIP_RETURN_CODE 77)
 
+add_executable(BodyRotationTests Tests/BodyRotationTests.cpp)
+target_link_libraries(BodyRotationTests PRIVATE OrbiterFlightCore)
+target_compile_definitions(BodyRotationTests PRIVATE ORBITER_TEST_DATA="${PROJECT_SOURCE_DIR}")
+add_test(NAME Native.BodyRotation COMMAND BodyRotationTests)
+
 add_executable(KeyboardTests Tests/KeyboardTests.cpp)
 target_link_libraries(KeyboardTests PRIVATE OrbiterFlightCore)
 add_test(NAME Native.Keyboard COMMAND KeyboardTests)

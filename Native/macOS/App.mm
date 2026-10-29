@@ -149,6 +149,7 @@ struct GpuGroup { id<MTLBuffer> vertices,indices; NSUInteger count; size_t mater
 - (void)chooseCameraReference:(NSMenuItem *)sender;
 - (void)cycleExternalCamera:(id)sender;
 - (void)toggleFreeCamera:(id)sender;
+- (void)toggleBodyRotation:(id)sender;
 - (void)applyExternalCamera:(ExternalCameraMode)mode reference:(BodyId)reference;
 @end
 @interface FlightView (NavigationControls)
@@ -224,7 +225,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     [panel setFill];NSRectFill(NSMakeRect(0,0,w,28));
     text(@"Shift / Ctrl Throttle   X Cut   M Systems   C View   F1 Help",18,8,11,muted);
     NSString *state=v->burnSkip.running()?@"SKIPPING":f.paused?@"PAUSED":@"FLIGHT";
-    text([NSString stringWithFormat:@"%@  ·  %.0f×  ·  T+ %.0f s",state,f.warp,f.elapsed],w-505,8,11,ink,YES);
+    text([NSString stringWithFormat:@"%@  ·  %.0f×  ·  T+ %.0f s%@",state,f.warp,f.elapsed,bodyRotationsPaused()?@"  ·  ROT PAUSED":@""],w-505,8,11,ink,YES);
     text([simulationDate(f.mjd+f.elapsed/86400.) stringByAppendingString:@" UTC"],w-213,8,11,muted,YES);
     // Compact notices remain near the bottom; the flight view has no top bar.
     CGFloat noticeY=v->cockpit?34:234;
@@ -329,7 +330,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         CGFloat bw=620,bh=534,x=(w-bw)/2,y=(h-bh)/2;
         [panel setFill]; NSRectFill(NSMakeRect(x,y,bw,bh));
         text(@"Flight controls",x+24,y+bh-44,23,white);
-        NSArray<NSString *> *rows=@[@"Shift / Ctrl  Increase / decrease main throttle",@"X          Cut main, hover and retro engines",@"W/S A/D    Pitch down/up and yaw    ·    Q / E  Roll",@"↑/↓ ←/→ Z/J   RCS forward/side/vertical",@"P / O      Prograde / retrograde assist",@"; / '      Normal / anti-normal    ·    Option-L  Horizon level",@"K / N      Kill rotation / manual control",@"Option-H / Option-Shift-H   HUD mode / colour",@"T / R      Increase / decrease time acceleration",@"[ / ]      Decrease / increase hover throttle",@", / .      Hold left / right wheel brake",@"Option-W    Toggle parking brake",@"F5/F6/F7   Hover attitude / hold altitude / zero climb",@"M / C      Glider systems / cycle camera views",@"F8 / F9    External camera modes / free camera",@"F4         Original TransX MFD / navigation controls",@"G / Option-C / F / B    Gear / nose / radiator / airbrake",@"H L U I    Hatch / ladder / retro covers / airlock",@"Drag       Look around / rotate TransX graph    ·    Scroll  Zoom",@"Space      Pause    ·    ⌘R  Restart    ·    F2  Diagram",@"⌘O / ⌘S    Open / save scenario    ·    F1  Close help"];
+        NSArray<NSString *> *rows=@[@"Shift / Ctrl  Increase / decrease main throttle",@"X          Cut main, hover and retro engines",@"W/S A/D    Pitch down/up and yaw    ·    Q / E  Roll",@"↑/↓ ←/→ Z/J   RCS forward/side/vertical",@"P / O      Prograde / retrograde assist",@"; / '      Normal / anti-normal    ·    Option-L  Horizon level",@"K / N      Kill rotation / manual control",@"Option-H / Option-Shift-H   HUD mode / colour",@"T / R      Increase / decrease time acceleration",@"[ / ]      Decrease / increase hover throttle",@", / .      Hold left / right wheel brake",@"Option-W    Toggle parking brake",@"F5/F6/F7   Hover attitude / hold altitude / zero climb",@"M / C      Glider systems / cycle camera views",@"F8/F9/F10   Camera tracking / free camera / pause rotation",@"F4         Original TransX MFD / navigation controls",@"G / Option-C / F / B    Gear / nose / radiator / airbrake",@"H L U I    Hatch / ladder / retro covers / airlock",@"Drag       Look around / rotate TransX graph    ·    Scroll  Zoom",@"Space      Pause    ·    ⌘R  Restart    ·    F2  Diagram",@"⌘O / ⌘S    Open / save scenario    ·    F1  Close help"];
         for(NSUInteger i=0;i<rows.count;++i) text(rows[i],x+24,y+bh-81-i*20,13,ink,YES);
     }
 }
@@ -842,7 +843,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
 - (void)openScenario:(id)sender {
     [self clearInput]; BOOL wasPaused=flight.paused; flight.paused=true;
     NSOpenPanel *panel=[NSOpenPanel openPanel]; panel.allowedContentTypes=@[[UTType typeWithFilenameExtension:@"scn"]]; panel.message=@"Choose a Solar System scenario focused on a standard DeltaGlider.";
-    if([panel runModal]==NSModalResponseOK) { try { flight.load(panel.URL.fileSystemRepresentation);[self resetNavigation];[self loadTransXScenario:panel.URL.path]; restartBody=-1;restartScenario=panel.URL.path;status=panel.URL.lastPathComponent; }
+    if([panel runModal]==NSModalResponseOK) { try { flight.load(panel.URL.fileSystemRepresentation);[visuals resetForReferenceChange];[self resetNavigation];[self loadTransXScenario:panel.URL.path]; restartBody=-1;restartScenario=panel.URL.path;status=panel.URL.lastPathComponent; }
         catch(const std::exception &e) { [self showError:e.what()]; flight.paused=wasPaused; } }
     else flight.paused=wasPaused;
     previous=CACurrentMediaTime();
@@ -890,6 +891,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         case 98:[self holdZeroVerticalSpeed:nil];break;
         case 100:[self cycleExternalCamera:nil];break;
         case 101:[self toggleFreeCamera:nil];break;
+        case 109:[self toggleBodyRotation:nil];break;
         case 99:[self cycleWeather:nil];break;
         case 118:[self showNavigation:nil];break;
         case 122:[self toggleHelp:nil];break;
@@ -940,6 +942,11 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     bool to=sender.tag<200;int index=(int)sender.tag-(to?100:200);
     if(index>=0&&index<(int)BodyCount)[self applyExternalCamera:to?ExternalCameraMode::TargetTo:ExternalCameraMode::TargetFrom reference:(BodyId)index];
 }
+- (void)toggleBodyRotation:(id)sender {
+    bool paused=!bodyRotationsPaused();flight.setRotationPaused(paused);[visuals resetForReferenceChange];
+    status=paused?@"Body rotation paused · orbital motion and simulation time continue":@"Body rotation resumed";
+    self.hud.needsDisplay=YES;[self.window makeFirstResponder:self];
+}
 - (void)toggleFreeCamera:(id)sender {
     if(freeCamera.active){int view=freeCamera.returnView;[self setViewMode:view];status=@"Free camera off";}
     else {
@@ -958,6 +965,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
 - (BOOL)validateMenuItem:(NSMenuItem *)item {
     if(item.action==@selector(chooseNavProgram:)){item.state=(item.tag==6?flight.assist==Assist::Maneuver&&transxAlignDisplay==native::transx::Session::RouteDisplay:flight.assistActive(navButtonMode((int)item.tag)))?NSControlStateValueOn:NSControlStateValueOff;return YES;}
     if(item.action==@selector(chooseHudMode:)){item.state=flight.hud.mode==item.tag?NSControlStateValueOn:NSControlStateValueOff;return YES;}
+    if(item.action==@selector(toggleBodyRotation:)){item.state=bodyRotationsPaused()?NSControlStateValueOn:NSControlStateValueOff;return YES;}
     if(item.action==@selector(toggleFreeCamera:)){item.state=freeCamera.active?NSControlStateValueOn:NSControlStateValueOff;return YES;}
     if(item.action==@selector(chooseExternalCamera:)){item.state=(NSInteger)externalCamera.mode==item.tag?NSControlStateValueOn:NSControlStateValueOff;return item.tag!=(NSInteger)ExternalCameraMode::GroundObserver||flight.centralBody().solid;}
     if(item.action==@selector(chooseCameraReference:)){bool to=item.tag<200;int index=(int)item.tag-(to?100:200);item.state=externalCamera.mode==(to?ExternalCameraMode::TargetTo:ExternalCameraMode::TargetFrom)&&(int)externalCamera.target==index?NSControlStateValueOn:NSControlStateValueOff;return YES;}
@@ -1110,6 +1118,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         for(int d=0;d<2;++d){NSMenuItem *item=[nav addItemWithTitle:d?@"TransX on Right MFD":@"TransX on Left MFD" action:@selector(toggleTransXMFD:) keyEquivalent:@""];item.target=self.view;item.tag=d;}
         NSMenuItem *guide=[nav addItemWithTitle:@"TransX Quickstart…" action:@selector(showTransXGuide:) keyEquivalent:@""];guide.target=self.view;
         NSMenuItem *solarItem=[NSMenuItem new];solarItem.title=@"Solar System";[main addItem:solarItem];NSMenu *system=[NSMenu new];solarItem.submenu=system;
+        NSMenuItem *rotation=[system addItemWithTitle:@"Pause Body Rotation (F10)" action:@selector(toggleBodyRotation:) keyEquivalent:@""];rotation.target=self.view;[system addItem:NSMenuItem.separatorItem];
         for(const auto &b:bodies())if(b.id==BodyId::Sun||b.parent==BodyId::Sun){
             NSMenuItem *parent=[system addItemWithTitle:[NSString stringWithUTF8String:b.name] action:nil keyEquivalent:@""];NSMenu *children=[NSMenu new];parent.submenu=children;
             NSMenuItem *orbit=[children addItemWithTitle:[NSString stringWithFormat:@"%s Orbit",b.name] action:@selector(startBodyOrbit:) keyEquivalent:@""];orbit.target=self.view;orbit.tag=(NSInteger)b.id;

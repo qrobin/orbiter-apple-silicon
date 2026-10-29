@@ -152,6 +152,7 @@ The native animation registry contains **63 components extracted from upstream s
 | F7 | Toggle zero vertical speed hold |
 | F8 | Cycle target-relative, absolute-direction and global-frame external cameras |
 | F9 | Toggle the collision-free camera |
+| F10 | Pause / resume axial rotation of Solar System bodies |
 | [ / ] | Decrease / increase hover throttle |
 | , / . | Hold left / right wheel brake; hold both to stop |
 | Option-W | Toggle parking brake |
@@ -187,6 +188,8 @@ The native animation registry contains **63 components extracted from upstream s
 | F2 | Show / hide external orbit or surface attitude diagram |
 | ⌘O / ⌘S | Open / save scenario |
 | ⌘Q | Quit |
+
+Press **F10** or choose **Solar System → Pause Body Rotation** to freeze the axial rotation of planets, moons and the Sun. Their orbital motion and simulation time continue. The surface, atmosphere and navigation coordinates use the same frozen rotation; resuming starts from the held orientation. The rotation state is included in saved native scenarios. A parked glider stays attached to its surface, while an airborne vessel retains its inertial velocity.
 
 Press **F9** or choose **Camera → Free Camera** to detach the camera from the ship. W/A/S/D move it, Q/E move down/up, dragging looks around, and scrolling changes travel speed. The camera can pass through meshes and surfaces; its movement does not steer the spacecraft. F9 returns to the previous view, and C returns to the external view. The simulation continues unless paused.
 
