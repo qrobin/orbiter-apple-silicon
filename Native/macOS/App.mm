@@ -13,6 +13,7 @@
 #include "Base.h"
 #include "Camera.h"
 #import "NativeVisuals.h"
+#import "CockpitHUD.h"
 #import "SolarRenderer.h"
 #include "SolarSystem.h"
 #import "TransXDrawing.h"
@@ -96,6 +97,7 @@ struct GpuGroup { id<MTLBuffer> vertices,indices; NSUInteger count; size_t mater
     std::array<bool,2> lastMfdLabels;
     Image hoverReadoutImage,hoverGlyphs;
     std::array<id<MTLTexture>,2> instrumentTextures;
+    id<MTLTexture> cockpitHudTexture;
     int activeCockpitControl;
     double activeCockpitDirection;
     CFTimeInterval previous,begin,lastHud;
@@ -214,20 +216,26 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     auto warning=f.glider.warning();
     NSString *burn=burnCountdown(v);
     bool parkingNotice=f.glider.parkingBrake&&f.altitude()<1000;
-    CGFloat headerHeight=parkingNotice?154:!warning.empty()?132:v->status.length?110:78;
-    headerHeight=std::max(headerHeight,burn?128.:104.);
-    [panel setFill];NSRectFill(NSMakeRect(0,h-headerHeight,w,headerHeight));
-    NSRectFill(NSMakeRect(0,0,w,28));
-    text(@"Orbiter",26,h-44,22,white);
-    text([NSString stringWithFormat:@"Delta-glider  /  %s  /  %@",f.name.c_str(),bodyName],26,h-66,12,muted);
-    text(v->burnSkip.running()?[NSString stringWithFormat:@"SKIPPING   ·   T+ %.0f s",f.elapsed]:[NSString stringWithFormat:@"%@   ·   %.0f×   ·   T+ %.0f s",f.paused?@"PAUSED":@"FLIGHT",f.warp,f.elapsed],w-320,h-37,12,ink,YES);
-    text([NSString stringWithFormat:@"Metal  ·  ARM64  ·  %.0f fps",v->fps],w-320,h-57,11,muted,YES);
-    text([simulationDate(f.mjd+f.elapsed/86400.) stringByAppendingString:@" UTC"],w-320,h-80,11,muted,YES);
-    if(burn)text(burn,w-320,h-103,11,ink,YES);
-    if(v->navigationStatus.length)text(v->navigationStatus,26,h-93,12,ink);
-    else if(v->status.length) text(v->status,26,h-93,12,ink);
-    if(!warning.empty()) text([NSString stringWithUTF8String:warning.c_str()],26,h-116,12,[NSColor colorWithRed:1 green:.72 blue:.36 alpha:1]);
-    if(f.glider.parkingBrake && f.altitude()<1000) text(@"PARKING BRAKE SET · Shift-W releases · , / . wheel brakes",26,h-139,12,[NSColor colorWithRed:1 green:.78 blue:.43 alpha:1]);
+    [panel setFill];NSRectFill(NSMakeRect(0,0,w,28));
+    text(@"+ / − Throttle   X Cut   M Systems   V View   F1 Help",18,8,11,muted);
+    NSString *state=v->burnSkip.running()?@"SKIPPING":f.paused?@"PAUSED":@"FLIGHT";
+    text([NSString stringWithFormat:@"%@  ·  %.0f×  ·  T+ %.0f s",state,f.warp,f.elapsed],w-505,8,11,ink,YES);
+    text([simulationDate(f.mjd+f.elapsed/86400.) stringByAppendingString:@" UTC"],w-213,8,11,muted,YES);
+    // Compact notices remain near the bottom; the flight view has no top bar.
+    CGFloat noticeY=v->cockpit?34:234;
+    auto notice=[&](NSString *message,CGFloat x,CGFloat y,CGFloat maxWidth,NSColor *color){
+        if(!message.length||maxWidth<30)return;
+        NSFont *font=[NSFont systemFontOfSize:11 weight:NSFontWeightMedium];
+        NSDictionary *attributes=@{NSFontAttributeName:font,NSForegroundColorAttributeName:color};
+        CGFloat width=std::min(maxWidth,[message sizeWithAttributes:attributes].width+16);
+        [panel setFill];[[NSBezierPath bezierPathWithRoundedRect:NSMakeRect(x,y,width,22) xRadius:4 yRadius:4] fill];
+        [NSGraphicsContext saveGraphicsState];NSRectClip(NSMakeRect(x+8,y+2,width-16,18));[message drawAtPoint:NSMakePoint(x+8,y+4) withAttributes:attributes];[NSGraphicsContext restoreGraphicsState];
+    };
+    NSString *message=v->navigationStatus.length?v->navigationStatus:v->status;
+    notice(message,18,noticeY,std::max(0.,w-360),ink);
+    if(burn)notice(burn,w-320,noticeY,302,ink);
+    if(!warning.empty())notice([NSString stringWithUTF8String:warning.c_str()],18,noticeY+26,w-36,[NSColor colorWithRed:1 green:.72 blue:.36 alpha:1]);
+    if(parkingNotice)notice(@"PARKING BRAKE SET · Shift-W releases · , / . wheel brakes",18,noticeY+(!warning.empty()?52:26),w-36,[NSColor colorWithRed:1 green:.78 blue:.43 alpha:1]);
     if(f.impacted) {
         text(@"Hard impact — press ⌘R to restart",w*.5-170,h*.63,18,[NSColor orangeColor]);
     }
@@ -236,14 +244,14 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     const double colours[4][3]={{0,1,0},{1,.27,0},{1,1,.50},{0,.64,.80}};
     auto &hud=f.hud;const auto &rgb=colours[hud.colour];
     NSColor *hudInk=[NSColor colorWithRed:rgb[0]*hud.brightness green:rgb[1]*hud.brightness blue:rgb[2]*hud.brightness alpha:1];
-    line(cx-22,cy,cx-7,cy,hudInk); line(cx+7,cy,cx+22,cy,hudInk); line(cx,cy-7,cx,cy+7,hudInk);
-    if(v->cockpit&&hud.brightness>0) {
+    if((!v->cockpit||v->panelView)&&hud.brightness>0){
+        line(cx-22,cy,cx-7,cy,hudInk);line(cx+7,cy,cx+22,cy,hudInk);line(cx,cy-7,cx,cy+7,hudInk);
+    }
+    if(v->panelView&&hud.brightness>0) {
         NSString *readout=hud.mode==1?[NSString stringWithFormat:@"ORBIT  ALT %.1f km  V %.0f m/s",f.altitude()/1000,f.velocity.length()]:hud.mode==2?[NSString stringWithFormat:@"SURFACE  ALT %.0f m  V/S %+.1f m/s  HDG %03.0f°",f.altitude(),f.surfaceVerticalSpeed(),Deg(f.heading())]:@"DOCKING  ·  NO TARGET";
         NSDictionary *attributes=@{NSFontAttributeName:[NSFont monospacedDigitSystemFontOfSize:10 weight:NSFontWeightRegular],NSForegroundColorAttributeName:hudInk};
         NSSize size=[readout sizeWithAttributes:attributes];[readout drawAtPoint:NSMakePoint(cx-size.width*.5,cy-24) withAttributes:attributes];
     }
-    NSString *viewName=v->panelView?@"2D PANEL":v->cockpit?@"VIRTUAL COCKPIT":[NSString stringWithFormat:@"EXTERNAL · %s",externalCameraModeName(v->externalCamera.mode)];
-    text(viewName,cx-53,h-34,10,muted);
     if(!v->cockpit) {
     CGFloat left=26,bottom=35,pw=252,ph=194;
     [panel setFill]; NSRectFill(NSMakeRect(left,bottom,pw,ph));
@@ -312,7 +320,6 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         }
     }
     }
-    text(@"+ / − Throttle    X Cut engines    M Systems    F4 TransX    V View    Space Pause    F1 Controls",26,12,11,muted);
     if(v->helpVisible) {
         CGFloat bw=620,bh=534,x=(w-bw)/2,y=(h-bh)/2;
         [panel setFill]; NSRectFill(NSMakeRect(x,y,bw,bh));
@@ -405,6 +412,8 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         MTLTextureDescriptor *desc=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm_sRGB width:512 height:512 mipmapped:NO];
         tex=[device newTextureWithDescriptor:desc];
     }
+    MTLTextureDescriptor *hudDesc=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm width:512 height:512 mipmapped:NO];
+    cockpitHudTexture=[device newTextureWithDescriptor:hudDesc];
     [self resetFlight:nil];
     bool warmHover=false;NSInteger lookAt=-1;navigationTarget=-1;
     NSArray<NSString *> *args=NSProcessInfo.processInfo.arguments;
@@ -597,6 +606,15 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
                 [encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle indexCount:g.count indexType:MTLIndexTypeUInt32 indexBuffer:g.indices indexBufferOffset:0];
             }
         }
+        // The upstream logical HUD quad (group 132) is attached to the
+        // cockpit combiner. Only glyph pixels write depth, so the rest stays clear.
+        if(cockpit&&!panelView&&flight.hud.brightness>0){
+            const float colors[4][3]={{0,1,0},{1,.27f,0},{1,1,.5f},{0,.64f,.8f}};
+            const auto &c=colors[flight.hud.colour];float intensity=1.8f*flight.hud.brightness;
+            object.model=vesselModel;object.color={c[0]*intensity,c[1]*intensity,c[2]*intensity,1};object.options={5,0,0,0};
+            [encoder setDepthStencilState:depthState];[encoder setVertexBytes:&object length:sizeof(object) atIndex:2];[encoder setFragmentBytes:&object length:sizeof(object) atIndex:2];[encoder setFragmentTexture:cockpitHudTexture atIndex:0];
+            for(const auto &g:groups)if(g.mesh==1&&g.index==132){[encoder setVertexBuffer:g.vertices offset:0 atIndex:0];[encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle indexCount:g.count indexType:MTLIndexTypeUInt32 indexBuffer:g.indices indexBufferOffset:0];break;}
+        }
         object.model=vesselModel;
         [encoder setDepthStencilState:transparentDepth]; [encoder setFragmentTexture:whiteTexture atIndex:0];
         auto drawEffect=[&](const std::vector<Vertex> &vertices,simd_float4 color,float type) {
@@ -654,13 +672,13 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     // Composite the exact same HUD used by the live view over the rendered frame.
     [NSGraphicsContext saveGraphicsState]; NSGraphicsContext.currentContext=[NSGraphicsContext graphicsContextWithBitmapImageRep:rep];
     CGFloat scale=w/self.bounds.size.width; NSAffineTransform *transform=[NSAffineTransform transform]; [transform scaleBy:scale]; [transform concat];
-    [self.hud paint:self.bounds];
     if(panelView&&self.panel2D){
         NSBitmapImageRep *panel=[self.panel2D bitmapImageRepForCachingDisplayInRect:self.panel2D.bounds];
         [self.panel2D cacheDisplayInRect:self.panel2D.bounds toBitmapImageRep:panel];
         NSRect r=[self.panel2D panelRect];r.origin.y=self.bounds.size.height-NSMaxY(r);
         [NSGraphicsContext saveGraphicsState];NSRectClip(r);[panel drawInRect:self.bounds];[NSGraphicsContext restoreGraphicsState];
     }
+    [self.hud paint:self.bounds];
     [NSGraphicsContext restoreGraphicsState];
     [[rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:path atomically:YES];
 }
@@ -684,6 +702,13 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     [[NSJSONSerialization dataWithJSONObject:full options:NSJSONWritingPrettyPrinted error:nil] writeToFile:reportPath atomically:YES];
 }
 - (void)updateCockpitDisplays {
+    if(cockpit&&!panelView){
+        NSBitmapImageRep *rep=makeCockpitHud(flight);
+        id<MTLBuffer> upload=[self.device newBufferWithBytes:rep.bitmapData length:512*2048 options:MTLResourceStorageModeShared];
+        id<MTLCommandBuffer> cb=[queue commandBuffer];id<MTLBlitCommandEncoder> blit=[cb blitCommandEncoder];
+        [blit copyFromBuffer:upload sourceOffset:0 sourceBytesPerRow:2048 sourceBytesPerImage:512*2048 sourceSize:MTLSizeMake(512,512,1) toTexture:cockpitHudTexture destinationSlice:0 destinationLevel:0 destinationOrigin:MTLOriginMake(0,0,0)];
+        [blit endEncoding];[cb commit];
+    }
     NSString *bodyName=[NSString stringWithUTF8String:flight.centralBody().name];double radius=flight.centralBody().radius;
     bool surface=flight.altitude()<std::min(120000.,flight.centralBody().radius*.02);Elements orbit=surface?Elements():flight.orbit();
     NSColor *green=[NSColor colorWithRed:.52 green:1 blue:.58 alpha:1];
@@ -858,7 +883,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
 }
 - (void)setViewMode:(int)mode {
     cockpit=mode!=0;panelView=mode==2;self.panel2D.hidden=!panelView;[self clearInput];
-    if(panelView)[self updateCockpitDisplays];self.hud.needsDisplay=YES;
+    if(cockpit)[self updateCockpitDisplays];self.hud.needsDisplay=YES;
 }
 - (void)cycleView:(id)sender {[self setViewMode:!cockpit?1:panelView?0:2];}
 - (void)chooseView:(NSMenuItem *)sender {[self setViewMode:(int)sender.tag];[self.window makeFirstResponder:self];}
@@ -1003,9 +1028,9 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         self.view=[[FlightView alloc] initWithFrame:rect]; self.view.autoresizingMask=NSViewWidthSizable|NSViewHeightSizable;
         NSView *root=[[NSView alloc] initWithFrame:rect]; [root addSubview:self.view];
         FlightHUD *hud=[[FlightHUD alloc] initWithFrame:rect]; hud.autoresizingMask=NSViewWidthSizable|NSViewHeightSizable; hud.flightView=self.view;
-        [root addSubview:hud]; self.view.hud=hud;
+        self.view.hud=hud;
         Panel2DView *panel=[[Panel2DView alloc] initWithFrame:rect];panel.autoresizingMask=NSViewWidthSizable|NSViewHeightSizable;panel.flightView=self.view;panel.hidden=!self.view->panelView;[root addSubview:panel];self.view.panel2D=panel;
-        self.window.contentView=root;
+        [root addSubview:hud];self.window.contentView=root;
         NSMenu *main=[NSMenu new]; NSMenuItem *appItem=[NSMenuItem new]; [main addItem:appItem];
         NSMenu *app=[NSMenu new]; [app addItemWithTitle:@"Quit Orbiter" action:@selector(terminate:) keyEquivalent:@"q"]; appItem.submenu=app;
         NSMenuItem *fileItem=[NSMenuItem new]; fileItem.title=@"File"; [main addItem:fileItem]; NSMenu *file=[NSMenu new]; fileItem.submenu=file;

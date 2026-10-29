@@ -81,6 +81,8 @@ Press **V** to cycle through external view, the original 3D cockpit and the orig
 
 The 2D view uses the original `dg_panel.dds` main-panel artwork and original MFD/button positions. Both displays mirror their cockpit counterparts; their TransX buttons and graph dragging work in either view. Main/retro and hover throttles, gear, nose, airbrake, trim, RCS mode, hover attitude and hover hold are connected. The main levers control both engines together in the native flight model. The attitude and heading underlays show live flight data; other original panel instruments and switches are not all connected yet.
 
+The 3D cockpit HUD is rendered on the original transparent combiner surface, so it moves and scales with cockpit look and zoom. Its mode, brightness and colour use the existing HUD controls. Simulation time, date and notices appear along the bottom of the flight view.
+
 The cockpit has live native surface/orbit and propulsion displays on the original MFD meshes. These are new native displays, not the full Orbiter MFD implementation. Original analog instruments and other cockpit buttons are not all connected.
 
 Choose **Flight → Cape Canaveral — Surface Flight** to start parked at the original scenario location with low fuel, gear deployed, RCS off and parking brake set. **Shift-W** releases the parking brake; hold **,** and **.** for left/right wheel brakes. Use **[ / ]** to lower/raise hover throttle. **M** has the equivalent parking-brake switch and hover slider. Around 95% hover thrust lifts this light configuration; keep the gear down while learning. Automatic hover attitude is enabled in this starting scenario. Use **M** to select Off / Auto / Manual attitude modes and altitude / vertical speed hold.
