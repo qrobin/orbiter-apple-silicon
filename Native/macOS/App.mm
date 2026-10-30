@@ -658,7 +658,9 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         object.model=vesselModel;
         auto transforms=flight.glider.transforms(meshCounts[cockpit?1:0],cockpit?1:0);
         for(int transparent=0;transparent<2;++transparent) {
-            bool traced=!transparent&&!cockpit&&rayShadows.enabled;
+            // The cockpit shares the glider's local frame, so sunlight can
+            // also be tested against the external hull from inside the VC.
+            bool traced=!transparent&&!panelView&&rayShadows.enabled;
             [encoder setRenderPipelineState:traced?rayShadows.pipeline:meshPipeline];
             if(traced){
                 struct RayShadowFrame {simd_float4 right,up,forward,origin;};
