@@ -94,7 +94,7 @@ struct GpuGroup { id<MTLBuffer> vertices,indices; NSUInteger count; size_t mater
     std::vector<GpuGroup> groups;
     std::vector<Material> materials;
     NSMutableArray<id<MTLTexture>> *textures;
-    id<MTLTexture> earthTexture,whiteTexture;
+    id<MTLTexture> earthTexture,starTexture,whiteTexture;
     id<MTLTexture> hoverReadoutTexture,mfdLabelTexture;
     std::array<id<MTLTexture>,2> maneuverButtonTextures;
     Image mfdLabelImage,mfdLabelOriginal;
@@ -445,6 +445,8 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     hoverGlyphs=loadDDS(resource(@"Textures/DG/blitsrc1.dds").fileSystemRepresentation);
     earthTexture=[loader newTextureWithContentsOfURL:[NSURL fileURLWithPath:resource(@"earth-8k.jpg")] options:@{MTKTextureLoaderOptionSRGB:@YES,MTKTextureLoaderOptionGenerateMipmaps:@YES,MTKTextureLoaderOptionOrigin:MTKTextureLoaderOriginTopLeft} error:&error];
     if(!earthTexture) @throw [NSException exceptionWithName:@"Earth texture error" reason:error.localizedDescription userInfo:nil];
+    starTexture=[loader newTextureWithContentsOfURL:[NSURL fileURLWithPath:resource(@"sky-8k.jpg")] options:@{MTKTextureLoaderOptionSRGB:@YES,MTKTextureLoaderOptionGenerateMipmaps:@YES,MTKTextureLoaderOptionOrigin:MTKTextureLoaderOriginTopLeft} error:&error];
+    if(!starTexture) @throw [NSException exceptionWithName:@"Star map error" reason:error.localizedDescription userInfo:nil];
     solar=[[SolarRenderer alloc] initWithDevice:device library:library samples:self.sampleCount earth:earthTexture];
     loadEphemerides(resource(@"Ephemeris").fileSystemRepresentation);
     for(auto &tex:instrumentTextures) {
@@ -563,6 +565,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     [encoder setFragmentTexture:solar.rings atIndex:2];
     [encoder setFragmentTexture:visuals.cloudShadows atIndex:1];
     [encoder setFragmentTexture:[visuals oceanMask] atIndex:3];[encoder setFragmentTexture:[visuals satelliteClouds] atIndex:4];[encoder setFragmentTexture:[visuals oceanWaves] atIndex:5];[encoder setFragmentTexture:[visuals oceanWaveDetail] atIndex:6];
+    [encoder setFragmentTexture:starTexture atIndex:7];
     [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
     [encoder setDepthStencilState:depthState];
     [solar encodeBodies:encoder frame:uniforms flight:flight offset:offset];

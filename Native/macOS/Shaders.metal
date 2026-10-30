@@ -46,8 +46,15 @@ float4 shadeMesh(Raster in,constant Frame &f,constant Object &o,texture2d<float>
         cloudShade=shadows.sample(s,shadowUV).r;lit*=cloudShade;
     }
     float3 view=normalize(-in.world);
-    float spec=pow(max(0.0f,dot(normal,normalize(f.sun.xyz+view))),40.0f)*.18*f.sun.w*sunVisibility;
-    float3 color=albedo.rgb*(.025+.175*f.sun.w+o.options.y+lit*.8)+spec;
+    float spec=pow(max(0.0f,dot(normal,normalize(f.sun.xyz+view))),40.0f)*.18*lit;
+    // Planetshine is directional: only surfaces facing a sunlit nearby body
+    // receive its reflected light. Space itself provides no solar fill.
+    float3 radial=length(f.position.xyz)>.001f?normalize(f.position.xyz):float3(0,1,0);
+    float planetSize=f.body.x>1?saturate(f.body.x/max(f.body.x,f.body.x+f.environment.y)):0;
+    float planetDay=smoothstep(-.2f,.3f,dot(radial,f.sun.xyz))*f.sun.w;
+    float bounce=planetSize*planetSize*max(0.0f,dot(normal,-radial))*planetDay*.13f;
+    float skylight=exp(-max(0.0f,f.environment.y)/9000.0f)*f.body.y*planetDay*.035f;
+    float3 color=albedo.rgb*(.006f+o.options.y+lit*.8f+skylight)+albedo.rgb*float3(.76,.84,1.0)*bounce+spec;
     // A low-cost hemispheric fill approximates sunlight scattered back down
     // by cloud cover; it softens shadows without making clouds emit at night.
     if(int(f.surfaceColor.w)==3&&f.clouds.z>0){
@@ -116,17 +123,24 @@ float atmosphericColumn(float height,float mu,float scaleHeight,float radius,flo
 float3 earthSunTransmission(constant Frame &f){
     float height=max(0.0f,f.environment.x*f.body.x);
     float sunMu=dot(normalize(f.position.xyz),f.sun.xyz);
-    float r=atmosphericColumn(height,max(0.0f,sunMu),8000.0f,f.body.x,1e25f);
-    float m=atmosphericColumn(height,max(0.0f,sunMu),1200.0f,f.body.x,1e25f);
+    float r=atmosphericColumn(height,sunMu,8000.0f,f.body.x,1e25f);
+    float m=atmosphericColumn(height,sunMu,1200.0f,f.body.x,1e25f);
     return exp(-(float3(5.8e-6,13.5e-6,33.1e-6)*r+float3(2.1e-5)*m));
 }
 float earthSunHaze(constant Frame &f){
-    float height=max(0.0f,f.environment.x*f.body.x),sunMu=max(0.0f,dot(normalize(f.position.xyz),f.sun.xyz));
+    float height=max(0.0f,f.environment.x*f.body.x),sunMu=dot(normalize(f.position.xyz),f.sun.xyz);
     float r=atmosphericColumn(height,sunMu,8000.0f,f.body.x,1e25f);
     float m=atmosphericColumn(height,sunMu,1200.0f,f.body.x,1e25f);
     return 1-exp(-(r*1.35e-5f+m*2.1e-5f));
 }
 struct AirLight {float3 transmission,scattering;};
+// NASA's map is J2000 equatorial, while Orbiter's world axes are ecliptic.
+// Its right ascension increases leftward from the centre of the texture.
+float2 skyCoordinates(float3 ray){
+    const float c=.9174821f,s=.3977772f;
+    float3 eq=float3(ray.x,ray.y*c+ray.z*s,ray.z*c-ray.y*s);
+    return float2(.5f-atan2(eq.z,eq.x)/(2*M_PI_F),acos(clamp(eq.y,-1.0f,1.0f))/M_PI_F);
+}
 AirLight earthAirLight(constant Frame &f,float3 ray,float maximumDistance){
     float height=max(0.0f,f.environment.x*f.body.x),mu=dot(normalize(f.position.xyz),ray);
     float r=atmosphericColumn(height,mu,8000.0f,f.body.x,maximumDistance);
@@ -149,23 +163,25 @@ AirLight earthAirLight(constant Frame &f,float3 ray,float maximumDistance){
     // A small broad skylight term approximates higher-order blue scattering,
     // while low solar angles leave warmer light near the horizon.
     float skyHeight=smoothstep(-.02f,.35f,mu);
-    float horizon=exp(-abs(mu)*10.0f),towardSun=.25f+.75f*pow(max(0.0f,cosine),2.0f);
+    float horizon=exp(-abs(mu)*10.0f),towardSun=.08f+.92f*pow(max(0.0f,cosine),2.0f);
     float airPath=saturate(r/6000.0f);
     scattered+=sunlight*twilight*airPath*(float3(.012,.035,.26)*skyHeight+float3(.09,.018,.018)*horizon*towardSun);
     // Low-angle light is warmer near the horizon, with more blue skylight
     // remaining above it instead of a uniform yellow wash.
     scattered*=mix(float3(1),float3(1.12,.48,1.12),twilight*towardSun*(.55f+.45f*horizon));
+    float antisolar=(1-smoothstep(-.55f,.2f,cosine))*(1-smoothstep(.02f,.55f,abs(mu)))*twilight;
+    scattered*=1-.65f*antisolar;
     return {transmission,scattered};
 }
 fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buffer(1)]],
     texture2d<float> map [[texture(0)]],texture2d<float> shadows [[texture(1)]],texture2d<float> rings [[texture(2)]],
-    texture2d<float> oceanMask [[texture(3)]],texture2d<float> cloudMap [[texture(4)]],texture2d<float> oceanWaves [[texture(5)]],texture2d<float> oceanDetail [[texture(6)]]) {
+    texture2d<float> oceanMask [[texture(3)]],texture2d<float> cloudMap [[texture(4)]],texture2d<float> oceanWaves [[texture(5)]],texture2d<float> oceanDetail [[texture(6)]],texture2d<float> starMap [[texture(7)]]) {
     constexpr sampler s(filter::linear,mip_filter::linear,s_address::repeat,t_address::clamp_to_edge);
     float2 xy=in.uv*2-1;float3 ray=normalize(f.forward.xyz+f.right.xyz*xy.x*f.screen.z*(f.screen.x/f.screen.y)+f.up.xyz*xy.y*f.screen.z);
     float3 origin=f.position.xyz;float height=f.environment.x,radius=f.body.x;
     float b=dot(normalize(origin),ray)*(1+height),c=height*(2+height),disc=b*b-c;
-    float3 sky=float3(.0008,.0012,.0025);float3 cell=floor(ray*900);float star=hash(cell);
-    if(star>.9987){float3 center=normalize(cell+.5);float d=length(ray-center)*900;sky+=float3(.65,.76,1)*pow(max(0.0f,1-d),5.0f)*(star-.9987)*650;}
+    constexpr sampler stars(filter::linear,mip_filter::linear,s_address::repeat,t_address::clamp_to_edge, max_anisotropy(8));
+    float3 sky=starMap.sample(stars,skyCoordinates(ray)).rgb*1.35f;
     float dayAtCamera=smoothstep(-.18f,.12f,dot(normalize(origin),f.sun.xyz));
     float air=saturate(exp(-max(0.0f,height)*radius/max(1.0f,f.body.z))*dayAtCamera*f.body.y);
     float elevation=max(0.0f,dot(ray,normalize(origin)));
@@ -248,12 +264,7 @@ fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buf
         float cosine=dot(ray,f.sun.xyz),radius=clamp(f.sunShape.x,.00001f,.05f);
         float angle2=max(0.0f,2*(1-cosine));
         if(angle2<radius*radius*900){
-            // Optical glare remains visible in vacuum; atmospheric scattering
-            // adds a wider, tinted aureole where there is air.
-            float glareWidth=radius*2.8f;
-            float glare=1.6f*exp(-angle2/(2*glareWidth*glareWidth));
-            color+=float3(1.0,.97,.92)*f.sun.w*glare;
-            if(earth){
+            if(earth&&f.sunShape.z<.5f){
                 float haze=earthSunHaze(f),width=radius*(1.15f+4.5f*haze);
                 float core=exp(-angle2/(2*width*width)),wing=exp(-sqrt(angle2)/(width*1.8f));
                 color+=earthSunTransmission(f)*f.sun.w*haze*(core*3.0f+wing*.22f);

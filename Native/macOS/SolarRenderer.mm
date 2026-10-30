@@ -31,7 +31,7 @@ static simd_float4 solarVector(Vector v,float w=0){return {(float)v.x,(float)v.y
     float visible=1;
     for(auto &other:bodies())if(other.id!=BodyId::Sun){auto state=bodyState(other.id,date);Vector v=state.position-ship;double along=dotp(v,sun);if(along>0&&along<ship.length()&&crossp(v,sun).length()<other.radius){visible=0;break;}}
     f->sun=solarVector(sun,visible);f->position=solarVector((flight.position+offset)/b.radius);
-    f->sunShape={(float)(body(BodyId::Sun).radius/ship.length()),0,0,0};
+    f->sunShape={(float)(body(BodyId::Sun).radius/ship.length()),1,0,0};
     f->environment.x=(float)((flight.position+offset).length()/b.radius-1);f->screen.w=(float)(b.rotation(date)/Pi2);
     double scale=b.pressure>0&&b.density>0?b.pressure/(b.density*b.mu()/(b.radius*b.radius)):13000;
     scale=std::clamp(scale,1000.,100000.);float atmosphere=b.pressure>100?1:b.pressure>0?(float)(b.pressure/100000.):0;Vector haze(.1,.33,.75);

@@ -1,4 +1,5 @@
 // Cloud volumes, temporal reconstruction and exhaust implemented directly in Metal.
+float earthSunHaze(constant FrameUniforms &f);
 uint visualHash(uint x) { x^=x>>16;x*=0x7feb352du;x^=x>>15;x*=0x846ca68bu;return x^(x>>16); }
 float visualRandom(uint x) { return float(visualHash(x)&0xffffffu)/16777216.0f; }
 float noiseCorner(int3 p,int period) {
@@ -287,6 +288,25 @@ fragment float4 compositeClouds(SkyRaster in [[stage_in]],constant FrameUniforms
         }else cloud*=1-orbital;
     }
     float3 color=scene.sample(s,uv).rgb*(1-cloud.a)+cloud.rgb;
+    // Lens ghosts are driven by the resolved, visible solar disc. Cloud and
+    // geometry occlusion suppress them; the atmospheric aureole is separate.
+    float sunZ=dot(f.sun.xyz,f.forward.xyz);
+    if(f.sunShape.y>0&&f.sun.w>0&&sunZ>0){
+        float aspect=f.screen.x/f.screen.y;
+        float2 sunUV=float2(.5f+.5f*dot(f.sun.xyz,f.right.xyz)/(sunZ*f.screen.z*aspect),.5f-.5f*dot(f.sun.xyz,f.up.xyz)/(sunZ*f.screen.z));
+        if(all(sunUV>float2(0))&&all(sunUV<float2(1))){
+            float3 source=scene.sample(s,sunUV).rgb;
+            float visibility=smoothstep(2.0f,12.0f,max(source.r,max(source.g,source.b)))*(1-clouds.sample(s,sunUV).a);
+            visibility*=smoothstep(0.0f,.08f,min(min(sunUV.x,1-sunUV.x),min(sunUV.y,1-sunUV.y)))*f.sunShape.y*f.sun.w;
+            float2 axis=sunUV-float2(.5f);
+            float2 p1=(uv-(float2(.5f)-axis*.38f))*float2(aspect,1);
+            float2 p2=(uv-(float2(.5f)-axis*.82f))*float2(aspect,1);
+            float2 p3=(uv-(float2(.5f)+axis*.32f))*float2(aspect,1);
+            float ring=exp(-pow((length(p1)-.025f)/.0035f,2.0f));
+            float ghost=exp(-dot(p2,p2)/.00011f),small=exp(-dot(p3,p3)/.000045f);
+            color+=visibility*(float3(.05,.11,.16)*ring+float3(.12,.065,.035)*ghost+float3(.035,.075,.10)*small);
+        }
+    }
     // Directional light scattered through gaps near the Sun. This reuses the
     // resolved cloud opacity instead of adding another volume march.
     if(f.clouds.z>0&&cameraHeight<f.clouds.y+9000){
@@ -530,10 +550,18 @@ fragment float4 compositeTrail(SkyRaster in [[stage_in]],texture2d<float> trail 
     if(current>0){float a=.2/current,b=.2/reference;if(abs(a-b)>max(3.0f,min(a,b)*.05f))return float4(0);}
     return trail.sample(linear,uv);
 }
-kernel void extractBloom(texture2d<float> source [[texture(0)]],texture2d<float,access::write> output [[texture(1)]],uint2 id [[thread_position_in_grid]]){
+kernel void extractBloom(texture2d<float> source [[texture(0)]],texture2d<float,access::write> output [[texture(1)]],constant FrameUniforms &f [[buffer(0)]],uint2 id [[thread_position_in_grid]]){
     if(id.x>=output.get_width()||id.y>=output.get_height())return;
     constexpr sampler s(filter::linear,address::clamp_to_edge);float2 uv=(float2(id)+.5)/float2(output.get_width(),output.get_height());
-    float3 c=source.sample(s,uv).rgb;output.write(float4(max(c-1.15f,0.0f),1),id);
+    float3 c=source.sample(s,uv).rgb,bloom=max(c-1.15f,0.0f);
+    if(f.sun.w>0&&f.sunShape.x>0&&dot(viewRay(uv,f),f.sun.xyz)>0){
+        float haze=int(f.surfaceColor.w)==3?earthSunHaze(f):0;
+        float angle=length(cross(viewRay(uv,f),f.sun.xyz));
+        float footprint=4*f.screen.z/max(1.0f,f.screen.y);
+        float sunMask=1-smoothstep(f.sunShape.x*.5f,f.sunShape.x*1.6f+footprint,angle);
+        bloom*=1-sunMask*(1-smoothstep(.005f,.04f,haze));
+    }
+    output.write(float4(bloom,1),id);
 }
 kernel void blurBloom(texture2d<float> source [[texture(0)]],texture2d<float,access::write> output [[texture(1)]],constant uint &vertical [[buffer(0)]],uint2 id [[thread_position_in_grid]]){
     if(id.x>=output.get_width()||id.y>=output.get_height())return;
