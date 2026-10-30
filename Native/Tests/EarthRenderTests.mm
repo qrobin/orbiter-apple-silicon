@@ -82,6 +82,14 @@ int main(){@autoreleasepool{
     require(scatteredChange>0&&scatteredChange<regionalChange*.55,"Scattered weather must reduce orbital cloud coverage as it does nearby");
     NSString *orbitPath=NSProcessInfo.processInfo.environment[@"ORBITER_LOW_ORBIT_PREVIEW"];
     if(orbitPath.length){NSBitmapImageRep *rep=[[NSBitmapImageRep alloc] initWithBitmapDataPlanes:nullptr pixelsWide:width pixelsHigh:height bitsPerSample:8 samplesPerPixel:4 hasAlpha:YES isPlanar:NO colorSpaceName:NSCalibratedRGBColorSpace bytesPerRow:width*4 bitsPerPixel:32];memcpy(rep.bitmapData,orbitalHigh.data(),orbitalHigh.size());[[rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:orbitPath atomically:YES];}
+    // A sunlit camera can see across the terminator. The air near that camera
+    // must not paint a bright daylight veil over the opposite hemisphere.
+    f.position={0,0,1+10000000.0f/6371010,0};f.environment={10000000.0f/6371010,10000000,0,0};
+    f.right={1,0,0,0};f.up={0,1,0,0};f.forward={0,0,-1,0};f.sun={.990f,0,.141f,1};f.weather={0,0,0,0};
+    activeEarth=white;surfaceMask=zero;auto terminator=render(0);activeEarth=earth;surfaceMask=ocean;
+    auto sampleTerminator=[&](int x,int c){return int(terminator[(height/2*width+x)*4+c]);};
+    printf("Orbital terminator red/blue: night %d/%d, day %d/%d\n",sampleTerminator(width/4,0),sampleTerminator(width/4,2),sampleTerminator(width*3/4,0),sampleTerminator(width*3/4,2));
+    require(sampleTerminator(width/4,2)<45&&sampleTerminator(width*3/4,0)>sampleTerminator(width/4,0)+25,"Atmospheric haze must not illuminate the night side from a sunlit camera");
     // The local horizontal direction is not an atmosphere boundary: sky
     // colours immediately above and below it must not form a rectangular band.
     f.position={0,0,1+5000.0f/6371010,0};f.environment={5000.0f/6371010,5000,0,1};

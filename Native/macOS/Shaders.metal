@@ -278,7 +278,14 @@ fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buf
         }
         if(f.body.w>1.5)color=base*80;
         float detail=1-.10*hash(floor(n*radius/2));color*=mix(1.0f,detail,exp(-max(0.0f,height)*radius/1800));
-        if(earth)color=color*earthAir.transmission+earthAir.scattering;
+        if(earth){
+            // At orbital distances the surface can cross the terminator even
+            // when the camera itself is in daylight. Do not apply the camera's
+            // sunlit atmospheric veil to the planet's dark hemisphere.
+            float orbital=smoothstep(40000.0f,120000.0f,height*radius);
+            float localSun=smoothstep(-.12f,.06f,dot(n,f.sun.xyz))*f.sun.w;
+            color=color*earthAir.transmission+earthAir.scattering*mix(1.0f,localSun,orbital);
+        }
         else {
             float fresnel=pow(1-max(0.0f,dot(n,-ray)),4.0f);
             color=mix(color,f.haze.rgb*(.3+.7*day),fresnel*.55*min(1.0f,f.body.y));
