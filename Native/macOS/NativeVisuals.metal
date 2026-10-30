@@ -37,6 +37,56 @@ float2 terrestrialUV(float3 p,constant FrameUniforms &f) {
     float3 e=normalize(terrestrial(p,f));
     return float2(atan2(e.z,e.x)/(2*M_PI_F)+.5,acos(clamp(e.y,-1.0f,1.0f))/M_PI_F);
 }
+// Stable cells are fixed to Earth's rotating coordinates, rather than to the
+// camera. Instances are generated only in the small neighbourhood being drawn.
+struct TerrainRaster { float4 position [[position]]; float3 normal; float3 color; };
+vertex TerrainRaster terrainVertex(uint vertexID [[vertex_id]],uint instanceID [[instance_id]],
+                                   constant FrameUniforms &f [[buffer(0)]],
+                                   texture2d<float> ocean [[texture(0)]],texture2d<float> earth [[texture(1)]]) {
+    TerrainRaster out;out.position=float4(2,2,2,1);out.normal=float3(0,1,0);out.color=0;
+    constexpr float spacing=38.0f;constexpr int grid=96;
+    float3 camera=normalize(f.position.xyz),fixed=normalize(terrestrial(camera,f));
+    float lat=asin(clamp(fixed.y,-1.0f,1.0f)),lon=atan2(fixed.z,fixed.x);
+    if(abs(lat)>1.38f)return out;
+    int2 center=int2(floor(float2(lon,lat)*f.body.x/spacing));
+    int2 cell=center+int2(int(instanceID%grid)-grid/2,int(instanceID/grid)-grid/2);
+    uint seed=visualHash(as_type<uint>(cell.x)*0x9e3779b9u^as_type<uint>(cell.y)*0x85ebca6bu);
+    if(visualRandom(seed+29)<smoothstep(1700.0f,2500.0f,f.environment.y))return out;
+    float2 jitter=float2(visualRandom(seed),visualRandom(seed+7));
+    float2 coords=(float2(cell)+jitter)*spacing/f.body.x;
+    float cl=cos(coords.y);float3 surfaceFixed=float3(cl*cos(coords.x),sin(coords.y),cl*sin(coords.x));
+    float2 uv=float2(coords.x/(2*M_PI_F)+.5f,.5f-coords.y/M_PI_F);
+    constexpr sampler s(filter::linear,mip_filter::linear,s_address::repeat,t_address::clamp_to_edge);
+    float water=ocean.sample(s,uv,level(0)).r;float3 land=earth.sample(s,uv,level(0)).rgb;
+    if(water>.25f)return out;
+    // Keep deserts and snow mostly bare; rocks can still appear in dry areas.
+    float green=saturate((land.g-land.r*.65f)*4.0f);bool tree=visualRandom(seed+11)<green*.80f;
+    if(!tree&&visualRandom(seed+13)>.28f)return out;
+    float angle=f.screen.w*(2*M_PI_F),c=cos(angle),sine=sin(angle);
+    float3 n=normalize(f.equatorX.xyz*(c*surfaceFixed.x+sine*surfaceFixed.z)+f.pole.xyz*surfaceFixed.y+f.equatorZ.xyz*(-sine*surfaceFixed.x+c*surfaceFixed.z));
+    float3 east=normalize(cross(f.pole.xyz,n)),north=normalize(cross(n,east));
+    uint face=vertexID/3,corner=vertexID%3,side=face%4,layer=face/4;
+    float phi=float(side)*M_PI_F*.5f,phiNext=phi+M_PI_F*.5f;
+    float size=tree?mix(2.4f,4.5f,visualRandom(seed+17)):mix(.6f,2.2f,visualRandom(seed+17));
+    float height=tree?mix(6.0f,14.0f,visualRandom(seed+19)):size*.8f;
+    float lower=tree?(layer==0?.18f:.52f):0.0f,upper=tree?(layer==0?.75f:1.0f):1.0f;
+    float width=size*(layer==0?1.0f:.68f);
+    float3 radial=corner==0?east*cos(phi)*width+north*sin(phi)*width:corner==1?east*cos(phiNext)*width+north*sin(phiNext)*width:float3(0);
+    float3 point=(n-camera)*f.body.x-camera*f.environment.y+radial+n*(corner==2?upper*height:lower*height);
+    float3 view=float3(dot(point,f.right.xyz),dot(point,f.up.xyz),-dot(point,f.forward.xyz));
+    out.position=f.projection*float4(view,1);
+    float mid=phi+M_PI_F*.25f;out.normal=normalize((east*cos(mid)+north*sin(mid))*.8f+n*.6f);
+    out.color=tree?mix(float3(.035,.085,.025),float3(.12,.21,.055),visualRandom(seed+23)):mix(float3(.16,.14,.11),float3(.36,.34,.30),visualRandom(seed+23));
+    if(!tree&&layer>0)out.position=float4(2,2,2,1);
+    return out;
+}
+fragment float4 terrainFragment(TerrainRaster in [[stage_in]],constant FrameUniforms &f [[buffer(0)]],texture2d<float> shadows [[texture(0)]]) {
+    constexpr sampler s(filter::linear,address::clamp_to_edge);
+    float day=smoothstep(-.08f,.12f,dot(normalize(f.position.xyz),f.sun.xyz))*f.sun.w;
+    float shadow=shadows.sample(s,in.position.xy/f.screen.xy).r;
+    float light=max(0.0f,dot(normalize(in.normal),f.sun.xyz))*f.sun.w*shadow*solarIntensity(f);
+    return float4(in.color*(.008f+day*.12f+light*.85f),1);
+}
 // Regional coverage varies slowly compared with the volume noise. Sample once
 // per ray instead of once per density and sunlight step.
 float regionalCloudCoverage(float observed,float weather) {

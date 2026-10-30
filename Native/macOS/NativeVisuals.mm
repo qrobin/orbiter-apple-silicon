@@ -22,7 +22,7 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
     ExhaustTrail exhaustTrail;
     std::vector<SmokeDraw> visibleSmoke;
     id<MTLComputePipelineState> noiseKernel,shadowKernel,vesselShadowKernel,cloudKernel,extractKernel,blurKernel,exposureKernel;
-    id<MTLRenderPipelineState> compositePipeline,flamePipeline,smokePipeline,trailCompositePipeline,presentPipeline,rainGlassPipeline;
+    id<MTLRenderPipelineState> compositePipeline,flamePipeline,smokePipeline,trailCompositePipeline,presentPipeline,rainGlassPipeline,terrainPipeline;
     id<MTLDepthStencilState> flameDepth,rainDepth;
 }
 @end
@@ -59,6 +59,8 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
     trailCompositePipeline=pipeline(@"skyVertex",@"compositeTrail",MTLPixelFormatRGBA16Float,NO,3);
     presentPipeline=pipeline(@"skyVertex",@"toneMap",MTLPixelFormatRGBA16Float,NO,NO);
     rainGlassPipeline=pipeline(@"rainGlassVertex",@"rainGlassFragment",MTLPixelFormatRGBA16Float,YES,NO);
+    MTLRenderPipelineDescriptor *terrain=[MTLRenderPipelineDescriptor new];terrain.vertexFunction=[library newFunctionWithName:@"terrainVertex"];terrain.fragmentFunction=[library newFunctionWithName:@"terrainFragment"];terrain.colorAttachments[0].pixelFormat=MTLPixelFormatRGBA16Float;terrain.depthAttachmentPixelFormat=MTLPixelFormatDepth32Float;terrain.rasterSampleCount=samples;
+    terrainPipeline=[gpu newRenderPipelineStateWithDescriptor:terrain error:&error];visualCheck(terrainPipeline,error);
     MTLDepthStencilDescriptor *ds=[MTLDepthStencilDescriptor new];ds.depthCompareFunction=MTLCompareFunctionAlways;ds.depthWriteEnabled=NO;flameDepth=[gpu newDepthStencilStateWithDescriptor:ds];
     ds.depthCompareFunction=MTLCompareFunctionGreater;rainDepth=[gpu newDepthStencilStateWithDescriptor:ds];
     MTLTextureDescriptor *n=[MTLTextureDescriptor new];n.textureType=MTLTextureType3D;n.width=n.height=n.depth=128;n.pixelFormat=MTLPixelFormatRGBA8Unorm;n.storageMode=MTLStorageModePrivate;n.usage=MTLTextureUsageShaderRead|MTLTextureUsageShaderWrite;
@@ -136,6 +138,13 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
     MTLRenderPassDescriptor *pass=[MTLRenderPassDescriptor renderPassDescriptor];pass.colorAttachments[0].texture=lit;pass.colorAttachments[0].loadAction=MTLLoadActionDontCare;pass.colorAttachments[0].storeAction=MTLStoreActionStore;
     id<MTLRenderCommandEncoder> r=[cb renderCommandEncoderWithDescriptor:pass];r.label=@"Depth-aware cloud composite";[r setRenderPipelineState:compositePipeline];[r setFragmentBytes:&f length:sizeof(f) atIndex:0];[r setFragmentTexture:hdr atIndex:0];[r setFragmentTexture:cloudHistory[index] atIndex:1];[r setFragmentTexture:cloudData[index] atIndex:2];[r setFragmentTexture:depth atIndex:3];[r setFragmentTexture:earthCloudMap atIndex:4];[r setFragmentTexture:_cloudNoise atIndex:5];[r drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];[r endEncoding];
     ++historyIndex;lastFrame=f;historyValid=YES;
+}
+- (void)encodeTerrain:(id<MTLRenderCommandEncoder>)encoder frame:(const FrameUniforms &)f earth:(id<MTLTexture>)earth {
+    if((int)f.surfaceColor.w!=(int)BodyId::Earth||f.environment.y>2500||f.environment.y<0)return;
+    [encoder setRenderPipelineState:terrainPipeline];[encoder setCullMode:MTLCullModeNone];
+    [encoder setVertexBytes:&f length:sizeof(f) atIndex:0];[encoder setVertexTexture:earthOceanMask atIndex:0];[encoder setVertexTexture:earth atIndex:1];
+    [encoder setFragmentBytes:&f length:sizeof(f) atIndex:0];[encoder setFragmentTexture:_cloudShadows atIndex:0];
+    [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:24 instanceCount:96*96];
 }
 - (void)encodeExhaust:(id<MTLCommandBuffer>)cb frame:(const FrameUniforms &)f flight:(const Flight &)flight offset:(Vector)offset {
     std::array<EmitterUniforms,32> jets{};NSUInteger count=0;

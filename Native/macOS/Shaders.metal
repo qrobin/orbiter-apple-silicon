@@ -207,6 +207,17 @@ fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buf
     if(disc>=0&&b<0){
         float t=surfaceDistance;distance=t;float3 n=normalize(origin+ray*t);float2 uv=terrestrialUV(n,f);
         float3 base=planetMaterial(n,uv,f.surfaceColor.rgb,int(f.surfaceColor.w),f.equatorX.w>.5,map);
+        if(earth&&t*radius<6000.0f){
+            float land=1-smoothstep(.15f,.50f,oceanMask.sample(s,uv).r);
+            float fade=(1-smoothstep(1000.0f,6000.0f,t*radius))*land;
+            float3 fixed=terrestrial(n,f)*radius;
+            // Broad field patches and finer tufts break up the satellite map;
+            // both are fixed to the rotating surface and fade with distance.
+            float patch=planetNoise(fixed/130.0f),tuft=planetNoise(fixed/8.0f);
+            float green=saturate((base.g-base.r*.65f)*3.5f);
+            float3 grass=mix(base*.72f,float3(.075,.13,.035),green*.6f);
+            base=mix(base,grass*(.68f+.48f*patch+.16f*tuft),fade*.65f);
+        }
         float day=smoothstep(-.06f,.06f,dot(n,f.sun.xyz)),light=max(0.0f,dot(n,f.sun.xyz));
         float cloudShade=shadows.sample(s,in.position.xy/f.screen.xy).r;
         if(f.pole.w>0){float den=dot(f.sun.xyz,f.pole.xyz);float ts=-dot(n,f.pole.xyz)/(abs(den)>.0001?den:.0001f);float3 point=n+f.sun.xyz*ts;float r=length(point);if(ts>0&&r>f.pole.w&&r<f.equatorZ.w)cloudShade*=1-ringMaterial(point,ray,f.pole.xyz,f.pole.w,f.equatorZ.w,f.sun.xyz,rings).a*.85;}

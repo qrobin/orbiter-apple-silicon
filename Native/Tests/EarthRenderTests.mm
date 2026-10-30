@@ -90,6 +90,26 @@ int main(){@autoreleasepool{
     auto sampleTerminator=[&](int x,int c){return int(terminator[(height/2*width+x)*4+c]);};
     printf("Orbital terminator red/blue: night %d/%d, day %d/%d\n",sampleTerminator(width/4,0),sampleTerminator(width/4,2),sampleTerminator(width*3/4,0),sampleTerminator(width*3/4,2));
     require(sampleTerminator(width/4,2)<45&&sampleTerminator(width*3/4,0)>sampleTerminator(width/4,0)+25,"Atmospheric haze must not illuminate the night side from a sunlit camera");
+    MTLRenderPipelineDescriptor *terrainDescriptor=[MTLRenderPipelineDescriptor new];terrainDescriptor.vertexFunction=[library newFunctionWithName:@"terrainVertex"];terrainDescriptor.fragmentFunction=[library newFunctionWithName:@"terrainFragment"];terrainDescriptor.colorAttachments[0].pixelFormat=MTLPixelFormatRGBA8Unorm_sRGB;terrainDescriptor.depthAttachmentPixelFormat=MTLPixelFormatDepth32Float;
+    id<MTLRenderPipelineState> terrainPipeline=[device newRenderPipelineStateWithDescriptor:terrainDescriptor error:&error];require(terrainPipeline!=nil,"Procedural terrain pipeline");
+    MTLDepthStencilDescriptor *terrainDepthDescriptor=[MTLDepthStencilDescriptor new];terrainDepthDescriptor.depthCompareFunction=MTLCompareFunctionGreater;terrainDepthDescriptor.depthWriteEnabled=YES;id<MTLDepthStencilState> terrainDepth=[device newDepthStencilStateWithDescriptor:terrainDepthDescriptor];
+    f.position={0,0,1+400.0f/6371010,0};f.environment={400.0f/6371010,400,0,0};f.right={1,0,0,0};f.up={0,1,0,0};f.forward={0,0,-1,0};f.sun={0,0,1,1};f.screen.w=0;
+    f.projection={};f.projection.columns[0]={1/(f.screen.z*(float(width)/height)),0,0,0};f.projection.columns[1]={0,1/f.screen.z,0,0};f.projection.columns[2]={0,0,0,-1};f.projection.columns[3]={0,0,.2,0};
+    auto renderTerrain=[&](id<MTLTexture> mask,id<MTLTexture> landMap){
+        id<MTLCommandBuffer> cb=[queue commandBuffer];MTLRenderPassDescriptor *pass=[MTLRenderPassDescriptor renderPassDescriptor];
+        pass.colorAttachments[0].texture=output;pass.colorAttachments[0].loadAction=MTLLoadActionClear;pass.colorAttachments[0].storeAction=MTLStoreActionStore;
+        pass.depthAttachment.texture=depth;pass.depthAttachment.loadAction=MTLLoadActionClear;pass.depthAttachment.clearDepth=0;pass.depthAttachment.storeAction=MTLStoreActionDontCare;
+        id<MTLRenderCommandEncoder> e=[cb renderCommandEncoderWithDescriptor:pass];[e setRenderPipelineState:terrainPipeline];[e setDepthStencilState:terrainDepth];[e setVertexBytes:&f length:sizeof(f) atIndex:0];[e setVertexTexture:mask atIndex:0];[e setVertexTexture:landMap atIndex:1];[e setFragmentBytes:&f length:sizeof(f) atIndex:0];[e setFragmentTexture:white atIndex:0];[e drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:24 instanceCount:96*96];[e endEncoding];[cb commit];[cb waitUntilCompleted];require(cb.error==nil,"Procedural terrain render");
+        std::vector<unsigned char> pixels(width*height*4);[output getBytes:pixels.data() bytesPerRow:width*4 fromRegion:MTLRegionMake2D(0,0,width,height) mipmapLevel:0];return pixels;
+    };
+    auto vegetation=renderTerrain(zero,white),waterTerrain=renderTerrain(white,white);size_t landPixels=0,waterPixels=0;
+    for(size_t i=0;i<vegetation.size();i+=4){if(vegetation[i+1]>5)++landPixels;if(waterTerrain[i+1]>5)++waterPixels;}
+    require(landPixels>100&&waterPixels==0,"Procedural trees and rocks render on land, never over ocean");
+    float franceLat=46*M_PI/180,franceLon=2*M_PI/180;simd_float3 france={cosf(franceLat)*cosf(franceLon),sinf(franceLat),cosf(franceLat)*sinf(franceLon)};
+    simd_float3 franceEast={-sinf(franceLon),0,cosf(franceLon)},franceNorth={-sinf(franceLat)*cosf(franceLon),cosf(franceLat),-sinf(franceLat)*sinf(franceLon)};
+    f.position={france.x*(1+400.0f/6371010),france.y*(1+400.0f/6371010),france.z*(1+400.0f/6371010),0};f.forward={-france.x,-france.y,-france.z,0};f.right={franceEast.x,franceEast.y,franceEast.z,0};f.up={franceNorth.x,franceNorth.y,franceNorth.z,0};f.sun={france.x,france.y,france.z,1};
+    auto franceTerrain=renderTerrain(ocean,earth);size_t francePixels=0;for(size_t i=0;i<franceTerrain.size();i+=4)if(franceTerrain[i+1]>5)++francePixels;
+    require(francePixels>20,"The 400 m France scenario has procedural land scenery");
     // The local horizontal direction is not an atmosphere boundary: sky
     // colours immediately above and below it must not form a rectangular band.
     f.position={0,0,1+5000.0f/6371010,0};f.environment={5000.0f/6371010,5000,0,1};

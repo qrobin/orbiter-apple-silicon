@@ -578,6 +578,11 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     [encoder setFragmentTexture:starTexture atIndex:7];
     [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
     [encoder setDepthStencilState:depthState];
+    if(flight.reference==BodyId::Earth&&surfaceBase.mesh.groups.size()>0){
+        auto base=earthSurface(surfaceBase.latitude,surfaceBase.longitude,flight.mjd,flight.elapsed);
+        if((base.up*EarthRadius-flight.position-offset).length()>10000)
+            [visuals encodeTerrain:encoder frame:uniforms earth:[solar textureForBody:flight.reference]];
+    }
     [solar encodeBodies:encoder frame:uniforms flight:flight offset:offset];
     [encoder setFragmentBytes:&uniforms length:sizeof(uniforms) atIndex:1];
     [encoder setFragmentTexture:visuals.cloudShadows atIndex:1];
@@ -908,7 +913,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     externalCamera.setMode(ExternalCameraMode::OrbitalChase,flight,flight.reference);externalCamera.yaw=-.55;externalCamera.pitch=.22;externalCamera.distance=43;[self setViewMode:0];
 }
 - (void)startAtmosphericFlight:(NSMenuItem *)sender {
-    NSArray<NSString *> *files=@[@"Atlantic Ocean flight.scn",@"Hawaii sunset.scn",@"Gulf of Mexico storm.scn",@"Mediterranean clear flight.scn"];
+    NSArray<NSString *> *files=@[@"Atlantic Ocean flight.scn",@"Hawaii sunset.scn",@"Gulf of Mexico storm.scn",@"Mediterranean clear flight.scn",@"France low flight.scn"];
     if(sender.tag<0||sender.tag>=(NSInteger)files.count)return;
     restartBody=-1;restartScenario=resource([@"Scenarios/" stringByAppendingString:files[sender.tag]]);
     [self resetFlight:nil];[self setViewMode:1];status=[sender.title stringByAppendingString:@" · Press M for flight stabilization"];
@@ -1238,7 +1243,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         NSMenuItem *systems=[fm addItemWithTitle:@"Glider Systems… (M)" action:@selector(showSystems:) keyEquivalent:@""];systems.target=self.view;
         [fm addItem:NSMenuItem.separatorItem];
         NSMenuItem *atmospheric=[fm addItemWithTitle:@"Atmospheric Flight" action:nil keyEquivalent:@""];NSMenu *flights=[NSMenu new];atmospheric.submenu=flights;
-        NSArray<NSString *> *flightNames=@[@"Atlantic Ocean — Regional Weather",@"Hawaii — Sunset",@"Gulf of Mexico — Storm",@"Mediterranean — Clear Day"];
+        NSArray<NSString *> *flightNames=@[@"Atlantic Ocean — Regional Weather",@"Hawaii — Sunset",@"Gulf of Mexico — Storm",@"Mediterranean — Clear Day",@"France — Low Flight (400 m)"];
         for(int i=0;i<(int)flightNames.count;++i){NSMenuItem *item=[flights addItemWithTitle:flightNames[i] action:@selector(startAtmosphericFlight:) keyEquivalent:@""];item.target=self.view;item.tag=i;}
         NSMenuItem *orbit=[fm addItemWithTitle:@"Earth Orbit" action:@selector(startOrbit:) keyEquivalent:@""];orbit.target=self.view;
         NSMenuItem *issApproach=[fm addItemWithTitle:@"ISS — 50 m Approach" action:@selector(startISSApproach:) keyEquivalent:@""];issApproach.target=self.view;
