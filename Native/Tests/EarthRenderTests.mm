@@ -12,6 +12,7 @@ int main(){@autoreleasepool{
     for(NSString *name in @[@"Native/macOS/VisualTypes.h",@"Native/macOS/NativeVisuals.metal",@"Native/macOS/Shaders.metal",@"Native/macOS/SolarSystem.metal"]){
         NSString *part=[NSString stringWithContentsOfFile:[root stringByAppendingPathComponent:name] encoding:NSUTF8StringEncoding error:&error];require(part!=nil,"Missing Metal source");[source appendFormat:@"%@\n",part];}
     [source appendString:@"\nkernel void checkSkyCoordinates(device float2 *out [[buffer(0)]], uint id [[thread_position_in_grid]]) {float3 v[3]={float3(1,0,0),float3(0,-.3977772,.9174821),float3(0,.9174821,.3977772)}; if(id<3)out[id]=skyCoordinates(v[id]);}\n"];
+    [source appendString:@"\nkernel void copyWaterDepth(texture2d<float,access::read> src [[texture(0)]], texture2d<float,access::write> dst [[texture(1)]], uint2 id [[thread_position_in_grid]]) {if(id.x<dst.get_width()&&id.y<dst.get_height())dst.write(src.read(id),id);}\n"];
     id<MTLLibrary> library=[device newLibraryWithSource:source options:nil error:&error];
     if(!library){fprintf(stderr,"Metal compilation: %s\n",error.localizedDescription.UTF8String);return 1;}
     auto pipeline=[&](NSString *fragment,MTLPixelFormat color,bool depth){
@@ -131,6 +132,12 @@ int main(){@autoreleasepool{
     surfaceMask=white;auto water1=render(0);f.environment.w=4;auto water2=render(0);
     size_t waves=0;for(size_t i=0;i<water1.size();i+=4)if(abs(int(water1[i])-int(water2[i]))>2)++waves;
     require(waves>1000,"Ocean waves must animate");
+    id<MTLComputePipelineState> depthCopy=[device newComputePipelineStateWithFunction:[library newFunctionWithName:@"copyWaterDepth"] error:&error];require(depthCopy!=nil,"Water depth test pipeline");
+    id<MTLTexture> depthReadback=texture(MTLPixelFormatR32Float,width,height,MTLTextureUsageShaderWrite|MTLTextureUsageShaderRead);
+    auto readDepth=[&](){id<MTLCommandBuffer> cb=[queue commandBuffer];id<MTLComputeCommandEncoder> e=[cb computeCommandEncoder];[e setComputePipelineState:depthCopy];[e setTexture:depth atIndex:0];[e setTexture:depthReadback atIndex:1];[e dispatchThreads:MTLSizeMake(width,height,1) threadsPerThreadgroup:MTLSizeMake(8,8,1)];[e endEncoding];[cb commit];[cb waitUntilCompleted];require(cb.error==nil,"Water depth readback");std::vector<float> values(width*height);[depthReadback getBytes:values.data() bytesPerRow:width*sizeof(float) fromRegion:MTLRegionMake2D(0,0,width,height) mipmapLevel:0];return values;};
+    auto depth2=readDepth();f.environment.w=1;render(0);auto depth1=readDepth();size_t depthChanges=0;
+    for(size_t i=0;i<depth1.size();++i)if(fabs(depth1[i]-depth2[i])>1e-9f)++depthChanges;
+    require(depthChanges>1000,"Ocean wave heights change the depth buffer over time");
     f.environment.w=86401;auto nextDay=render(0);size_t discontinuous=0;
     for(size_t i=0;i<water1.size();i+=4)if(abs(int(water1[i])-int(nextDay[i]))>2)++discontinuous;
     require(discontinuous<width*height/50,"Wave motion remains continuous when the daily visual clock wraps");

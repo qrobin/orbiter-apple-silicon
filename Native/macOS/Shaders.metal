@@ -213,8 +213,7 @@ fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buf
             float3 tint=mix(float3(1,.58,.35),float3(.8,.87,1),smoothstep(.02f,.3f,dot(n,f.sun.xyz)));
             color+=base*tint*cloudFill;
         }
-        // Ocean detail is shaded, not displaced geometry. Filter waves whose
-        // wavelength is smaller than a pixel to prevent distant shimmer.
+        // Fade distant waves and filter subpixel structure to prevent shimmer.
         float waveFade=1-smoothstep(22000.0f,55000.0f,t*radius);
         if(int(f.surfaceColor.w)==3&&waveFade>0){
             float water=smoothstep(.35f,.75f,oceanMask.sample(s,uv).r)*waveFade;
@@ -232,6 +231,12 @@ fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buf
                 float3 waves=oceanWaves.sample(waveSampler,metres/8000.0f+float2(.27,.61)+float2(280,55)*time).rgb;
                 float3 chop=oceanDetail.sample(waveSampler,metres/16000.0f+float2(.41,.18)+float2(96,24)*time).rgb;
                 float3 ripples=oceanDetail.sample(waveSampler,metres/8000.0f+float2(.72,.38)+float2(130,-12)*time).rgb;
+                // Correct the spherical intersection by the moving height field.
+                // This gives nearby waves changing depth as well as changing
+                // normals, while capping grazing-ray excursions near the horizon.
+                float waveHeight=((swell.b-.5f)*10.0f+(waves.b-.5f)*5.0f+(chop.b-.5f)*2.0f)*(0.45f+1.6f*storm);
+                float correction=clamp(waveHeight/min(-.025f,dot(ray,n)),-60.0f,60.0f)*water;
+                distance=max(.001f/radius,t+correction/radius);
                 float2 slope=((swell.rg-.5f)*.42f+(waves.rg-.5f)*.25f+(chop.rg-.5f)*.18f+(ripples.rg-.5f)*.10f)*(.55+1.5*storm);
                 float3 east=cross(n,f.pole.xyz);east=length(east)>.001f?normalize(east):normalize(f.equatorZ.xyz);
                 float3 north=normalize(cross(east,n));
