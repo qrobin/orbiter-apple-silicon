@@ -18,7 +18,7 @@
 - (void)encodeWeather:(id<MTLCommandBuffer>)cb frame:(const FrameUniforms &)frame;
 - (void)encodeExhaust:(id<MTLCommandBuffer>)cb frame:(const FrameUniforms &)frame flight:(const native::Flight &)flight offset:(Vector)offset;
 - (void)encodeCockpitRain:(id<MTLCommandBuffer>)cb frame:(const FrameUniforms &)frame model:(simd_float4x4)model vertices:(id<MTLBuffer>)vertices indices:(id<MTLBuffer>)indices count:(NSUInteger)count;
-- (void)encodePresent:(id<MTLCommandBuffer>)cb drawable:(id<CAMetalDrawable>)drawable;
+- (void)encodePresent:(id<MTLCommandBuffer>)cb drawable:(id<CAMetalDrawable>)drawable headroom:(float)headroom;
 - (NSUInteger)liveTrailPuffCount;
 - (NSString *)weatherName;
 - (void)reset;

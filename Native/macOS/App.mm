@@ -368,7 +368,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     NSNumber *savedFov=[NSUserDefaults.standardUserDefaults objectForKey:@"FieldOfViewDegrees"];
     double fov=savedFov&&std::isfinite(savedFov.doubleValue)?std::clamp(savedFov.doubleValue,15.,85.):50.;
     cockpitCamera.fov=externalCamera.fieldOfView=externalCamera.groundFov=fov*RAD;
-    self.colorPixelFormat=MTLPixelFormatBGRA8Unorm_sRGB; self.depthStencilPixelFormat=MTLPixelFormatDepth32Float;
+    self.colorPixelFormat=MTLPixelFormatRGBA16Float; self.depthStencilPixelFormat=MTLPixelFormatDepth32Float;
     self.sampleCount=[device supportsTextureSampleCount:4]?4:1;self.clearDepth=0;
     self.preferredFramesPerSecond=120; self.framebufferOnly=NO; self.clearColor=MTLClearColorMake(0,0,0,1);
     self.delegate=self; inflight=dispatch_semaphore_create(3); queue=[device newCommandQueue];
@@ -502,7 +502,9 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
 }
 - (BOOL)acceptsFirstResponder { return YES; }
 - (void)clearInput { held.fill(false);throttleModifiers=ModifierThrottle{};haveDragPoint=false;activeCockpitControl=-1;activeCockpitDirection=0;[self.panel2D cancelInteraction]; }
-- (void)viewDidMoveToWindow { [super viewDidMoveToWindow]; [self.window makeFirstResponder:self]; }
+- (void)viewDidMoveToWindow { [super viewDidMoveToWindow];
+    CAMetalLayer *layer=(CAMetalLayer *)self.layer;CGColorSpaceRef linear=CGColorSpaceCreateWithName(kCGColorSpaceExtendedLinearSRGB);layer.colorspace=linear;CGColorSpaceRelease(linear);layer.wantsExtendedDynamicRangeContent=YES;
+    [self.window makeFirstResponder:self]; }
 - (void)mtkView:(MTKView *)view drawableSizeWillChange:(CGSize)size {}
 - (void)drawInMTKView:(MTKView *)view {
     @autoreleasepool {
@@ -735,7 +737,8 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     if(cockpit&&!panelView&&!freeCamera.active){
         for(const auto &g:groups)if(g.mesh==1&&g.index==77){[visuals encodeCockpitRain:cb frame:uniforms model:object.model vertices:g.vertices indices:g.indices count:g.count];break;}
     }
-    [visuals encodePresent:cb drawable:drawable];
+    float headroom=self.window.screen?(float)std::clamp((double)self.window.screen.maximumExtendedDynamicRangeColorComponentValue,1.,16.):1.f;
+    [visuals encodePresent:cb drawable:drawable headroom:headroom];
     [cb presentDrawable:drawable];
     __weak FlightView *weakSelf=self; dispatch_semaphore_t semaphore=inflight;
     [cb addCompletedHandler:^(id<MTLCommandBuffer> completed) {

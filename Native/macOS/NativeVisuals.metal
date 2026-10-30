@@ -305,7 +305,7 @@ fragment float4 compositeClouds(SkyRaster in [[stage_in]],constant FrameUniforms
             float2 p3=(uv-(float2(.5f)+axis*.32f))*float2(aspect,1);
             float ring=exp(-pow((length(p1)-.025f)/.0035f,2.0f));
             float ghost=exp(-dot(p2,p2)/.00011f),small=exp(-dot(p3,p3)/.000045f);
-            color+=visibility*(float3(.05,.11,.16)*ring+float3(.12,.065,.035)*ghost+float3(.035,.075,.10)*small);
+            color+=visibility*(float3(.04,.065,.085)*ring+float3(.095,.065,.045)*ghost+float3(.035,.055,.07)*small);
         }
     }
     // Directional light scattered through gaps near the Sun. This reuses the
@@ -571,9 +571,28 @@ kernel void blurBloom(texture2d<float> source [[texture(0)]],texture2d<float,acc
     for(int i=-5;i<=5;++i){float w=exp(-float(i*i)/12);c+=source.sample(s,uv+(vertical?float2(0,i):float2(i,0))/size).rgb*w;total+=w;}
     output.write(float4(c/total,1),id);
 }
-fragment float4 toneMap(SkyRaster in [[stage_in]],texture2d<float> scene [[texture(0)]],texture2d<float> bloom [[texture(1)]]){
+kernel void adaptSolarExposure(texture2d<float> scene [[texture(0)]],texture2d<float,access::read_write> exposure [[texture(1)]],constant FrameUniforms &f [[buffer(0)]],constant float &dt [[buffer(1)]],uint id [[thread_position_in_grid]]){
+    if(id)return;
+    constexpr sampler s(filter::linear,address::clamp_to_edge);
+    float visible=0,sunZ=dot(f.sun.xyz,f.forward.xyz);
+    if(f.sun.w>0&&f.sunShape.x>0&&sunZ>0){
+        float aspect=f.screen.x/f.screen.y;
+        float2 uv=float2(.5f+.5f*dot(f.sun.xyz,f.right.xyz)/(sunZ*f.screen.z*aspect),.5f-.5f*dot(f.sun.xyz,f.up.xyz)/(sunZ*f.screen.z));
+        if(all(uv>=float2(0))&&all(uv<=float2(1))){
+            float3 sample=scene.sample(s,uv).rgb;
+            float edge=smoothstep(0.0f,.06f,min(min(uv.x,1-uv.x),min(uv.y,1-uv.y)));
+            visible=smoothstep(2.0f,12.0f,max(sample.r,max(sample.g,sample.b)))*edge*f.sun.w;
+        }
+    }
+    float target=mix(1.0f,.42f,saturate(visible));float old=exposure.read(uint2(0)).r;
+    float rate=target<old?2.5f:1.0f;
+    exposure.write(float4(mix(old,target,1-exp(-clamp(dt,0.0f,.1f)*rate))),uint2(0));
+}
+fragment float4 toneMap(SkyRaster in [[stage_in]],texture2d<float> scene [[texture(0)]],texture2d<float> bloom [[texture(1)]],texture2d<float,access::read> exposure [[texture(2)]],constant float &headroom [[buffer(0)]]){
     constexpr sampler s(filter::linear,address::clamp_to_edge);float2 uv=float2(in.uv.x,1-in.uv.y);
-    float3 x=scene.sample(s,uv).rgb+bloom.sample(s,uv).rgb*.10;
+    float3 x=(scene.sample(s,uv).rgb+bloom.sample(s,uv).rgb*.10)*exposure.read(uint2(0)).r;
     float3 color=saturate((x*(2.51*x+.03))/(x*(2.43*x+.59)+.14));
+    float peak=max(x.r,max(x.g,x.b));float extra=(max(1.0f,headroom)-1)*(1-exp(-max(0.0f,peak-1.5f)/4.0f));
+    color*=1+extra;
     return float4(color,1);
 }

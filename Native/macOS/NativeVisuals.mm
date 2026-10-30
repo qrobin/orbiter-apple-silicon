@@ -13,15 +13,15 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
     NSUInteger samples,width,height,trailWidth,trailHeight,historyIndex,frameIndex;
     BOOL historyValid,haveFlight;
     FrameUniforms lastFrame;
-    double lastElapsed,glassWetness;
+    double lastElapsed,glassWetness,lastExposureTime;
     Vector glassRunoff;
     NSInteger lastWeather;
-    id<MTLTexture> hdr,lit,depth,trailLayer,msaaColor,msaaDepth,earthCloudMap,earthOceanMask,earthOceanWaves,earthOceanWaveDetail;
+    id<MTLTexture> hdr,lit,depth,trailLayer,msaaColor,msaaDepth,earthCloudMap,earthOceanMask,earthOceanWaves,earthOceanWaveDetail,exposure;
     std::array<id<MTLTexture>,2> cloudHistory,cloudData,bloom;
     std::array<id<MTLBuffer>,3> smokeBuffers;
     ExhaustTrail exhaustTrail;
     std::vector<SmokeDraw> visibleSmoke;
-    id<MTLComputePipelineState> noiseKernel,shadowKernel,vesselShadowKernel,cloudKernel,extractKernel,blurKernel;
+    id<MTLComputePipelineState> noiseKernel,shadowKernel,vesselShadowKernel,cloudKernel,extractKernel,blurKernel,exposureKernel;
     id<MTLRenderPipelineState> compositePipeline,flamePipeline,smokePipeline,trailCompositePipeline,presentPipeline,rainGlassPipeline;
     id<MTLDepthStencilState> flameDepth,rainDepth;
 }
@@ -45,7 +45,7 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
     visualCheck(earthOceanWaveDetail,error);
     auto kernel=[&](NSString *name){id<MTLComputePipelineState> p=[gpu newComputePipelineStateWithFunction:[library newFunctionWithName:name] error:&error];visualCheck(p,error);return p;};
     noiseKernel=kernel(@"makeCloudNoise");shadowKernel=kernel(@"cloudShadowMap");vesselShadowKernel=kernel(@"vesselCloudShadow");cloudKernel=kernel(@"marchClouds");
-    extractKernel=kernel(@"extractBloom");blurKernel=kernel(@"blurBloom");
+    extractKernel=kernel(@"extractBloom");blurKernel=kernel(@"blurBloom");exposureKernel=kernel(@"adaptSolarExposure");
     auto pipeline=[&](NSString *vertex,NSString *fragment,MTLPixelFormat format,BOOL depthEnabled,int blend){
         MTLRenderPipelineDescriptor *p=[MTLRenderPipelineDescriptor new];p.vertexFunction=[library newFunctionWithName:vertex];p.fragmentFunction=[library newFunctionWithName:fragment];
         p.colorAttachments[0].pixelFormat=format;
@@ -57,7 +57,7 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
     flamePipeline=pipeline(@"flameVertex",@"flameFragment",MTLPixelFormatRGBA16Float,YES,YES);
     smokePipeline=pipeline(@"trailVolumeVertex",@"trailVolumeFragment",MTLPixelFormatRGBA16Float,NO,2);
     trailCompositePipeline=pipeline(@"skyVertex",@"compositeTrail",MTLPixelFormatRGBA16Float,NO,3);
-    presentPipeline=pipeline(@"skyVertex",@"toneMap",MTLPixelFormatBGRA8Unorm_sRGB,NO,NO);
+    presentPipeline=pipeline(@"skyVertex",@"toneMap",MTLPixelFormatRGBA16Float,NO,NO);
     rainGlassPipeline=pipeline(@"rainGlassVertex",@"rainGlassFragment",MTLPixelFormatRGBA16Float,YES,NO);
     MTLDepthStencilDescriptor *ds=[MTLDepthStencilDescriptor new];ds.depthCompareFunction=MTLCompareFunctionAlways;ds.depthWriteEnabled=NO;flameDepth=[gpu newDepthStencilStateWithDescriptor:ds];
     ds.depthCompareFunction=MTLCompareFunctionGreater;rainDepth=[gpu newDepthStencilStateWithDescriptor:ds];
@@ -65,6 +65,7 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
     _cloudNoise=[gpu newTextureWithDescriptor:n];visualCheck(_cloudNoise,nil);
     _cloudShadows=[self texture:MTLPixelFormatR8Unorm width:512 height:256 usage:MTLTextureUsageShaderRead|MTLTextureUsageShaderWrite];
     _vesselCloudShadow=[self texture:MTLPixelFormatR8Unorm width:1 height:1 usage:MTLTextureUsageShaderRead|MTLTextureUsageShaderWrite];
+    MTLTextureDescriptor *ed=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatR32Float width:1 height:1 mipmapped:NO];ed.storageMode=MTLStorageModeShared;ed.usage=MTLTextureUsageShaderRead|MTLTextureUsageShaderWrite;exposure=[gpu newTextureWithDescriptor:ed];visualCheck(exposure,nil);float initial=1;[exposure replaceRegion:MTLRegionMake2D(0,0,1,1) mipmapLevel:0 withBytes:&initial bytesPerRow:sizeof(initial)];
     for(auto &buffer:smokeBuffers){buffer=[gpu newBufferWithLength:(ExhaustTrail::capacity+64)*sizeof(TrailSegmentUniforms) options:MTLResourceStorageModeShared];visualCheck(buffer,nil);}
     visibleSmoke.reserve(ExhaustTrail::capacity+64);
     id<MTLCommandBuffer> cb=[queue commandBuffer];id<MTLComputeCommandEncoder> e=[cb computeCommandEncoder];[e setComputePipelineState:noiseKernel];[e setTexture:_cloudNoise atIndex:0];[e dispatchThreads:MTLSizeMake(128,128,128) threadsPerThreadgroup:MTLSizeMake(4,4,4)];[e endEncoding];[cb commit];[cb waitUntilCompleted];
@@ -217,12 +218,14 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
     [r drawIndexedPrimitives:MTLPrimitiveTypeTriangle indexCount:count indexType:MTLIndexTypeUInt32 indexBuffer:indices indexBufferOffset:0];[r endEncoding];
     id<MTLTexture> previous=lit;lit=hdr;hdr=previous;
 }
-- (void)encodePresent:(id<MTLCommandBuffer>)cb drawable:(id<CAMetalDrawable>)drawable {
+- (void)encodePresent:(id<MTLCommandBuffer>)cb drawable:(id<CAMetalDrawable>)drawable headroom:(float)headroom {
     id<MTLComputeCommandEncoder> e=[cb computeCommandEncoder];e.label=@"HDR bloom";[e setComputePipelineState:extractKernel];[e setBytes:&lastFrame length:sizeof(lastFrame) atIndex:0];[e setTexture:lit atIndex:0];[e setTexture:bloom[0] atIndex:1];[self dispatch:e texture:bloom[0]];
     [e setComputePipelineState:blurKernel];uint32_t vertical=0;[e setBytes:&vertical length:sizeof(vertical) atIndex:0];[e setTexture:bloom[0] atIndex:0];[e setTexture:bloom[1] atIndex:1];[self dispatch:e texture:bloom[1]];
-    vertical=1;[e setBytes:&vertical length:sizeof(vertical) atIndex:0];[e setTexture:bloom[1] atIndex:0];[e setTexture:bloom[0] atIndex:1];[self dispatch:e texture:bloom[0]];[e endEncoding];
+    vertical=1;[e setBytes:&vertical length:sizeof(vertical) atIndex:0];[e setTexture:bloom[1] atIndex:0];[e setTexture:bloom[0] atIndex:1];[self dispatch:e texture:bloom[0]];
+    double now=CACurrentMediaTime();float dt=lastExposureTime>0?(float)std::clamp(now-lastExposureTime,0.0,.1):0;lastExposureTime=now;
+    [e setComputePipelineState:exposureKernel];[e setBytes:&lastFrame length:sizeof(lastFrame) atIndex:0];[e setBytes:&dt length:sizeof(dt) atIndex:1];[e setTexture:lit atIndex:0];[e setTexture:exposure atIndex:1];[e dispatchThreads:MTLSizeMake(1,1,1) threadsPerThreadgroup:MTLSizeMake(1,1,1)];[e endEncoding];
     MTLRenderPassDescriptor *pass=[MTLRenderPassDescriptor renderPassDescriptor];pass.colorAttachments[0].texture=drawable.texture;pass.colorAttachments[0].loadAction=MTLLoadActionDontCare;pass.colorAttachments[0].storeAction=MTLStoreActionStore;
-    id<MTLRenderCommandEncoder> r=[cb renderCommandEncoderWithDescriptor:pass];r.label=@"Tone mapping at full output resolution";[r setRenderPipelineState:presentPipeline];[r setFragmentTexture:lit atIndex:0];[r setFragmentTexture:bloom[0] atIndex:1];[r drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];[r endEncoding];
+    id<MTLRenderCommandEncoder> r=[cb renderCommandEncoderWithDescriptor:pass];r.label=@"Tone mapping at full output resolution";[r setRenderPipelineState:presentPipeline];[r setFragmentBytes:&headroom length:sizeof(headroom) atIndex:0];[r setFragmentTexture:lit atIndex:0];[r setFragmentTexture:bloom[0] atIndex:1];[r setFragmentTexture:exposure atIndex:2];[r drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];[r endEncoding];
 }
 - (id<MTLTexture>)satelliteClouds {return earthCloudMap;}
 - (id<MTLTexture>)oceanMask {return earthOceanMask;}
