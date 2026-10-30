@@ -51,14 +51,19 @@ int main(){@autoreleasepool{
     }
     if(NSString *altitude=NSProcessInfo.processInfo.environment[@"ORBITER_SUNSET_ALTITUDE"])flight.position=flight.position.unit()*(flight.centralBody().radius+altitude.doubleValue);
     const auto &b=flight.centralBody();double date=flight.mjd+flight.elapsed/86400.;Vector eyeOffset=flight.up*1.467+flight.forward*6.782,eye=flight.position+eyeOffset;
-    Vector direction=(flight.forward*cos(-.25)+flight.up*sin(-.25)).unit(),right=crossp(flight.up,direction).unit(),up=crossp(direction,right).unit(),sunDirection=(-(bodyState(BodyId::Earth,date).position+eye)).unit();
+    NSString *pitchOverride=NSProcessInfo.processInfo.environment[@"ORBITER_SUNSET_PITCH"];
+    double pitch=pitchOverride?pitchOverride.doubleValue:-.25;
+    Vector direction=(flight.forward*cos(pitch)+flight.up*sin(pitch)).unit(),right=crossp(flight.up,direction).unit(),up=crossp(direction,right).unit(),sunDirection=(-(bodyState(BodyId::Earth,date).position+eye)).unit();
     FrameUniforms f{};f.right=v4(right);f.up=v4(up);f.forward=v4(direction);f.position=v4(eye/b.radius);f.sun=v4(sunDirection,1);
     f.screen={(float)width,(float)height,(float)tan(25*RAD),(float)(b.rotation(date)/Pi2)};f.environment={(float)(eye.length()/b.radius-1),(float)(eye.length()-b.radius),0,(float)flight.elapsed};
     f.body={(float)b.radius,1,13000,0};f.haze={.1,.33,.75,78000};f.equatorX=v4(b.equatorX(),1);f.pole=v4(b.pole());f.equatorZ=v4(b.equatorZ());f.surfaceColor=v4(b.color,(int)b.id);
-    f.weather={(float)flight.weatherPreset,(float)flight.currentWeather().storm,(float)flight.currentWeather().rain,0};f.weatherWind=v4(flight.airRelativeVelocity());
+    NSString *weatherOverride=NSProcessInfo.processInfo.environment[@"ORBITER_SUNSET_PRESET"];
+    int preset=weatherOverride?std::clamp(weatherOverride.intValue,0,4):flight.weatherPreset;
+    f.weather={(float)preset,(float)flight.currentWeather().storm,(float)flight.currentWeather().rain,0};f.weatherWind=v4(flight.airRelativeVelocity());
     CelestialUniforms s{};double distance=(bodyState(BodyId::Earth,date).position+eye).length();s.directionRadius=v4(sunDirection,(float)(body(BodyId::Sun).radius/distance));f.sunShape={s.directionRadius.w,0,0,0};s.axisX=v4({1,0,0});s.pole=v4({0,1,0},2);s.axisZ=v4({0,0,1},1);s.light=v4({0,1,0},(float)distance);s.material=v4({1,.8,.4},0);
     auto render=[&](bool withClouds){
-        f.clouds={1800,6500,withClouds?.48f:0,0};f.environment.z=0;double gpuMs=0;
+        const simd_float4 presets[]={{1800,12000,0,0},{1800,12000,.48,0},{1400,12000,.78,.10},{1000,12500,.91,1},{1400,12000,.48,.65}};
+        f.clouds=presets[preset];if(!withClouds)f.clouds.z=0;f.environment.z=0;double gpuMs=0;
         for(uint32_t frame=0;frame<6;++frame){
             NSUInteger index=frame%2,previous=1-index;id<MTLCommandBuffer> cb=[queue commandBuffer];
             id<MTLComputeCommandEncoder> c=[cb computeCommandEncoder];[c setComputePipelineState:shadowKernel];[c setBytes:&f length:sizeof(f) atIndex:0];[c setTexture:noise atIndex:0];[c setTexture:shadow atIndex:1];[c setTexture:cloudMap atIndex:2];[c dispatchThreads:MTLSizeMake(cw,ch,1) threadsPerThreadgroup:MTLSizeMake(8,8,1)];[c endEncoding];
@@ -86,7 +91,7 @@ int main(){@autoreleasepool{
         [data[1] getBytes:dv.data() bytesPerRow:cw*16 fromRegion:MTLRegionMake2D(0,0,cw,ch) mipmapLevel:0];
         for(int y=55;y<85;++y){size_t i=(size_t(y)*cw+cw/2)*4;printf("cloud row %d: rgb %.3f %.3f %.3f a %.3f geom %.0f sample %.0f start %.0f\n",y,cv[i],cv[i+1],cv[i+2],cv[i+3],dv[i],dv[i+1],dv[i+2]);}
     }
-    if(!shaderDirectory.length&&!NSProcessInfo.processInfo.environment[@"ORBITER_SUNSET_ALTITUDE"]&&!NSProcessInfo.processInfo.environment[@"ORBITER_SUNSET_LATER"]){
+    if(!shaderDirectory.length&&!pitchOverride&&!weatherOverride&&!NSProcessInfo.processInfo.environment[@"ORBITER_SUNSET_ALTITUDE"]&&!NSProcessInfo.processInfo.environment[@"ORBITER_SUNSET_LATER"]){
         auto channel=[&](const auto &p,int x,int y,int c){return int(p[(size_t(y)*width+x)*4+c]);};
         double maxJump=0;for(int y=100;y<190;++y)for(int c=0;c<3;++c){double delta=0;for(int x=0;x<(int)width;++x)delta+=channel(cloudy,x,y+1,c)-channel(cloudy,x,y,c);maxJump=std::max(maxJump,fabs(delta/width));}
         require(maxJump<6,"The Hawaii cloud layer must not form a rectangular horizon stripe");
@@ -103,7 +108,8 @@ int main(){@autoreleasepool{
         f.sun.w=1;f.sunShape.x=solarRadius;f.position=v4(eye.unit()*(1+150000./b.radius));f.environment.x=150000./b.radius;f.environment.y=150000;
         auto high=render(false);f.sunShape.x=0;auto highNoHalo=render(false);
         size_t highHalo=0;for(size_t i=0;i<high.size();i+=4)if(int(high[i])>int(highNoHalo[i])+3)++highHalo;
-        require(highHalo<haloPixels/20,"The solar halo fades when the observer is above the atmosphere");
+        require(highHalo>100,"Bright optical glare remains visible around the Sun in space");
+        require(channel(high,10,10,0)<15&&channel(high,10,10,1)<15&&channel(high,10,10,2)<15,"Empty space above Earth's atmosphere stays dark at sunset");
     }
     printf("Hawaii sun elevation %.2f deg; camera height %.0f m\n",Deg(asin(dotp(eye.unit(),sunDirection))),eye.length()-b.radius);
     return 0;

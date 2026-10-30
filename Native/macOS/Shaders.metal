@@ -26,8 +26,7 @@ vertex Raster meshVertex(uint id [[vertex_id]],const device Vertex *vertices [[b
     out.normal=(o.model*float4(normal,0)).xyz;
     out.world=p; out.uv=uv; return out;
 }
-fragment float4 meshFragment(Raster in [[stage_in]],constant Frame &f [[buffer(1)]],
-                             constant Object &o [[buffer(2)]],texture2d<float> tex [[texture(0)]],texture2d<float> shadows [[texture(1)]]) {
+float4 shadeMesh(Raster in,constant Frame &f,constant Object &o,texture2d<float> tex,texture2d<float> shadows,float sunVisibility) {
     constexpr sampler s(filter::linear,mip_filter::linear,address::repeat, max_anisotropy(8));
     if(o.options.x>4.5) { float alpha=tex.sample(s,in.uv).a; if(alpha<.03)discard_fragment(); return float4(o.color.rgb,alpha); }
     if(o.options.x>3.5) { float4 label=tex.sample(s,in.uv); if(label.a<.03) discard_fragment(); return label; }
@@ -40,14 +39,14 @@ fragment float4 meshFragment(Raster in [[stage_in]],constant Frame &f [[buffer(1
     if(albedo.a<.03) discard_fragment();
     float3 normal=normalize(in.normal);
     if(dot(normal,-in.world)<0) normal=-normal;
-    float lit=max(0.0f,dot(normal,f.sun.xyz))*f.sun.w;
+    float lit=max(0.0f,dot(normal,f.sun.xyz))*f.sun.w*sunVisibility;
     float cloudShade=1;
     if(f.environment.y<f.clouds.y&&f.clouds.z>0){
         float2 shadowUV=in.position.xy/f.screen.xy;
         cloudShade=shadows.sample(s,shadowUV).r;lit*=cloudShade;
     }
     float3 view=normalize(-in.world);
-    float spec=pow(max(0.0f,dot(normal,normalize(f.sun.xyz+view))),40.0f)*.18*f.sun.w;
+    float spec=pow(max(0.0f,dot(normal,normalize(f.sun.xyz+view))),40.0f)*.18*f.sun.w*sunVisibility;
     float3 color=albedo.rgb*(.025+.175*f.sun.w+o.options.y+lit*.8)+spec;
     // A low-cost hemispheric fill approximates sunlight scattered back down
     // by cloud cover; it softens shadows without making clouds emit at night.
@@ -60,6 +59,10 @@ fragment float4 meshFragment(Raster in [[stage_in]],constant Frame &f [[buffer(1
         color+=albedo.rgb*tint*cloudFill*(.5f+.5f*max(0.0f,dot(normal,normalize(f.position.xyz))));
     }
     return float4(color,albedo.a);
+}
+fragment float4 meshFragment(Raster in [[stage_in]],constant Frame &f [[buffer(1)]],
+                             constant Object &o [[buffer(2)]],texture2d<float> tex [[texture(0)]],texture2d<float> shadows [[texture(1)]]) {
+    return shadeMesh(in,f,o,tex,shadows,1);
 }
 vertex SkyRaster skyVertex(uint id [[vertex_id]]) {
     float2 p=float2((id<<1)&2,id&2); return {float4(p*2-1,1,1),p};
@@ -147,8 +150,11 @@ AirLight earthAirLight(constant Frame &f,float3 ray,float maximumDistance){
     // while low solar angles leave warmer light near the horizon.
     float skyHeight=smoothstep(-.02f,.35f,mu);
     float horizon=exp(-abs(mu)*10.0f),towardSun=.25f+.75f*pow(max(0.0f,cosine),2.0f);
-    scattered+=sunlight*twilight*(float3(.012,.035,.26)*skyHeight+float3(.09,.025,.003)*horizon*towardSun);
-    scattered*=mix(float3(1),float3(1.18,.54,1.0),twilight*horizon*towardSun);
+    float airPath=saturate(r/6000.0f);
+    scattered+=sunlight*twilight*airPath*(float3(.012,.035,.26)*skyHeight+float3(.09,.018,.018)*horizon*towardSun);
+    // Low-angle light is warmer near the horizon, with more blue skylight
+    // remaining above it instead of a uniform yellow wash.
+    scattered*=mix(float3(1),float3(1.12,.48,1.12),twilight*towardSun*(.55f+.45f*horizon));
     return {transmission,scattered};
 }
 fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buffer(1)]],
@@ -238,13 +244,20 @@ fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buf
     if(f.pole.w>0){float den=dot(ray,f.pole.xyz);if(abs(den)>.00001){float t=-dot(origin,f.pole.xyz)/den;float3 point=origin+ray*t;float r=length(point);if(t>0&&t<distance&&r>f.pole.w&&r<f.equatorZ.w){float4 ring=ringMaterial(point,ray,f.pole.xyz,f.pole.w,f.equatorZ.w,f.sun.xyz,rings);color=mix(color,ring.rgb,ring.a);if(ring.a>.05)distance=t;}}}
     // Atmospheric forward scattering creates an aureole larger than the
     // physical solar disc; cloud and surface depth can still obscure it.
-    if(earth&&distance>1e24f&&f.sun.w>0&&f.sunShape.x>0){
+    if(distance>1e24f&&f.sun.w>0&&f.sunShape.x>0){
         float cosine=dot(ray,f.sun.xyz),radius=clamp(f.sunShape.x,.00001f,.05f);
         float angle2=max(0.0f,2*(1-cosine));
         if(angle2<radius*radius*900){
-            float haze=earthSunHaze(f),width=radius*(1.15f+4.5f*haze);
-            float core=exp(-angle2/(2*width*width)),wing=exp(-sqrt(angle2)/(width*1.8f));
-            color+=earthSunTransmission(f)*f.sun.w*haze*(core*3.0f+wing*.22f);
+            // Optical glare remains visible in vacuum; atmospheric scattering
+            // adds a wider, tinted aureole where there is air.
+            float glareWidth=radius*2.8f;
+            float glare=1.6f*exp(-angle2/(2*glareWidth*glareWidth));
+            color+=float3(1.0,.97,.92)*f.sun.w*glare;
+            if(earth){
+                float haze=earthSunHaze(f),width=radius*(1.15f+4.5f*haze);
+                float core=exp(-angle2/(2*width*width)),wing=exp(-sqrt(angle2)/(width*1.8f));
+                color+=earthSunTransmission(f)*f.sun.w*haze*(core*3.0f+wing*.22f);
+            }
         }
     }
     float depth=distance<1e24?.2/max(.0001f,distance*radius*dot(ray,f.forward.xyz)):0;

@@ -87,6 +87,8 @@ Press **C** (or **V**) to cycle through external view, the original 3D cockpit a
 
 The 2D view uses the original `dg_panel.dds` main-panel artwork and original MFD/button positions. Both displays mirror their cockpit counterparts; their TransX buttons and graph dragging work in either view. Main/retro and hover throttles, gear, nose, airbrake, trim, RCS mode, hover attitude and hover hold are connected. The main levers control both engines together in the native flight model. The attitude and heading underlays show live flight data; other original panel instruments and switches are not all connected yet.
 
+Choose **Flight → ISS — 50 m Approach** to start facing ISS port 1, with the vessel centres 50 m apart and matching initial velocities. The left display and docking HUD show the selected port, port-to-port distance, closing speed and alignment. Select the other original ISS ports under **Navigation → ISS Docking Port**. With the nose cone open, fly slowly into an aligned port to dock automatically; **Control-D** undocks. The station uses the original ISS mesh, textures, port coordinates and scenario orbital elements. Its attitude is fixed in inertial space and this is a two-body orbit, not a live ISS ephemeris or a complete vessel-collision simulation.
+
 The 3D cockpit HUD is rendered on the original transparent combiner surface, so it moves and scales with cockpit look and zoom. Its mode, brightness and colour use the existing HUD controls. Simulation time, date and notices appear along the bottom of the flight view.
 
 The cockpit has live native surface/orbit and propulsion displays on the original MFD meshes. These are new native displays, not the full Orbiter MFD implementation. Original analog instruments and other cockpit buttons are not all connected.
@@ -181,6 +183,7 @@ The native animation registry contains **63 components extracted from upstream s
 | Option-H / Option-Shift-H | Cycle HUD mode / colour |
 | G | Toggle landing gear |
 | Option-C | Toggle nose cone |
+| Control-D | Undock from the ISS |
 | L | Toggle escape ladder |
 | U | Toggle retro covers |
 | B / Option-B | Extend / retract airbrake by one half-step |

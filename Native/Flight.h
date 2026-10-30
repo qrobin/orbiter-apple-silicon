@@ -4,6 +4,7 @@
 #include "Glider.h"
 #include "Hud.h"
 #include "Weather.h"
+#include "ISS.h"
 #include <array>
 #include <string>
 #include <filesystem>
@@ -30,12 +31,17 @@ public:
     Glider glider;
     Hud hud;
     AtmosphericControl atmospheric;
+    ISSOrbit issOrbit;
+    int issTargetPort=1;
+    bool issDocked=false,issCaptureArmed=true;
     BodyId reference=BodyId::Earth;
     bool automaticReferenceChanges=false;
     int weatherPreset=0;
     const CelestialBody &centralBody()const{return body(reference);}
     double gravityMu()const{return centralBody().mu();}
     void startOrbit(BodyId body);
+    void startISSApproach();
+    void undockISS();
     void placeOnBody(double latitude,double longitude,double heading,double clearance=2.53);
     void changeReference(BodyId body);
     void setRotationPaused(bool paused);

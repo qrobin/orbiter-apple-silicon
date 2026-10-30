@@ -23,7 +23,15 @@ NSBitmapImageRep *makeCockpitHud(const Flight &flight){
         centered([NSString stringWithFormat:@"ALT %.0f m   GS %.0f m/s",flight.altitude(),flight.groundSpeed],185,22);
         centered([NSString stringWithFormat:@"V/S %+.1f m/s   HDG %03.0f°",flight.surfaceVerticalSpeed(),Deg(flight.heading())],146,22);
     }else{
-        centered(@"DOCKING",345,23);centered(@"NO TARGET",170,24);
+        centered(@"DOCKING",345,23);
+        if(flight.reference==BodyId::Earth){
+            auto station=issState(flight.issOrbit,flight.mjd+flight.elapsed/86400.);
+            auto t=issDockingTelemetry(flight,station,flight.issTargetPort);
+            centered([NSString stringWithFormat:@"ISS PORT %d%@",flight.issTargetPort+1,flight.issDocked?@" DOCKED":@""],215,21);
+            centered([NSString stringWithFormat:@"RNG %.1f m",t.distance],180,22);
+            centered([NSString stringWithFormat:@"CLOSE %+.2f m/s",t.closingSpeed],145,22);
+            centered([NSString stringWithFormat:@"SIDE %.1f m  AXIS %.1f°",t.lateral,Deg(t.alignment)],110,18);
+        }else centered(@"NO TARGET",170,24);
     }
     [NSGraphicsContext restoreGraphicsState];return rep;
 }

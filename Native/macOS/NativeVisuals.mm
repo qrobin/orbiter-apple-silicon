@@ -21,7 +21,7 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
     std::array<id<MTLBuffer>,3> smokeBuffers;
     ExhaustTrail exhaustTrail;
     std::vector<SmokeDraw> visibleSmoke;
-    id<MTLComputePipelineState> noiseKernel,shadowKernel,cloudKernel,extractKernel,blurKernel;
+    id<MTLComputePipelineState> noiseKernel,shadowKernel,vesselShadowKernel,cloudKernel,extractKernel,blurKernel;
     id<MTLRenderPipelineState> compositePipeline,flamePipeline,smokePipeline,trailCompositePipeline,presentPipeline,rainGlassPipeline;
     id<MTLDepthStencilState> flameDepth,rainDepth;
 }
@@ -44,7 +44,7 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
     earthOceanWaveDetail=[loader newTextureWithContentsOfURL:detailURL options:@{MTKTextureLoaderOptionSRGB:@NO,MTKTextureLoaderOptionGenerateMipmaps:@YES,MTKTextureLoaderOptionOrigin:MTKTextureLoaderOriginTopLeft} error:&error];
     visualCheck(earthOceanWaveDetail,error);
     auto kernel=[&](NSString *name){id<MTLComputePipelineState> p=[gpu newComputePipelineStateWithFunction:[library newFunctionWithName:name] error:&error];visualCheck(p,error);return p;};
-    noiseKernel=kernel(@"makeCloudNoise");shadowKernel=kernel(@"cloudShadowMap");cloudKernel=kernel(@"marchClouds");
+    noiseKernel=kernel(@"makeCloudNoise");shadowKernel=kernel(@"cloudShadowMap");vesselShadowKernel=kernel(@"vesselCloudShadow");cloudKernel=kernel(@"marchClouds");
     extractKernel=kernel(@"extractBloom");blurKernel=kernel(@"blurBloom");
     auto pipeline=[&](NSString *vertex,NSString *fragment,MTLPixelFormat format,BOOL depthEnabled,int blend){
         MTLRenderPipelineDescriptor *p=[MTLRenderPipelineDescriptor new];p.vertexFunction=[library newFunctionWithName:vertex];p.fragmentFunction=[library newFunctionWithName:fragment];
@@ -64,6 +64,7 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
     MTLTextureDescriptor *n=[MTLTextureDescriptor new];n.textureType=MTLTextureType3D;n.width=n.height=n.depth=128;n.pixelFormat=MTLPixelFormatRGBA8Unorm;n.storageMode=MTLStorageModePrivate;n.usage=MTLTextureUsageShaderRead|MTLTextureUsageShaderWrite;
     _cloudNoise=[gpu newTextureWithDescriptor:n];visualCheck(_cloudNoise,nil);
     _cloudShadows=[self texture:MTLPixelFormatR8Unorm width:512 height:256 usage:MTLTextureUsageShaderRead|MTLTextureUsageShaderWrite];
+    _vesselCloudShadow=[self texture:MTLPixelFormatR8Unorm width:1 height:1 usage:MTLTextureUsageShaderRead|MTLTextureUsageShaderWrite];
     for(auto &buffer:smokeBuffers){buffer=[gpu newBufferWithLength:(ExhaustTrail::capacity+64)*sizeof(TrailSegmentUniforms) options:MTLResourceStorageModeShared];visualCheck(buffer,nil);}
     visibleSmoke.reserve(ExhaustTrail::capacity+64);
     id<MTLCommandBuffer> cb=[queue commandBuffer];id<MTLComputeCommandEncoder> e=[cb computeCommandEncoder];[e setComputePipelineState:noiseKernel];[e setTexture:_cloudNoise atIndex:0];[e dispatchThreads:MTLSizeMake(128,128,128) threadsPerThreadgroup:MTLSizeMake(4,4,4)];[e endEncoding];[cb commit];[cb waitUntilCompleted];
@@ -98,7 +99,7 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
     }
     _weather=std::clamp((int)_weather,0,4);
     if(_weather!=lastWeather){historyValid=NO;lastWeather=_weather;}
-    const simd_float4 presets[]={{1800,6500,0,0},{1800,6500,.48,0},{1400,6200,.78,.10},{1000,9000,.91,1},{1400,8500,.48,.65}};
+    const simd_float4 presets[]={{1800,12000,0,0},{1800,12000,.48,0},{1400,12000,.78,.10},{1000,12500,.91,1},{1400,12000,.48,.65}};
     f->clouds=presets[_weather];if((int)f->surfaceColor.w!=(int)BodyId::Earth)f->clouds.z=0;
     float moved=simd_length(simd_make_float3(f->position.x-lastFrame.position.x,f->position.y-lastFrame.position.y,f->position.z-lastFrame.position.z))*f->body.x;
     float aligned=simd_dot(simd_make_float3(f->forward.x,f->forward.y,f->forward.z),simd_make_float3(lastFrame.forward.x,lastFrame.forward.y,lastFrame.forward.z));
@@ -119,9 +120,12 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
 - (void)dispatch:(id<MTLComputeCommandEncoder>)e texture:(id<MTLTexture>)t {
     [e dispatchThreads:MTLSizeMake(t.width,t.height,1) threadsPerThreadgroup:MTLSizeMake(8,8,1)];
 }
-- (void)encodeShadows:(id<MTLCommandBuffer>)cb frame:(const FrameUniforms &)f {
+- (void)encodeShadows:(id<MTLCommandBuffer>)cb frame:(const FrameUniforms &)f vesselPosition:(Vector)position {
     id<MTLComputeCommandEncoder> e=[cb computeCommandEncoder];e.label=@"Planetary cloud shadows";
-    [e setComputePipelineState:shadowKernel];[e setBytes:&f length:sizeof(f) atIndex:0];[e setTexture:_cloudNoise atIndex:0];[e setTexture:_cloudShadows atIndex:1];[e setTexture:earthCloudMap atIndex:2];[self dispatch:e texture:_cloudShadows];[e endEncoding];
+    [e setComputePipelineState:shadowKernel];[e setBytes:&f length:sizeof(f) atIndex:0];[e setTexture:_cloudNoise atIndex:0];[e setTexture:_cloudShadows atIndex:1];[e setTexture:earthCloudMap atIndex:2];[self dispatch:e texture:_cloudShadows];
+    simd_float4 vessel=visualVector(position/f.body.x);
+    [e setComputePipelineState:vesselShadowKernel];[e setBytes:&vessel length:sizeof(vessel) atIndex:1];[e setTexture:earthCloudMap atIndex:1];[e setTexture:_vesselCloudShadow atIndex:2];
+    [e dispatchThreads:MTLSizeMake(1,1,1) threadsPerThreadgroup:MTLSizeMake(1,1,1)];[e endEncoding];
 }
 - (void)encodeWeather:(id<MTLCommandBuffer>)cb frame:(const FrameUniforms &)f {
     NSUInteger index=historyIndex%2,previous=1-index;uint32_t jitter=(uint32_t)frameIndex++;

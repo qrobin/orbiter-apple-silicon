@@ -152,10 +152,39 @@ int main(){@autoreleasepool{
     auto march=[&](id<MTLTexture> regional){uint32_t index=0;id<MTLCommandBuffer> cb=[queue commandBuffer];id<MTLComputeCommandEncoder> e=[cb computeCommandEncoder];
         [e setComputePipelineState:marcher];[e setBytes:&f length:sizeof(f) atIndex:0];[e setBytes:&index length:sizeof(index) atIndex:1];
         [e setTexture:noise atIndex:0];[e setTexture:zero atIndex:1];[e setTexture:zero atIndex:2];[e setTexture:data atIndex:3];[e setTexture:volume atIndex:4];[e setTexture:volumeData atIndex:5];[e setTexture:regional atIndex:6];
-        [e dispatchThreads:MTLSizeMake(16,16,1) threadsPerThreadgroup:MTLSizeMake(8,8,1)];[e endEncoding];[cb commit];[cb waitUntilCompleted];require(cb.error==nil,"Cloud march failed");float pixel[4];[volume getBytes:pixel bytesPerRow:sizeof(pixel) fromRegion:MTLRegionMake2D(8,8,1,1) mipmapLevel:0];return pixel[3];};
-    float empty=march(zero),dense=march(white);require(empty<.001f&&dense>.05f,"Regional cloud map must affect local cloud volumes");
+        [e dispatchThreads:MTLSizeMake(16,16,1) threadsPerThreadgroup:MTLSizeMake(8,8,1)];[e endEncoding];[cb commit];[cb waitUntilCompleted];require(cb.error==nil,"Cloud march failed");std::array<float,4> pixel;[volume getBytes:pixel.data() bytesPerRow:sizeof(pixel) fromRegion:MTLRegionMake2D(8,8,1,1) mipmapLevel:0];return pixel;};
+    float empty=march(zero)[3],dense=march(white)[3];require(empty<.001f&&dense>.05f,"Regional cloud map must affect local cloud volumes");
+    // Looking up through thicker cloud should block more of the background
+    // and transmit less direct sunlight to the cloud's lower face.
+    f.sun={.8f,0,.6f,1};f.clouds={1800,3500,.48,0};auto thin=march(white);
+    f.clouds.y=8500;auto thick=march(white);
+    printf("Cloud thickness: alpha %.3f -> %.3f, light per opacity %.3f -> %.3f\n",thin[3],thick[3],thin[0]/thin[3],thick[0]/thick[3]);
+    require(thick[3]>thin[3]+.2f,"Thicker clouds must block more background light");
+    require(thick[0]/thick[3]<thin[0]/thin[3]*.85f,"Thicker clouds must transmit less sunlight");
+    f.sun.w=0;auto eclipsedCloud=march(white);
+    require(eclipsedCloud[0]<thick[0]*.15f,"Eclipsed clouds must not retain direct sunlight");
+    f.sun.w=1;f.position={0,0,1+7000.0f/6371010,0};f.environment.x=7000.0f/6371010;
+    f.clouds.y=8500;auto clearAboveLow=march(white);
+    f.clouds.y=12000;auto upperLayer=march(white);
+    printf("Upper cloud layer alpha: %.3f -> %.3f\n",clearAboveLow[3],upperLayer[3]);
+    require(clearAboveLow[3]<.001f&&upperLayer[3]>.03f&&upperLayer[3]<thick[3]*.7f,"A separate thin high layer must appear above the lower clouds");
+    // The vessel's single world-space shadow must follow the ship, not the
+    // camera or whichever piece of ground happens to be behind the cockpit.
+    id<MTLComputePipelineState> shipShadow=[device newComputePipelineStateWithFunction:[library newFunctionWithName:@"vesselCloudShadow"] error:&error];require(shipShadow!=nil,"Vessel shadow pipeline failed");
+    id<MTLTexture> shipShadowOutput=texture(MTLPixelFormatR32Float,1,1,MTLTextureUsageShaderRead|MTLTextureUsageShaderWrite);
+    auto shadowAt=[&](simd_float4 position){id<MTLCommandBuffer> cb=[queue commandBuffer];id<MTLComputeCommandEncoder> e=[cb computeCommandEncoder];
+        [e setComputePipelineState:shipShadow];[e setBytes:&f length:sizeof(f) atIndex:0];[e setBytes:&position length:sizeof(position) atIndex:1];
+        [e setTexture:noise atIndex:0];[e setTexture:white atIndex:1];[e setTexture:shipShadowOutput atIndex:2];
+        [e dispatchThreads:MTLSizeMake(1,1,1) threadsPerThreadgroup:MTLSizeMake(1,1,1)];[e endEncoding];[cb commit];[cb waitUntilCompleted];require(cb.error==nil,"Vessel shadow failed");
+        float value=0;[shipShadowOutput getBytes:&value bytesPerRow:sizeof(value) fromRegion:MTLRegionMake2D(0,0,1,1) mipmapLevel:0];return value;};
+    f.sun={0,0,1,1};simd_float4 ship={0,0,1+1000.0f/6371010,0};float sheltered=shadowAt(ship);
+    f.position={.2f,0,1.1f,0};f.forward={1,0,0,0};float movedCamera=shadowAt(ship);
+    simd_float4 above={0,0,1+150000.0f/6371010,0};float exposed=shadowAt(above);
+    printf("Vessel cloud shadow: below %.3f, after camera move %.3f, above %.3f\n",sheltered,movedCamera,exposed);
+    require(sheltered<.8f&&fabsf(sheltered-movedCamera)<.001f&&exposed>.99f,"Cloud shading must be stable across the vessel and follow its position");
+    f.clouds.z=0;require(shadowAt(ship)>.99f,"Clear weather leaves the vessel unshadowed");f.clouds.z=.48;
     f.position={0,0,1+169500.0f/6371010,0};f.environment.x=169500.0f/6371010;
-    require(march(white)<.001f,"The expensive local cloud march is skipped above the orbital transition");
+    require(march(white)[3]<.001f,"The expensive local cloud march is skipped above the orbital transition");
     NSString *path=NSProcessInfo.processInfo.environment[@"ORBITER_EARTH_PREVIEW"];
     if(path.length){NSBitmapImageRep *rep=[[NSBitmapImageRep alloc] initWithBitmapDataPlanes:nullptr pixelsWide:width pixelsHigh:height bitsPerSample:8 samplesPerPixel:4 hasAlpha:YES isPlanar:NO colorSpaceName:NSCalibratedRGBColorSpace bytesPerRow:width*4 bitsPerPixel:32];memcpy(rep.bitmapData,cloud.data(),cloud.size());[[rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:path atomically:YES];}
     printf("Earth clouds: %zu globe pixels, %zu low-orbit detail pixels; texture format %lu\n",changed,detail,(unsigned long)cloudMap.pixelFormat);return 0;

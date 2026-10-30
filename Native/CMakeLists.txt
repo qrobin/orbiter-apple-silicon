@@ -11,11 +11,11 @@ add_library(OrbiterFlightCore STATIC
     ${PROJECT_SOURCE_DIR}/Src/Celbody/Moon/ELP82.cpp
     ${PROJECT_SOURCE_DIR}/Src/Celbody/Galsat/Lieske.cpp
     ${PROJECT_SOURCE_DIR}/Src/Celbody/Satsat/Tass17.cpp
-    Flight.cpp Mesh.cpp Glider.cpp Aerodynamics.cpp Weather.cpp Cockpit.cpp Surface.cpp Base.cpp Hover.cpp Exhaust.cpp Camera.cpp)
+    Flight.cpp Mesh.cpp Glider.cpp Aerodynamics.cpp Weather.cpp Cockpit.cpp Surface.cpp Base.cpp Hover.cpp Exhaust.cpp Camera.cpp ISS.cpp)
 target_include_directories(OrbiterFlightCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${CORE})
 target_compile_definitions(OrbiterFlightCore PUBLIC ORBITER_NATIVE=1)
 target_compile_options(OrbiterFlightCore PRIVATE -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable)
-add_executable(OrbiterNative MACOSX_BUNDLE macOS/App.mm macOS/CockpitHUD.mm macOS/NativeVisuals.mm macOS/SolarRenderer.mm macOS/GliderPanel.inc macOS/TransXPanel.inc macOS/RoutePanel.inc macOS/Panel2D.inc macOS/BurnDisplay.h macOS/DateDisplay.h macOS/TransXDrawing.mm)
+add_executable(OrbiterNative MACOSX_BUNDLE macOS/App.mm macOS/CockpitHUD.mm macOS/NativeVisuals.mm macOS/SolarRenderer.mm macOS/RayShadows.mm macOS/GliderPanel.inc macOS/TransXPanel.inc macOS/RoutePanel.inc macOS/Panel2D.inc macOS/BurnDisplay.h macOS/DateDisplay.h macOS/TransXDrawing.mm)
 target_compile_options(OrbiterNative PRIVATE -fobjc-arc -Wall -Wextra -Wno-unused-parameter)
 target_link_libraries(OrbiterNative PRIVATE
     "-framework UniformTypeIdentifiers" "-framework Cocoa" "-framework Metal" "-framework MetalKit" "-framework QuartzCore")
@@ -27,15 +27,18 @@ set_target_properties(OrbiterNative PROPERTIES
 file(GLOB_RECURSE NATIVE_ASSET_INPUTS CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/Assets/*
     ${PROJECT_SOURCE_DIR}/Src/Vessel/DeltaGlider/Textures/*
-    ${PROJECT_SOURCE_DIR}/Src/Vessel/DeltaGlider/Textures2/*.dds)
+    ${PROJECT_SOURCE_DIR}/Src/Vessel/DeltaGlider/Textures2/*.dds
+    ${PROJECT_SOURCE_DIR}/Src/Vessel/ISS/Textures/*)
 file(GLOB BASE_TEXTURE_INPUTS CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/Textures/*.dds)
 set_property(TARGET OrbiterNative APPEND PROPERTY LINK_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/macOS/Shaders.metal
     ${CMAKE_CURRENT_SOURCE_DIR}/macOS/NativeVisuals.metal
     ${CMAKE_CURRENT_SOURCE_DIR}/macOS/SolarSystem.metal
+    ${CMAKE_CURRENT_SOURCE_DIR}/macOS/RayShadows.metal
     ${CMAKE_CURRENT_SOURCE_DIR}/macOS/VisualTypes.h
     ${CMAKE_CURRENT_SOURCE_DIR}/PackageAssets.cmake
     ${PROJECT_SOURCE_DIR}/Src/Vessel/DeltaGlider/Meshes/deltaglider_ns.msh
+    ${PROJECT_SOURCE_DIR}/Src/Vessel/ISS/Meshes/ProjectAlpha_ISS.msh
     "${PROJECT_SOURCE_DIR}/Scenarios/Delta-glider/DG Mk4 in orbit.scn"
     ${PROJECT_SOURCE_DIR}/Src/Celbody/Vsop87/Earth/Config/Earth/Base/Canaveral.cfg
     ${PROJECT_SOURCE_DIR}/Meshes/Tarmac2.msh
@@ -110,6 +113,14 @@ target_link_libraries(CockpitRainRenderTests PRIVATE OrbiterFlightCore "-framewo
 add_test(NAME Native.CockpitRainMetal COMMAND CockpitRainRenderTests)
 set_tests_properties(Native.CockpitRainMetal PROPERTIES SKIP_RETURN_CODE 77)
 
+add_executable(RayShadowRenderTests Tests/RayShadowRenderTests.mm macOS/RayShadows.mm)
+target_include_directories(RayShadowRenderTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/macOS)
+target_compile_options(RayShadowRenderTests PRIVATE -fobjc-arc)
+target_compile_definitions(RayShadowRenderTests PRIVATE ORBITER_TEST_DATA="${PROJECT_SOURCE_DIR}")
+target_link_libraries(RayShadowRenderTests PRIVATE OrbiterFlightCore "-framework Cocoa" "-framework Metal")
+add_test(NAME Native.RayShadowMetal COMMAND RayShadowRenderTests)
+set_tests_properties(Native.RayShadowMetal PROPERTIES SKIP_RETURN_CODE 77)
+
 add_executable(BodyRotationTests Tests/BodyRotationTests.cpp)
 target_link_libraries(BodyRotationTests PRIVATE OrbiterFlightCore)
 target_compile_definitions(BodyRotationTests PRIVATE ORBITER_TEST_DATA="${PROJECT_SOURCE_DIR}")
@@ -144,6 +155,17 @@ add_executable(CameraTests Tests/CameraTests.cpp)
 target_link_libraries(CameraTests PRIVATE OrbiterFlightCore)
 target_compile_definitions(CameraTests PRIVATE ORBITER_TEST_DATA="${PROJECT_SOURCE_DIR}")
 add_test(NAME Native.Camera COMMAND CameraTests)
+add_executable(ISSTests Tests/ISSTests.cpp)
+target_link_libraries(ISSTests PRIVATE OrbiterFlightCore)
+target_compile_definitions(ISSTests PRIVATE ORBITER_TEST_DATA="${PROJECT_SOURCE_DIR}")
+add_test(NAME Native.ISS COMMAND ISSTests)
+add_executable(ISSRenderTests Tests/ISSRenderTests.mm)
+target_include_directories(ISSRenderTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/macOS)
+target_compile_options(ISSRenderTests PRIVATE -fobjc-arc)
+target_compile_definitions(ISSRenderTests PRIVATE ORBITER_TEST_DATA="${PROJECT_SOURCE_DIR}")
+target_link_libraries(ISSRenderTests PRIVATE OrbiterFlightCore "-framework Cocoa" "-framework Metal")
+add_test(NAME Native.ISSMetal COMMAND ISSRenderTests)
+set_tests_properties(Native.ISSMetal PROPERTIES SKIP_RETURN_CODE 77)
 
 add_executable(NavProgramTests Tests/NavProgramTests.cpp)
 target_link_libraries(NavProgramTests PRIVATE OrbiterFlightCore)

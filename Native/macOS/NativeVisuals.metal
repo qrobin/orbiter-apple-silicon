@@ -46,23 +46,41 @@ float cloudRegion(float3 p,constant FrameUniforms &f,texture2d<float> cloudMap) 
     else if(f.weather.x>1.5&&f.weather.x<2.5)region=max(region,.25f);
     return region;
 }
+float lowCloudTop(constant FrameUniforms &f) {
+    return min(f.clouds.y,6500.0f+2500.0f*saturate(f.clouds.w));
+}
 float cloudDensity(float3 p,constant FrameUniforms &f,texture3d<float> noise,float region) {
     if(f.clouds.z<=0||region<=0)return 0;
     float h=length(p)-f.body.x;
-    float height=(h-f.clouds.x)/(f.clouds.y-f.clouds.x);
-    if(height<=0||height>=1)return 0;
+    if(h<=f.clouds.x||h>=f.clouds.y)return 0;
     constexpr sampler s(filter::linear,address::repeat);
     float3 w=terrestrial(p,f)+float3(f.environment.w*14,0,f.environment.w*7);
-    float weather=noise.sample(s,w/320000.0f).b;
-    float coverage=clamp(.30+region*.55+(weather-.5)*.2,.01f,.98f);
-    float shape=noise.sample(s,w/52000.0f).r;
-    float threshold=.84-coverage*.75+height*height*.16;
-    float density=smoothstep(threshold,threshold+.20,shape);
-    if(density<=0)return 0;
-    float detail=noise.sample(s,w/8500.0f).g;
-    density=max(0.0f,density-(1-detail)*.32*(1-density));
-    float profile=smoothstep(0.0f,.14f,height)*(1-smoothstep(.55f,1.0f,height));
-    return density*profile*region*(.00065+f.clouds.w*.00045);
+    float density=0,lowTop=lowCloudTop(f);
+    if(h<lowTop){
+        float height=(h-f.clouds.x)/max(1.0f,lowTop-f.clouds.x);
+        float weather=noise.sample(s,w/320000.0f).b;
+        float coverage=clamp(.30+region*.55+(weather-.5)*.2,.01f,.98f);
+        float shape=noise.sample(s,w/22000.0f).r;
+        float threshold=.84-coverage*.75+height*height*.16;
+        float lower=smoothstep(threshold,threshold+.20,shape);
+        if(lower>0){
+            float detail=noise.sample(s,w/4500.0f).g;
+            lower=max(0.0f,lower-(1-detail)*.32*(1-lower));
+            float profile=smoothstep(0.0f,.14f,height)*(1-smoothstep(.55f,1.0f,height));
+            density=lower*profile*region*(.00065+f.clouds.w*.00045);
+        }
+    }
+    // Thin, independently patterned high cloud sits above the lower cumulus
+    // and storm layers. Both layers share the same march and sun shadows.
+    if(h>8500.0f&&f.clouds.y>8500.0f){
+        float height=(h-8500.0f)/(f.clouds.y-8500.0f);
+        float broad=noise.sample(s,w/90000.0f+float3(.17,.39,.61)).r;
+        float wisps=noise.sample(s,w/18000.0f+float3(.53,.11,.27)).r;
+        float shape=smoothstep(.43f,.62f,broad*.7f+wisps*.3f);
+        float profile=smoothstep(0.0f,.18f,height)*(1-smoothstep(.72f,1.0f,height));
+        density+=shape*profile*saturate(region*2.0f)*(.00010f+.00004f*f.clouds.w);
+    }
+    return density;
 }
 // Stable sphere intersections avoid subtracting two large, nearly equal squared radii.
 float2 cloudShellRoots(float cameraHeight,float shellHeight,float mu,float radius) {
@@ -80,8 +98,21 @@ float depthDistance(float depth,float3 ray,constant FrameUniforms &f) {
     return depth>0?.2/max(1e-12f,depth*dot(ray,f.forward.xyz)):1e9;
 }
 float cloudSunTransmittance(float3 p,constant FrameUniforms &f,texture3d<float> noise,float region) {
-    float optical=0,last=0;
-    for(int i=0;i<4;++i){float t=220.0f*pow(2.8f,float(i));optical+=cloudDensity(p+f.sun.xyz*t,f,noise,region)*(t-last);last=t;}
+    float height=length(p)-f.body.x,mu=dot(normalize(p),f.sun.xyz);
+    float2 top=cloudShellRoots(height,f.clouds.y,mu,f.body.x);
+    float distance=clamp(top.y,0.0f,70000.0f);
+    if(mu<0){
+        float2 ground=cloudShellRoots(height,0,mu,f.body.x);
+        if(ground.y>ground.x&&ground.x>0&&ground.x<distance)return 0;
+    }
+    // Near sunset the light can travel tens of kilometres through the cloud
+    // layer. Keep the same four samples but spread them across that path.
+    float optical=0;
+    for(int i=0;i<4;++i){
+        float a=float(i)/4.0f,b=float(i+1)/4.0f;
+        float near=distance*a*a,far=distance*b*b;
+        optical+=cloudDensity(p+f.sun.xyz*((near+far)*.5f),f,noise,region)*(far-near);
+    }
     return exp(-optical);
 }
 kernel void cloudShadowMap(constant FrameUniforms &f [[buffer(0)]],texture3d<float> noise [[texture(0)]],
@@ -100,6 +131,35 @@ kernel void cloudShadowMap(constant FrameUniforms &f [[buffer(0)]],texture3d<flo
         }
     }
     shadow.write(float4(.26+.74*exp(-optical)),id);
+}
+// The ground shadow map is projected in screen space. A nearby ship needs
+// its own world-space sample, otherwise that ground pattern crosses its hull.
+kernel void vesselCloudShadow(constant FrameUniforms &f [[buffer(0)]],constant float4 &position [[buffer(1)]],
+                              texture3d<float> noise [[texture(0)]],texture2d<float> cloudMap [[texture(1)]],
+                              texture2d<float,access::write> output [[texture(2)]],uint2 id [[thread_position_in_grid]]) {
+    if(any(id>0))return;
+    float optical=0;
+    if(f.clouds.z>0){
+        float3 origin=position.xyz*f.body.x;
+        float height=length(origin)-f.body.x,mu=dot(normalize(origin),f.sun.xyz);
+        float2 outer=cloudShellRoots(height,f.clouds.y,mu,f.body.x);
+        float start=max(0.0f,outer.x),end=min(outer.y,100000.0f);
+        float2 inner=cloudShellRoots(height,f.clouds.x,mu,f.body.x);
+        if(inner.y>inner.x){
+            if(height<f.clouds.x)start=max(start,inner.y);
+            else if(inner.x>start)end=min(end,inner.x);
+        }
+        if(mu<0){
+            float2 ground=cloudShellRoots(height,0,mu,f.body.x);
+            if(ground.y>ground.x&&ground.x>0)end=min(end,ground.x);
+        }
+        if(end>start){
+            float step=(end-start)/8.0f;
+            float region=cloudRegion(origin+f.sun.xyz*(start+min((end-start)*.25f,8000.0f)),f,cloudMap);
+            for(int i=0;i<8;++i)optical+=cloudDensity(origin+f.sun.xyz*(start+(float(i)+.5f)*step),f,noise,region)*step;
+        }
+    }
+    output.write(float4(.26f+.74f*exp(-optical)),id);
 }
 kernel void marchClouds(constant FrameUniforms &f [[buffer(0)]],constant uint &frameIndex [[buffer(1)]],
                         texture3d<float> noise [[texture(0)]],texture2d<float,access::read> depth [[texture(1)]],
@@ -126,11 +186,11 @@ kernel void marchClouds(constant FrameUniforms &f [[buffer(0)]],constant uint &f
         // the midpoint jumps tens of kilometres at a grazing inner-shell hit.
         float3 center=normalize(origin+ray*(start+min(span*.25f,8000.0f)));
         float region=cloudRegion(center,f,cloudMap);
-        float mu=dot(center,f.sun.xyz),day=smoothstep(-.08f,.12f,mu);
+        float mu=dot(center,f.sun.xyz),day=smoothstep(-.08f,.12f,mu)*f.sun.w;
         float g=.55,cosTheta=dot(ray,f.sun.xyz);
         float phase=(1-g*g)/pow(max(.05f,1+g*g-2*g*cosTheta),1.5f);
-        float3 sunlight=mix(float3(1.9,.88,.43),float3(1.8,1.86,2.0),smoothstep(.02f,.35f,mu));
-        float3 ambient=mix(float3(.003,.005,.012),float3(.15,.20,.29),day);
+        float3 sunlight=mix(float3(1.20,.40,.20),float3(1.20,1.25,1.32),smoothstep(.02f,.35f,mu));
+        float3 ambient=mix(float3(.003,.005,.012),mix(float3(.065,.065,.085),float3(.15,.20,.29),smoothstep(.02f,.3f,mu)),day);
         float jitter=visualRandom(id.x+id.y*1973u+frameIndex*26699u);
         for(int i=0;i<48;++i){
             // Allocate more samples near the camera. Uniform steps can skip
@@ -140,9 +200,10 @@ kernel void marchClouds(constant FrameUniforms &f [[buffer(0)]],constant uint &f
             float t=mix(near,far,jitter);float3 p=origin+ray*t;
             float density=cloudDensity(p,f,noise,region);if(density<.000002)continue;
             float lighting=cloudSunTransmittance(p,f,noise,region);
-            // Multiple-scattering approximation: sunlight transmitted through
-            // dense cloud continues to illuminate its interior and edges.
-            float3 light=ambient+sunlight*day*(lighting*(.30+.23*phase)+pow(lighting,.4f)*.22);
+            // A restrained multiple-scattering term keeps thin edges lit while
+            // dense interiors retain their shadows even when backlit.
+            float direct=lighting*(.22f+.16f*min(phase,3.0f));
+            float3 light=ambient+sunlight*day*(direct+.10f*sqrt(lighting));
             float extinction=1-exp(-density*step),contribution=trans*extinction;
             radiance+=light*contribution;weightedDistance+=t*contribution;weight+=contribution;
             trans*=1-extinction;if(trans<.012)break;
@@ -174,18 +235,23 @@ fragment float4 compositeClouds(SkyRaster in [[stage_in]],constant FrameUniforms
     float3 ray=viewRay(uv,f);uint2 pixel=min(uint2(uv*f.screen.xy),uint2(f.screen.xy)-1);
     float geometry=depthDistance(depth.read(pixel).r,ray,f);
     float2 cloudSize=float2(clouds.get_width(),clouds.get_height());
-    float2 p=uv*cloudSize-.5,base=floor(p),frac=fract(p);float4 cloud=0;float total=0;
+    float2 p=uv*cloudSize-.5,base=floor(p),frac=fract(p);float4 cloud=0;float total=0,weightedDistance=0;
     for(int y=0;y<2;++y)for(int x=0;x<2;++x){
         float2 q=(base+float2(x,y)+.5)/cloudSize;
-        float d=cloudData.sample(s,q).r;
+        float4 info=cloudData.sample(s,q),sample=clouds.sample(s,q);float d=info.r;
         float w=(x?frac.x:1-frac.x)*(y?frac.y:1-frac.y);
         w*=min(d,geometry)>5000?1:step(abs(d-geometry),max(2.0f,geometry*.025f));
-        cloud+=clouds.sample(s,q)*w;total+=w;
+        cloud+=sample*w;total+=w;weightedDistance+=info.g*sample.a*w;
     }
     cloud/=max(total,.0001f);
     // Orbital-scale cloud structure comes from a satellite composite. Blend
     // into the volumetric layer for aircraft and low-altitude views.
     float cameraHeight=f.environment.x*f.body.x;
+    if(cloud.a>.0001f){
+        float distance=weightedDistance/max(.0001f,total*cloud.a);
+        float airDensity=exp(-max(0.0f,cameraHeight)/8000.0f);
+        cloud*=exp(-max(0.0f,distance-10000.0f)*airDensity/90000.0f);
+    }
     float orbital=smoothstep(40000.0f,120000.0f,cameraHeight);
     if(orbital>0&&f.clouds.z>0){
         float3 origin=normalize(f.position.xyz)*(f.body.x+cameraHeight);
@@ -215,7 +281,7 @@ fragment float4 compositeClouds(SkyRaster in [[stage_in]],constant FrameUniforms
             // Grazing cloud-shell intersections occupy less than a pixel and
             // are heavily obscured by atmospheric haze at the horizon.
             float alpha=(1-pow(max(.001f,1-coverage),1/mu))*smoothstep(.025f,.12f,viewCosine);
-            float daylight=smoothstep(-.08f,.10f,dot(normal,f.sun.xyz));
+            float daylight=smoothstep(-.08f,.10f,dot(normal,f.sun.xyz))*f.sun.w;
             float3 illumination=mix(float3(.005,.008,.018),float3(.85,.91,1.0)*(0.30+0.42*max(0.0f,dot(normal,f.sun.xyz)))*mix(.70f,1.0f,mask)*detailLight,daylight);
             cloud=mix(cloud,float4(illumination*alpha,alpha),orbital);
         }else cloud*=1-orbital;
@@ -227,12 +293,12 @@ fragment float4 compositeClouds(SkyRaster in [[stage_in]],constant FrameUniforms
         float sunHeight=dot(normalize(f.position.xyz),f.sun.xyz);
         float day=smoothstep(-.08f,.12f,sunHeight)*f.sun.w;
         float forwardGlow=pow(max(0.0f,dot(ray,f.sun.xyz)),18.0f);
-        float3 warm=mix(float3(1.0,.47,.20),float3(.85,.91,1.0),smoothstep(.02f,.3f,sunHeight));
-        color+=warm*forwardGlow*(1-cloud.a)*f.clouds.z*day*.12f;
+        float3 warm=mix(float3(1.0,.38,.22),float3(.85,.91,1.0),smoothstep(.02f,.3f,sunHeight));
+        color+=warm*forwardGlow*(1-cloud.a)*f.clouds.z*day*.04f;
     }
     // Two sparse, short streak layers approximate nearby falling water. Fade
     // against close geometry so rain does not paint over the cockpit panel.
-    if(f.weather.z>.01f && cameraHeight<f.clouds.y+1500){
+    if(f.weather.z>.01f && cameraHeight<lowCloudTop(f)+1500){
         float3 falling=-f.weatherWind.xyz-normalize(f.position.xyz)*12.0f;
         float2 direction=float2(dot(falling,f.right.xyz),-dot(falling,f.up.xyz));
         direction=length(direction)>1?normalize(direction):float2(.12,1);
@@ -257,7 +323,7 @@ fragment float4 compositeClouds(SkyRaster in [[stage_in]],constant FrameUniforms
     }
     // A short-lived world-anchored bolt. Screen-space distances give a thin,
     // bright channel and a broad flash without another volume march.
-    if(f.lightning.w>.01f && cameraHeight<f.clouds.y+3000){
+    if(f.lightning.w>.01f && cameraHeight<lowCloudTop(f)+3000){
         float3 ground=f.lightning.xyz;
         float3 radial=normalize(f.position.xyz*f.body.x+ground);
         float3 top=ground+radial*6500.0f;

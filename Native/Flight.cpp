@@ -61,10 +61,12 @@ bool Flight::setHoverHold(int mode,double target) {
     return true;
 }
 void Flight::setHoverThrottle(double level) {
+    if(issDocked)return;
     glider.hover=std::clamp(level,0.,1.);glider.hoverControl.holdActive=false;glider.hoverControl.resetFeedback();
     if(glider.hover>0)atmospheric.cancel();
 }
 void Flight::setMainThrottle(double level) {
+    if(issDocked)return;
     throttle=std::clamp(level,0.,1.);atmospheric.active[1]=false;atmospheric.speedInitialized=false;
 }
 bool Flight::atmosphericAvailable() const {
@@ -131,7 +133,7 @@ void Flight::load(const std::filesystem::path &path) {
     std::ifstream file(path); if(!file) throw std::runtime_error("Cannot open scenario.");
     Flight candidate; candidate.weatherPreset=weatherPreset;std::string line, focus, blockName;
     BodyRotationState savedRotation;bool hasRotationState=false,environment=false;
-    bool ships=false, selected=false, found=false, orbiting=false, landed=false, gotPos=false, gotVel=false, gotSurface=false, gearSpecified=false, gotVrot=false;
+    bool ships=false, selected=false, stationSelected=false, stationElements=false, found=false, orbiting=false, landed=false, gotPos=false, gotVel=false, gotSurface=false, gearSpecified=false, gotVrot=false;
     double longitude=0,latitude=0,headingAngle=0,clearance=2.53;
     bool gotElements=false; double vals[7]={}; Vector arot,vrot; bool hasArot=false;
     bool hasAtmosphericHolds=false;std::array<int,4> holdEnabled{};std::array<double,4> holdTargets{};
@@ -154,11 +156,17 @@ void Flight::load(const std::filesystem::path &path) {
         auto colon=key.find(':');
         if(colon!=std::string::npos) {
             blockName=key.substr(0,colon);
+            stationSelected=blockName=="ISS"&&key.substr(colon+1)=="ProjectAlpha_ISS";
             selected=(focus.empty() ? !found : blockName==focus) && key.substr(colon+1)=="DeltaGlider";
             if(selected) { found=true; candidate.name=blockName; }
             continue;
         }
-        if(key=="END") { selected=false; continue; }
+        if(key=="END") { selected=false;stationSelected=false;continue; }
+        if(stationSelected){
+            if(key=="ELEMENTS"){stationElements=true;for(double &v:candidate.issOrbit.elements)if(!(s>>v)||!std::isfinite(v))throw std::runtime_error("Invalid ISS orbital elements.");}
+            if(key=="AROT"&&!(s>>candidate.issOrbit.attitude.x>>candidate.issOrbit.attitude.y>>candidate.issOrbit.attitude.z))throw std::runtime_error("Invalid ISS attitude.");
+            continue;
+        }
         if(!selected) continue;
         if(key=="GEAR") gearSpecified=true;
         if(candidate.glider.parse(line)) continue;
@@ -170,6 +178,10 @@ void Flight::load(const std::filesystem::path &path) {
         if(key=="HUDMode") s>>candidate.hud.mode;
         if(key=="HUDBrightness") s>>candidate.hud.brightness;
         if(key=="HUDColour") s>>candidate.hud.colour;
+        if(key=="DOCKINFO"){
+            std::string info;s>>info;int own=-1,target=-1;char name[64]={};
+            if(sscanf(info.c_str(),"%d:%d,%63s",&own,&target,name)==3&&own==0&&std::string(name)=="ISS"&&target>=0&&target<ISSPortCount){candidate.issDocked=true;candidate.issTargetPort=target;}
+        }
         if(key=="DGMAIN") s>>candidate.throttle;
         if(key=="NATIVE_ATMOSPHERIC_HOLDS") {
             for(int i=0;i<4;++i)if(!(s>>holdEnabled[i]>>holdTargets[i])||(holdEnabled[i]!=0&&holdEnabled[i]!=1)||!std::isfinite(holdTargets[i]))
@@ -194,6 +206,12 @@ void Flight::load(const std::filesystem::path &path) {
     // coordinates; restore the previous session state if loading fails.
     struct RotationRollback {BodyRotationState prior=bodyRotationState();bool committed=false;~RotationRollback(){if(!committed)restoreBodyRotationState(prior);}} rollback;
     if(hasRotationState&&!restoreBodyRotationState(savedRotation))throw std::runtime_error("Invalid body rotation state.");
+    if(stationElements&&(candidate.issOrbit.elements[0]<=EarthRadius||candidate.issOrbit.elements[1]<0||candidate.issOrbit.elements[1]>=1||!std::isfinite(candidate.issOrbit.attitude.length2())))throw std::runtime_error("Invalid ISS orbit.");
+    if(candidate.issDocked){
+        if(!stationElements||candidate.reference!=BodyId::Earth)throw std::runtime_error("Docked scenario requires an Earth-orbiting ISS.");
+        attachISS(candidate,issState(candidate.issOrbit,candidate.mjd),candidate.issTargetPort);
+        gotPos=gotVel=true;candidate.glider.command(Part::Nose,1);candidate.glider.part(Part::Nose).position=1;candidate.cutEngines();
+    }
     bool nativeCartesian=gotPos&&gotVel;
     if(landed&&!nativeCartesian) {
         if(!gotSurface||!std::isfinite(latitude)||!std::isfinite(longitude)||!std::isfinite(headingAngle)||!std::isfinite(clearance)||fabs(latitude)>90||clearance<0||clearance>1000)
@@ -215,13 +233,13 @@ void Flight::load(const std::filesystem::path &path) {
        candidate.fuel<0||candidate.fuel>MainCapacity||
        candidate.rcs<0||candidate.rcs>RcsCapacity||!candidate.glider.valid()||!candidate.hud.valid()||!std::isfinite(candidate.throttle)||candidate.throttle<0||candidate.throttle>1)
         throw std::runtime_error("Scenario contains invalid orbital state or fuel quantities.");
-    if(!landed) candidate.align(candidate.velocity);
-    if(hasArot&&(!landed||nativeCartesian)) {
+    if(!landed&&!candidate.issDocked) candidate.align(candidate.velocity);
+    if(hasArot&&(!landed||nativeCartesian)&&!candidate.issDocked) {
         Matrix m; m.Set(Vector(Rad(arot.x),Rad(arot.y),Rad(arot.z)));
         candidate.right=mul(m,Vector(1,0,0)); candidate.up=mul(m,Vector(0,1,0));
         candidate.forward=mul(m,Vector(0,0,1));
     }
-    if(!landed||nativeCartesian||gotVrot) candidate.angularVelocity=vrot*RAD;
+    if((!landed||nativeCartesian||gotVrot)&&!candidate.issDocked) candidate.angularVelocity=vrot*RAD;
     candidate.groundContact=landed;
     if(hasAtmosphericHolds){
         for(int i=0;i<4;++i){
@@ -241,7 +259,9 @@ void Flight::save(const std::filesystem::path &path) const {
     auto rotation=bodyRotationState();if(rotation.paused||rotation.offset!=0)
         f<<"  BODYROTATION "<<(rotation.paused?1:0)<<' '<<rotation.offset<<' '<<rotation.frozenDate<<'\n';
     f<<"  NATIVE_WEATHER "<<weatherPreset<<'\n';
-    f<<"END_ENVIRONMENT\n\nBEGIN_FOCUS\n  Ship "<<name<<"\nEND_FOCUS\n\nBEGIN_SHIPS\n"<<name
+    f<<"END_ENVIRONMENT\n\nBEGIN_FOCUS\n  Ship "<<name<<"\nEND_FOCUS\n\nBEGIN_SHIPS\nISS:ProjectAlpha_ISS\n  STATUS Orbiting Earth\n  ELEMENTS";
+    for(double v:issOrbit.elements)f<<' '<<v;
+    f<<"\n  AROT "<<issOrbit.attitude.x<<' '<<issOrbit.attitude.y<<' '<<issOrbit.attitude.z<<"\nEND\n"<<name
      <<":DeltaGlider\n  STATUS "<<(groundContact?"Landed":"Orbiting")<<' '<<centralBody().name<<"\n  RPOS "<<position.x<<' '<<position.y<<' '<<position.z
      <<"\n  RVEL "<<velocity.x<<' '<<velocity.y<<' '<<velocity.z
      <<"\n  AROT "<<Deg(angles.x)<<' '<<Deg(angles.y)<<' '<<Deg(angles.z)
@@ -250,6 +270,7 @@ void Flight::save(const std::filesystem::path &path) const {
      <<"\n  HUDMode "<<hud.mode<<"\n  HUDBrightness "<<hud.brightness<<"\n  HUDColour "<<hud.colour<<'\n';
     if(groundContact) {double lat,lng;bodyCoordinates(reference,position,mjd,elapsed,lat,lng);f<<"  POS "<<Deg(lng)<<' '<<Deg(lat)<<"\n  HEADING "<<Deg(heading())<<"\n  ALT "<<altitude()<<'\n';}
     f<<"  DGMAIN "<<throttle<<'\n';
+    if(issDocked)f<<"  DOCKINFO 0:"<<issTargetPort<<",ISS\n";
     if(atmospheric.engaged()){
         f<<"  NATIVE_ATMOSPHERIC_HOLDS";
         for(int i=0;i<4;++i)f<<' '<<(atmospheric.active[i]?1:0)<<' '<<atmospheric.target[i];
@@ -270,6 +291,24 @@ void Flight::startOrbit(BodyId id){
     Vector sun=ephemeridesReady()&&id!=BodyId::Sun?(-bodyState(id,mjd).position).unit():Vector(.32,.84,-.44).unit();
     Vector radial=(sun*.95+b.pole()*.25).unit();position=radial*radius;
     velocity=crossp(b.pole(),radial).unit()*sqrt(b.mu()/radius);align(velocity);assist=Assist::Prograde;
+}
+void Flight::startISSApproach(){
+    double date=mjd+elapsed/86400.;bool automatic=automaticReferenceChanges;
+    *this=Flight();mjd=date;automaticReferenceChanges=automatic;issTargetPort=0;
+    auto station=issState(issOrbit,mjd);attachISS(*this,station,issTargetPort);
+    auto t=issDockingTelemetry(*this,station,issTargetPort);
+    Vector offset=position-station.position;
+    double along=dotp(offset,t.direction),side2=offset.length2()-along*along;
+    position+=t.direction*(sqrt(std::max(0.,2500.-side2))-along);
+    velocity=station.velocity;
+    glider.part(Part::Nose).position=glider.part(Part::Nose).target=1;
+    glider.rcsMode=2;hud.select(3);clearAssist();
+}
+void Flight::undockISS(){
+    if(!issDocked)return;
+    auto station=issState(issOrbit,mjd+elapsed/86400.);
+    auto t=issDockingTelemetry(*this,station,issTargetPort);
+    issDocked=false;issCaptureArmed=false;velocity=station.velocity+t.direction*.2;
 }
 void Flight::setRotationPaused(bool paused){
     if(paused==bodyRotationsPaused())return;
@@ -487,6 +526,12 @@ void Flight::step(double dt,const Input &input) {
 }
 void Flight::advance(double realSeconds,const Input &input) {
     if(paused||impacted||realSeconds<=0||!std::isfinite(realSeconds)) return;
+    if(issDocked){
+        double dt=std::min(realSeconds,.1)*std::clamp(warp,1.0,MaximumTimeAcceleration);
+        cutEngines();glider.part(Part::Nose).target=1;glider.advance(dt,0,0);elapsed+=dt;
+        attachISS(*this,issState(issOrbit,mjd+elapsed/86400.),issTargetPort);
+        acceleration=0;return;
+    }
     if(assist!=Assist::Free&&atmospheric.engaged())atmospheric.cancel();
     if(input.pitch)atmospheric.active[0]=false;
     if(input.roll||input.yaw){atmospheric.active[2]=false;atmospheric.active[3]=false;}
@@ -506,6 +551,17 @@ void Flight::advance(double realSeconds,const Input &input) {
         for(int i=0;i<steps&&!impacted;++i) step(dt/steps,input);
     }
     elapsed+=dt;
+    if(reference==BodyId::Earth){
+        auto station=issState(issOrbit,mjd+elapsed/86400.);
+        if((position-station.position).length()<1000){
+            auto t=issDockingTelemetry(*this,station,issTargetPort);
+            if(!issCaptureArmed&&t.distance>2)issCaptureArmed=true;
+            if(issCaptureArmed&&issDockCapture(*this,t)){
+                issDocked=true;cutEngines();clearAssist();atmospheric.cancel();
+                attachISS(*this,station,issTargetPort);
+            }
+        }else issCaptureArmed=true;
+    }
     if(automaticReferenceChanges&&ephemeridesReady())updateReference();
     Vector relativeVelocity=velocity-crossp(centralBody().spin(),position);
     groundSpeed=(relativeVelocity-position.unit()*dotp(relativeVelocity,position.unit())).length();
