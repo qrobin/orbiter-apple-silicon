@@ -20,7 +20,7 @@ struct FrameUniforms {
     VFLOAT4 lightning; // ground strike relative to the camera, flash intensity
     VFLOAT4 previousRight,previousUp,previousForward,previousPosition;
     VFLOAT4 body,haze,equatorX,pole,equatorZ,surfaceColor;
-    VFLOAT4 sunShape; // apparent solar angular radius; flare intensity; test halo disable
+    VFLOAT4 sunShape; // apparent solar radius; flare intensity; test halo disable; irradiance at camera (1 at 1 AU)
 };
 struct CelestialUniforms { VFLOAT4 directionRadius,axisX,pole,axisZ,light,material,rings; };
 struct EmitterUniforms { VFLOAT4 positionLevel,directionRadius,style; };

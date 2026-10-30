@@ -10,6 +10,19 @@ void ReadData(const char*,int);int posired(double,int,double*,double*);
 namespace {std::string moonFile;}
 const char *NativeMoonDataFile(){return moonFile.c_str();}
 namespace native {
+double solarIrradiance(double distance){
+    if(!std::isfinite(distance)||distance<=0)return 0;
+    double ratio=AU/distance;return std::min(64.0,ratio*ratio);
+}
+double solarDiscVisibility(double sunRadius,double occluderRadius,double separation){
+    if(!std::isfinite(sunRadius)||!std::isfinite(occluderRadius)||!std::isfinite(separation)||sunRadius<=0||occluderRadius<=0||separation<0)return 1;
+    if(separation>=sunRadius+occluderRadius)return 1;
+    if(separation<=fabs(occluderRadius-sunRadius))return occluderRadius>=sunRadius?0:1-(occluderRadius*occluderRadius)/(sunRadius*sunRadius);
+    double a=std::clamp((separation*separation+sunRadius*sunRadius-occluderRadius*occluderRadius)/(2*separation*sunRadius),-1.,1.);
+    double b=std::clamp((separation*separation+occluderRadius*occluderRadius-sunRadius*sunRadius)/(2*separation*occluderRadius),-1.,1.);
+    double area=sunRadius*sunRadius*acos(a)+occluderRadius*occluderRadius*acos(b)-.5*sqrt(std::max(0.,(-separation+sunRadius+occluderRadius)*(separation+sunRadius-occluderRadius)*(separation-sunRadius+occluderRadius)*(separation+sunRadius+occluderRadius)));
+    return std::clamp(1-area/(Pi*sunRadius*sunRadius),0.,1.);
+}
 namespace {
 struct Term {double a,b,c;};
 struct Series {std::array<std::array<std::vector<Term>,6>,3> terms;};

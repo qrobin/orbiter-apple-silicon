@@ -17,6 +17,10 @@ int main(){try{
     check(body(BodyId::Venus).spin().length()>0&&body(BodyId::Venus).period<0,"Retrograde Venus rotation");
     check(body(BodyId::Moon).mu()/(1738000.*1738000.)>1.6&&body(BodyId::Moon).mu()/(1738000.*1738000.)<1.7,"Lunar surface gravity");
     double date=51982.5292925579;
+    check(fabs(solarIrradiance(AU)-1)<1e-12&&fabs(solarIrradiance(2*AU)-.25)<1e-12,"Solar irradiance follows the inverse square law");
+    check(solarDiscVisibility(.01,.02,.04)==1&&solarDiscVisibility(.01,.02,0)==0,"Solar eclipse clear and total cases");
+    double partial=solarDiscVisibility(.01,.01,.01);check(partial>.60&&partial<.62,"Partial eclipse retains the unobscured solar disc fraction");
+    check(fabs(solarDiscVisibility(.02,.01,0)-.75)<1e-12,"Annular eclipse preserves the visible solar ring");
     auto tmp=std::filesystem::temp_directory_path()/"orbiter-native-solar-test.scn";
     for(const auto &b:bodies()){
         std::string label=b.name;check(b.mass>0&&b.radius>0&&std::isfinite(b.mu()),label+" physical data");

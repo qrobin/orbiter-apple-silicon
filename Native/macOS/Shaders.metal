@@ -2,6 +2,8 @@
 using namespace metal;
 using Frame=FrameUniforms;
 struct Object { float4x4 model; float4 color; float4 options; float4 specular; float4 emission; };
+float3 earthSunTransmission(constant Frame &f);
+float solarIntensity(constant Frame &f){return f.sunShape.w>0?f.sunShape.w:1.0f;}
 struct SwitchUniform { float4 pivotAngle,axisStart,range; };
 struct Vertex { packed_float3 position; packed_float3 normal; packed_float2 uv; };
 struct Raster { float4 position [[position]]; float3 normal; float2 uv; float3 world; float3 local; };
@@ -48,7 +50,7 @@ float4 shadeMesh(Raster in,constant Frame &f,constant Object &o,texture2d<float>
     if(albedo.a<.03) discard_fragment();
     float3 normal=normalize(in.normal);
     if(dot(normal,-in.world)<0) normal=-normal;
-    float lit=max(0.0f,dot(normal,f.sun.xyz))*f.sun.w*sunVisibility;
+    float lit=max(0.0f,dot(normal,f.sun.xyz))*f.sun.w*sunVisibility*solarIntensity(f);
     float cloudShade=1;
     if(f.environment.y<f.clouds.y&&f.clouds.z>0){
         float2 shadowUV=in.position.xy/f.screen.xy;
@@ -63,7 +65,8 @@ float4 shadeMesh(Raster in,constant Frame &f,constant Object &o,texture2d<float>
     float planetDay=smoothstep(-.2f,.3f,dot(radial,f.sun.xyz))*f.sun.w;
     float bounce=planetSize*planetSize*max(0.0f,dot(normal,-radial))*planetDay*.13f;
     float skylight=exp(-max(0.0f,f.environment.y)/9000.0f)*f.body.y*planetDay*.035f;
-    float3 color=albedo.rgb*(.006f+o.options.y+lit*.8f+skylight+o.emission.rgb)+albedo.rgb*float3(.76,.84,1.0)*bounce+spec;
+    float3 sunlight=int(f.surfaceColor.w)==3?earthSunTransmission(f):float3(1);
+    float3 color=albedo.rgb*(.006f+o.options.y+skylight+o.emission.rgb)+albedo.rgb*sunlight*lit*.8f+albedo.rgb*float3(.76,.84,1.0)*bounce*solarIntensity(f)+spec*sunlight;
     // A low-cost hemispheric fill approximates sunlight scattered back down
     // by cloud cover; it softens shadows without making clouds emit at night.
     if(int(f.surfaceColor.w)==3&&f.clouds.z>0){
@@ -159,7 +162,7 @@ AirLight earthAirLight(constant Frame &f,float3 ray,float maximumDistance){
     float cosine=dot(ray,f.sun.xyz),phaseR=.75f*(1+cosine*cosine),g=.76f;
     float phaseM=(1-g*g)/pow(max(.03f,1+g*g-2*g*cosine),1.5f);
     float sunMu=dot(normalize(f.position.xyz),f.sun.xyz);
-    float sunlight=smoothstep(-.10f,.04f,sunMu);
+    float sunlight=smoothstep(-.10f,.04f,sunMu)*solarIntensity(f);
     // At sunset much of the visible sky scatters sunlight higher than the
     // observer. Approximate that shorter solar path instead of applying the
     // low-altitude, heavily reddened Sun transmission to the entire sky.
@@ -207,7 +210,7 @@ fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buf
         float day=smoothstep(-.06f,.06f,dot(n,f.sun.xyz)),light=max(0.0f,dot(n,f.sun.xyz));
         float cloudShade=shadows.sample(s,in.position.xy/f.screen.xy).r;
         if(f.pole.w>0){float den=dot(f.sun.xyz,f.pole.xyz);float ts=-dot(n,f.pole.xyz)/(abs(den)>.0001?den:.0001f);float3 point=n+f.sun.xyz*ts;float r=length(point);if(ts>0&&r>f.pole.w&&r<f.equatorZ.w)cloudShade*=1-ringMaterial(point,ray,f.pole.xyz,f.pole.w,f.equatorZ.w,f.sun.xyz,rings).a*.85;}
-        color=base*(.025+light*cloudShade)*day+base*.008*(1-day);
+        color=base*(.025+light*cloudShade*solarIntensity(f))*day+base*.008*(1-day);
         if(earth&&f.clouds.z>0){
             float cloudFill=f.clouds.z*day*f.sun.w*(.025f+.07f*(1-cloudShade));
             float3 tint=mix(float3(1,.58,.35),float3(.8,.87,1),smoothstep(.02f,.3f,dot(n,f.sun.xyz)));
@@ -245,7 +248,7 @@ fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buf
                 float glint=pow(max(0.0f,dot(waveNormal,halfVector)),storm>.5f?96.0f:220.0f);
                 float fresnelWater=pow(1-max(0.0f,dot(waveNormal,-ray)),5.0f);
                 float waveLight=max(0.0f,dot(waveNormal,f.sun.xyz));
-                float3 ocean=base*(.025+waveLight*cloudShade)*day+base*.008*(1-day);
+                float3 ocean=base*(.025+waveLight*cloudShade*solarIntensity(f))*day+base*.008*(1-day);
                 // The source globe's open-ocean pixels are almost black;
                 // add a subtle blue contribution from the sky at low altitude.
                 ocean+=float3(.001,.006,.018)*(.25f+.75f*day);
@@ -266,7 +269,7 @@ fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buf
                     }
                     ocean+=reflection*(.04f+.38f*fresnelWater);
                 }
-                ocean+=sunGlint*glint*.16f*day*cloudShade;
+                ocean+=sunGlint*glint*.16f*day*cloudShade*solarIntensity(f);
                 float crest=swell.b*.35f+waves.b*.25f+chop.b*.25f+ripples.b*.15f;
                 float foam=smoothstep(.60f,.78f,crest)*smoothstep(.04f,.17f,length(slope))*storm*.08f;
                 ocean=mix(ocean,float3(.5,.57,.58)*(.12+.88*day)*cloudShade,foam);

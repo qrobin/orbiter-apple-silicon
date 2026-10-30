@@ -1,5 +1,6 @@
 // Cloud volumes, temporal reconstruction and exhaust implemented directly in Metal.
 float earthSunHaze(constant FrameUniforms &f);
+float solarIntensity(constant FrameUniforms &f);
 uint visualHash(uint x) { x^=x>>16;x*=0x7feb352du;x^=x>>15;x*=0x846ca68bu;return x^(x>>16); }
 float visualRandom(uint x) { return float(visualHash(x)&0xffffffu)/16777216.0f; }
 float noiseCorner(int3 p,int period) {
@@ -190,7 +191,7 @@ kernel void marchClouds(constant FrameUniforms &f [[buffer(0)]],constant uint &f
         float mu=dot(center,f.sun.xyz),day=smoothstep(-.08f,.12f,mu)*f.sun.w;
         float g=.55,cosTheta=dot(ray,f.sun.xyz);
         float phase=(1-g*g)/pow(max(.05f,1+g*g-2*g*cosTheta),1.5f);
-        float3 sunlight=mix(float3(1.20,.40,.20),float3(1.20,1.25,1.32),smoothstep(.02f,.35f,mu));
+        float3 sunlight=mix(float3(1.20,.40,.20),float3(1.20,1.25,1.32),smoothstep(.02f,.35f,mu))*solarIntensity(f);
         float3 ambient=mix(float3(.003,.005,.012),mix(float3(.065,.065,.085),float3(.15,.20,.29),smoothstep(.02f,.3f,mu)),day);
         float jitter=visualRandom(id.x+id.y*1973u+frameIndex*26699u);
         for(int i=0;i<48;++i){
@@ -283,7 +284,7 @@ fragment float4 compositeClouds(SkyRaster in [[stage_in]],constant FrameUniforms
             // are heavily obscured by atmospheric haze at the horizon.
             float alpha=(1-pow(max(.001f,1-coverage),1/mu))*smoothstep(.025f,.12f,viewCosine);
             float daylight=smoothstep(-.08f,.10f,dot(normal,f.sun.xyz))*f.sun.w;
-            float3 illumination=mix(float3(.005,.008,.018),float3(.85,.91,1.0)*(0.30+0.42*max(0.0f,dot(normal,f.sun.xyz)))*mix(.70f,1.0f,mask)*detailLight,daylight);
+            float3 illumination=mix(float3(.005,.008,.018),float3(.85,.91,1.0)*(0.30+0.42*max(0.0f,dot(normal,f.sun.xyz)))*mix(.70f,1.0f,mask)*detailLight*solarIntensity(f),daylight);
             cloud=mix(cloud,float4(illumination*alpha,alpha),orbital);
         }else cloud*=1-orbital;
     }
