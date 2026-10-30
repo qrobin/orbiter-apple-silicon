@@ -39,14 +39,16 @@ float2 terrestrialUV(float3 p,constant FrameUniforms &f) {
 }
 // Regional coverage varies slowly compared with the volume noise. Sample once
 // per ray instead of once per density and sunlight step.
+float regionalCloudCoverage(float observed,float weather) {
+    float region=smoothstep(.32f,.90f,observed);
+    if(weather>.5&&weather<1.5)region*=.18f;
+    if(weather>2.5&&weather<3.5)region=max(region,.72f);
+    else if(weather>1.5&&weather<2.5)region=max(region,.25f);
+    return region;
+}
 float cloudRegion(float3 p,constant FrameUniforms &f,texture2d<float> cloudMap) {
     constexpr sampler mapSampler(filter::linear,mip_filter::linear,s_address::repeat,t_address::clamp_to_edge);
-    float observed=cloudMap.sample(mapSampler,terrestrialUV(p,f),level(0)).r;
-    float region=smoothstep(.32f,.90f,observed);
-    if(f.weather.x>.5&&f.weather.x<1.5)region*=.18f;
-    if(f.weather.x>2.5&&f.weather.x<3.5)region=max(region,.72f);
-    else if(f.weather.x>1.5&&f.weather.x<2.5)region=max(region,.25f);
-    return region;
+    return regionalCloudCoverage(cloudMap.sample(mapSampler,terrestrialUV(p,f),level(0)).r,f.weather.x);
 }
 float lowCloudTop(constant FrameUniforms &f) {
     return min(f.clouds.y,6500.0f+2500.0f*saturate(f.clouds.w));
@@ -263,7 +265,7 @@ fragment float4 compositeClouds(SkyRaster in [[stage_in]],constant FrameUniforms
             float3 point=origin+ray*distance,normal=normalize(point);
             constexpr sampler mapSampler(filter::linear,mip_filter::linear,s_address::repeat,t_address::clamp_to_edge);
             float mask=earthCloudMap.sample(mapSampler,terrestrialUV(point,f)).r;
-            float coverage=saturate(smoothstep(.32f,.90f,mask)*min(1.5f,f.clouds.z/.48f));
+            float coverage=saturate(regionalCloudCoverage(mask,f.weather.x)*min(1.5f,f.clouds.z/.48f));
             float detailLight=1;
             // At low orbital altitude, add sub-map cloud structure sampled
             // from the existing 3D noise volume. Fade before it aliases from afar.
@@ -277,8 +279,6 @@ fragment float4 compositeClouds(SkyRaster in [[stage_in]],constant FrameUniforms
                 coverage=saturate(coverage+variation*detailWeight*smoothstep(.03f,.4f,coverage)*(1-.5f*coverage));
                 detailLight=clamp(1+variation*.55f*detailWeight,.75f,1.15f);
             }
-            if(f.weather.x>2.5&&f.weather.x<3.5)coverage=max(coverage,.72f);
-            else if(f.weather.x>1.5&&f.weather.x<2.5)coverage=max(coverage,.25f);
             float viewCosine=abs(dot(normal,ray)),mu=max(.55f,viewCosine);
             // Grazing cloud-shell intersections occupy less than a pixel and
             // are heavily obscured by atmospheric haze at the horizon.

@@ -73,6 +73,13 @@ int main(){@autoreleasepool{
     auto orbitalHigh=render(.48);activeCloudMap=reduced;auto orbitalLow=render(.48);activeCloudMap=cloudMap;
     size_t detail=0;for(size_t i=0;i<orbitalHigh.size();i+=4)if(abs(int(orbitalHigh[i])-int(orbitalLow[i]))>3)++detail;
     require(detail>1000,"8K satellite clouds add visible structure in low orbit");
+    auto orbitalClear=render(0);f.weather.x=1;auto orbitalScattered=render(.48);f.weather.x=4;
+    double scatteredChange=0,regionalChange=0;
+    for(size_t i=0;i<orbitalHigh.size();i+=4)for(int c=0;c<3;++c){
+        scatteredChange+=abs(int(orbitalScattered[i+c])-int(orbitalClear[i+c]));
+        regionalChange+=abs(int(orbitalHigh[i+c])-int(orbitalClear[i+c]));
+    }
+    require(scatteredChange>0&&scatteredChange<regionalChange*.55,"Scattered weather must reduce orbital cloud coverage as it does nearby");
     NSString *orbitPath=NSProcessInfo.processInfo.environment[@"ORBITER_LOW_ORBIT_PREVIEW"];
     if(orbitPath.length){NSBitmapImageRep *rep=[[NSBitmapImageRep alloc] initWithBitmapDataPlanes:nullptr pixelsWide:width pixelsHigh:height bitsPerSample:8 samplesPerPixel:4 hasAlpha:YES isPlanar:NO colorSpaceName:NSCalibratedRGBColorSpace bytesPerRow:width*4 bitsPerPixel:32];memcpy(rep.bitmapData,orbitalHigh.data(),orbitalHigh.size());[[rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:orbitPath atomically:YES];}
     // The local horizontal direction is not an atmosphere boundary: sky
