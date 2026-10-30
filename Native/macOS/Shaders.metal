@@ -238,7 +238,21 @@ fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buf
                 if(f.clouds.z>0){float3 tint=mix(float3(1,.58,.35),float3(.8,.87,1),smoothstep(.02f,.3f,dot(n,f.sun.xyz)));ocean+=base*tint*f.clouds.z*day*f.sun.w*(.025f+.07f*(1-cloudShade));}
                 float lowSun=1-smoothstep(.05f,.35f,dot(n,f.sun.xyz));
                 float3 sunGlint=mix(float3(.45,.55,.64),float3(.65,.34,.22),lowSun);
-                ocean+=(sunGlint*glint*.16f+float3(.45,.55,.64)*fresnelWater*.15f)*day*cloudShade;
+                float3 reflected=reflect(ray,waveNormal);
+                if(dot(reflected,n)>0){
+                    AirLight reflectedAir=earthAirLight(f,reflected,1e25f);
+                    float3 reflection=starMap.sample(stars,skyCoordinates(reflected)).rgb*1.35f*reflectedAir.transmission+reflectedAir.scattering;
+                    if(f.clouds.z>0){
+                        float mu=dot(n,reflected);float2 shell=cloudShellRoots(0,f.clouds.x,mu,radius);
+                        float3 cloudPoint=n*radius+reflected*max(0.0f,shell.y);
+                        float coverage=cloudMap.sample(s,terrestrialUV(cloudPoint,f)).r;
+                        float alpha=smoothstep(.32f,.90f,coverage)*saturate(f.clouds.z*1.8f);
+                        float3 cloudLight=mix(float3(.12,.14,.19),float3(.85,.90,.97),day)*(.4f+.6f*cloudShade);
+                        reflection=mix(reflection,cloudLight,alpha);
+                    }
+                    ocean+=reflection*(.04f+.38f*fresnelWater);
+                }
+                ocean+=sunGlint*glint*.16f*day*cloudShade;
                 float crest=swell.b*.35f+waves.b*.25f+chop.b*.25f+ripples.b*.15f;
                 float foam=smoothstep(.60f,.78f,crest)*smoothstep(.04f,.17f,length(slope))*storm*.08f;
                 ocean=mix(ocean,float3(.5,.57,.58)*(.12+.88*day)*cloudShade,foam);

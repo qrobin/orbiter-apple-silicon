@@ -142,6 +142,9 @@ int main(){@autoreleasepool{
     f.environment.w=1;f.weather.x=0;auto calmWater=render(0);f.weather.x=3;auto stormWater=render(0);
     size_t rough=0;for(size_t i=0;i<calmWater.size();i+=4)if(abs(int(calmWater[i])-int(stormWater[i]))>2)++rough;
     require(rough>1000,"Storm conditions visibly change ocean roughness");
+    f.weather.x=0;activeCloudMap=zero;auto clearReflection=render(.48);activeCloudMap=white;auto cloudReflection=render(.48);activeCloudMap=cloudMap;
+    size_t reflected=0;for(size_t i=0;i<clearReflection.size();i+=4)if(abs(int(clearReflection[i])-int(cloudReflection[i]))>2)++reflected;
+    require(reflected>1000,"Cloud coverage affects reflected light on water");
     float lat=15*M_PI/180,lon=20*M_PI/180;simd_float3 normal={cosf(lat)*cosf(lon),sinf(lat),cosf(lat)*sinf(lon)};
     f.position={normal.x*(1+5000.0f/6371010),normal.y*(1+5000.0f/6371010),normal.z*(1+5000.0f/6371010),0};
     f.forward={-normal.x,-normal.y,-normal.z,0};f.right={-sinf(lon),0,cosf(lon),0};f.up={-sinf(lat)*cosf(lon),cosf(lat),-sinf(lat)*sinf(lon),0};f.sun={normal.x,normal.y,normal.z,1};
