@@ -1,5 +1,6 @@
 #include "Mesh.h"
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <fstream>
 #include <sstream>
@@ -12,15 +13,18 @@ Mesh loadMesh(const std::filesystem::path &path) {
         if(s.find_first_not_of(" \r\t")!=std::string::npos) return s;
     } throw std::runtime_error("Truncated spacecraft mesh."); };
     if(line()!="MSHX1") throw std::runtime_error("Unsupported mesh format.");
-    Mesh mesh; std::string tag; size_t count; std::istringstream(line())>>tag>>count;
+    Mesh mesh; std::string tag; size_t count; std::string header=line();
+    if(header=="STATICMESH") header=line();
+    std::istringstream(header)>>tag>>count;
     if(tag!="GROUPS"||count>10000) throw std::runtime_error("Invalid mesh group count.");
     for(size_t n=0;n<count;++n) {
-        MeshGroup g; size_t nv=0,nt=0;
+        MeshGroup g; size_t nv=0,nt=0; bool noNormal=false;
         while(true) {
             std::istringstream s(line()); s>>tag;
             if(tag=="MATERIAL") { s>>g.material; if(g.material) --g.material; }
             if(tag=="TEXTURE") s>>g.texture;
             if(tag=="LABEL") std::getline(s,g.label);
+            if(tag=="NONORMAL") noNormal=true;
             if(tag=="GEOM") { s>>nv>>nt; break; }
         }
         if(nv>1000000||nt>1000000) throw std::runtime_error("Mesh geometry exceeds limits.");
@@ -28,13 +32,23 @@ Mesh loadMesh(const std::filesystem::path &path) {
         for(size_t j=0;j<nv;++j) {
             Vertex v{}; std::istringstream s(line());
             if(!(s>>v.x>>v.y>>v.z)) throw std::runtime_error("Invalid mesh vertex.");
-            s>>v.nx>>v.ny>>v.nz>>v.u>>v.v;
+            if(noNormal) s>>v.u>>v.v;
+            else s>>v.nx>>v.ny>>v.nz>>v.u>>v.v;
             g.vertices.push_back(v);
         }
         for(size_t j=0;j<nt;++j) {
             uint32_t a,b,c; std::istringstream s(line());
             if(!(s>>a>>b>>c)||a>=nv||b>=nv||c>=nv) throw std::runtime_error("Invalid mesh triangle.");
             g.indices.insert(g.indices.end(),{a,b,c});
+        }
+        if(noNormal) {
+            for(size_t j=0;j<g.indices.size();j+=3) {
+                auto &a=g.vertices[g.indices[j]],&b=g.vertices[g.indices[j+1]],&c=g.vertices[g.indices[j+2]];
+                float ux=b.x-a.x,uy=b.y-a.y,uz=b.z-a.z,vx=c.x-a.x,vy=c.y-a.y,vz=c.z-a.z;
+                float nx=uy*vz-uz*vy,ny=uz*vx-ux*vz,nz=ux*vy-uy*vx;
+                for(auto *v:{&a,&b,&c}){v->nx+=nx;v->ny+=ny;v->nz+=nz;}
+            }
+            for(auto &v:g.vertices){float len=std::sqrt(v.nx*v.nx+v.ny*v.ny+v.nz*v.nz);if(len>1e-12f){v.nx/=len;v.ny/=len;v.nz/=len;}else v.ny=1;}
         }
         mesh.groups.push_back(std::move(g));
     }
@@ -51,8 +65,15 @@ Mesh loadMesh(const std::filesystem::path &path) {
     if(tag!="TEXTURES"||count>10000) throw std::runtime_error("Missing mesh textures.");
     for(size_t j=0;j<count;++j) { std::string name; std::istringstream(line())>>name;
         std::replace(name.begin(),name.end(),'\\','/'); mesh.textures.push_back(name); }
-    for(const auto &g:mesh.groups) if(g.material>=mesh.materials.size()||g.texture>mesh.textures.size())
-        throw std::runtime_error("Mesh references an invalid material or texture.");
+    for(auto &g:mesh.groups) {
+        // The original ISS mesh repeats two material slots and numbers its
+        // last two slots beyond MATERIALS 36. Its texture slots identify the
+        // matching original materials for these six groups.
+        if(path.filename()=="ProjectAlpha_ISS.msh"&&g.texture>0&&g.texture<=mesh.materials.size()&&g.material!=g.texture-1)
+            g.material=g.texture-1;
+        if(g.material>=mesh.materials.size()||g.texture>mesh.textures.size())
+            throw std::runtime_error("Mesh references an invalid material or texture: "+path.string());
+    }
     return mesh;
 }
 static uint32_t u32(const uint8_t *p) { return uint32_t(p[0])|uint32_t(p[1])<<8|uint32_t(p[2])<<16|uint32_t(p[3])<<24; }

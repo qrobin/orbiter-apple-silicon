@@ -70,6 +70,19 @@ int main() { try {
         auto tex=loadDDS(root/"Src/Vessel/DeltaGlider/Textures"/file);
         check(tex.rgba.size()==size_t(tex.width)*tex.height*4,"original DDS decodes");
     }
+    auto station=loadMesh(root/"Src/Vessel/ISS/Meshes/ProjectAlpha_ISS.msh");
+    check(station.groups.size()==42&&station.textures.size()==36,"original ISS mesh parses");
+    check(station.groups[0].vertices[0].u==1,"ISS mesh reads UVs without normals");
+    for(const auto &g:station.groups){
+        check(g.material<station.materials.size()&&g.texture<=station.textures.size(),"ISS material and texture indices");
+        for(const auto &v:g.vertices)check(std::isfinite(v.nx)&&std::isfinite(v.ny)&&std::isfinite(v.nz),"ISS normals are finite");
+    }
+    for(const auto &name:station.textures){
+        auto file=std::filesystem::path(name).filename().string();
+        std::transform(file.begin(),file.end(),file.begin(),[](unsigned char c){return std::tolower(c);});
+        auto tex=loadDDS(root/"Src/Vessel/ISS/Textures"/file);
+        check(tex.rgba.size()==size_t(tex.width)*tex.height*4,"original ISS DDS decodes");
+    }
     std::cout<<"PASS: "<<checks<<" checks; "<<mesh.groups.size()<<" groups, "<<triangles<<" triangles\n";
     return 0;
 } catch(const std::exception &e) { std::cerr<<"FAIL after "<<checks<<" checks: "<<e.what()<<'\n'; return 1; } }
