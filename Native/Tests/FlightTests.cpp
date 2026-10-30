@@ -63,6 +63,8 @@ int main() { try {
     auto mesh=loadMesh(root/"Src/Vessel/DeltaGlider/Meshes/deltaglider_ns.msh");
     check(mesh.groups.size()==122&&mesh.textures.size()==10,"original Delta glider mesh parses");
     check(fabs(mesh.materials[1].power-40)<.001&&mesh.materials[1].specular[0]>.8f&&mesh.materials[1].emissive[0]>.7f,"original specular and emissive material properties load");
+    auto cockpitSkin=loadDDS(root/"Src/Vessel/DeltaGlider/Textures2/dgmk4_2.dds");
+    check(cockpitSkin.width==1024&&cockpitSkin.height==1024,"high-resolution original cockpit skin loads");
     size_t triangles=0; for(const auto &g:mesh.groups) triangles+=g.indices.size()/3;
     check(triangles>10000,"complete mesh topology");
     for(auto &name:mesh.textures) {
