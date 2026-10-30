@@ -117,6 +117,11 @@ struct GpuGroup { id<MTLBuffer> vertices,indices; NSUInteger count; size_t mater
 @property(nonatomic,strong) TransXPanel *navigationPanel;
 @property(nonatomic,strong) RoutePanel *routePanel;
 @property(nonatomic,strong) Panel2DView *panel2D;
+@property(nonatomic,strong) NSPanel *settingsWindow;
+@property(nonatomic,strong) NSSlider *fovSlider;
+@property(nonatomic,strong) NSTextField *fovValue;
+- (void)showSettings:(id)sender;
+- (void)changeFieldOfView:(NSSlider *)sender;
 - (void)resetFlight:(id)sender;
 - (void)demonstrateGlider:(id)sender;
 - (void)startSurface:(id)sender;
@@ -360,6 +365,9 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         @throw [NSException exceptionWithName:@"Weather map unavailable" reason:@"The Earth weather data could not be loaded." userInfo:nil];
     activeCockpitControl=-1;cockpitPitch=-.25;restartBody=-1;lastBody=BodyId::Earth;
     held.fill(false);lastMfdLabels.fill(false);transxMfd.fill(false);transxAlignDisplay=-1;transxAlignBody=flight.reference;transxRefresh=0; externalCamera.yaw=-.55; externalCamera.pitch=.32; externalCamera.distance=43; helpVisible=false; orbitVisible=true;
+    NSNumber *savedFov=[NSUserDefaults.standardUserDefaults objectForKey:@"FieldOfViewDegrees"];
+    double fov=savedFov&&std::isfinite(savedFov.doubleValue)?std::clamp(savedFov.doubleValue,15.,85.):50.;
+    cockpitCamera.fov=externalCamera.fieldOfView=externalCamera.groundFov=fov*RAD;
     self.colorPixelFormat=MTLPixelFormatBGRA8Unorm_sRGB; self.depthStencilPixelFormat=MTLPixelFormatDepth32Float;
     self.sampleCount=[device supportsTextureSampleCount:4]?4:1;self.clearDepth=0;
     self.preferredFramesPerSecond=120; self.framebufferOnly=NO; self.clearColor=MTLClearColorMake(0,0,0,1);
@@ -542,7 +550,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     if(cockpit) { offset=flight.up*1.467+flight.forward*6.782; dir=panelView?flight.forward:(flight.forward*(cos(cockpitYaw)*cos(cockpitPitch))+flight.right*(sin(cockpitYaw)*cos(cockpitPitch))+flight.up*sin(cockpitPitch)).unit(); up=flight.up; }
     if(freeCamera.active){freeCamera.changeReference(flight.reference,flight.mjd+flight.elapsed/86400.);offset=freeCamera.position-flight.position;dir=freeCamera.direction();up=freeCamera.up();}
     Vector cameraRight=crossp(up,dir).unit(),cameraUp=crossp(dir,cameraRight).unit();
-    float aspect=self.drawableSize.width/std::max(1.,self.drawableSize.height),tanHalf=freeCamera.active?tan(25*RAD):cockpit?(panelView?tan(50*RAD*.5):cockpitCamera.tanHalfFov()):externalCamera.tanHalfFov();
+    float aspect=self.drawableSize.width/std::max(1.,self.drawableSize.height),tanHalf=freeCamera.active?tan(externalCamera.fieldOfView*.5):cockpit?(panelView?tan(externalCamera.fieldOfView*.5):cockpitCamera.tanHalfFov()):externalCamera.tanHalfFov();
     FrameUniforms uniforms{}; uniforms.projection=projection(aspect,tanHalf);
     uniforms.right=f4(cameraRight); uniforms.up=f4(cameraUp); uniforms.forward=f4(dir);
     uniforms.position=f4((flight.position+offset)/flight.centralBody().radius);
@@ -855,6 +863,28 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         [blit copyFromBuffer:upload sourceOffset:0 sourceBytesPerRow:image.width*4 sourceBytesPerImage:image.rgba.size() sourceSize:MTLSizeMake(image.width,image.height,1) toTexture:hoverReadoutTexture destinationSlice:0 destinationLevel:0 destinationOrigin:MTLOriginMake(0,0,0)];
         [blit generateMipmapsForTexture:hoverReadoutTexture];[blit endEncoding];[cb commit];
     }
+}
+- (void)showSettings:(id)sender {
+    [self clearInput];
+    if(!self.settingsWindow){
+        NSPanel *panel=[[NSPanel alloc] initWithContentRect:NSMakeRect(0,0,410,175) styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable|NSWindowStyleMaskUtilityWindow backing:NSBackingStoreBuffered defer:NO];
+        panel.title=@"Settings";panel.floatingPanel=YES;panel.releasedWhenClosed=NO;panel.appearance=[NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+        NSTextField *heading=[NSTextField labelWithString:@"Camera"];heading.font=[NSFont boldSystemFontOfSize:15];heading.frame=NSMakeRect(20,130,300,22);[panel.contentView addSubview:heading];
+        NSTextField *label=[NSTextField labelWithString:@"Field of view"];label.frame=NSMakeRect(20,94,200,20);[panel.contentView addSubview:label];
+        self.fovValue=[NSTextField labelWithString:@"50°"];self.fovValue.alignment=NSTextAlignmentRight;self.fovValue.frame=NSMakeRect(320,94,70,20);[panel.contentView addSubview:self.fovValue];
+        self.fovSlider=[NSSlider sliderWithValue:50 minValue:15 maxValue:85 target:self action:@selector(changeFieldOfView:)];self.fovSlider.frame=NSMakeRect(18,63,374,24);self.fovSlider.continuous=YES;[self.fovSlider setAccessibilityLabel:@"Field of view in degrees"];[panel.contentView addSubview:self.fovSlider];
+        NSTextField *note=[NSTextField labelWithString:@"Applies to all views. Scroll to zoom in the cockpit."];note.textColor=NSColor.secondaryLabelColor;note.font=[NSFont systemFontOfSize:11];note.frame=NSMakeRect(20,27,370,20);[panel.contentView addSubview:note];
+        self.settingsWindow=panel;[panel center];
+    }
+    double fov=cockpit&&!panelView?cockpitCamera.fov:externalCamera.mode==ExternalCameraMode::GroundObserver?externalCamera.groundFov:externalCamera.fieldOfView;
+    self.fovSlider.doubleValue=Deg(fov);self.fovValue.stringValue=[NSString stringWithFormat:@"%.0f°",Deg(fov)];
+    [self.settingsWindow makeKeyAndOrderFront:nil];
+}
+- (void)changeFieldOfView:(NSSlider *)sender {
+    double degrees=std::clamp(sender.doubleValue,15.,85.);
+    cockpitCamera.fov=externalCamera.fieldOfView=externalCamera.groundFov=degrees*RAD;
+    self.fovValue.stringValue=[NSString stringWithFormat:@"%.0f°",degrees];
+    [NSUserDefaults.standardUserDefaults setDouble:degrees forKey:@"FieldOfViewDegrees"];
 }
 - (void)resetFlight:(id)sender {
     [self clearInput];freeCamera.active=false;[visuals reset];demoLadderQueued=false;
@@ -1190,7 +1220,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         Panel2DView *panel=[[Panel2DView alloc] initWithFrame:rect];panel.autoresizingMask=NSViewWidthSizable|NSViewHeightSizable;panel.flightView=self.view;panel.hidden=!self.view->panelView;[root addSubview:panel];self.view.panel2D=panel;
         [root addSubview:hud];self.window.contentView=root;
         NSMenu *main=[NSMenu new]; NSMenuItem *appItem=[NSMenuItem new]; [main addItem:appItem];
-        NSMenu *app=[NSMenu new]; [app addItemWithTitle:@"Quit Orbiter" action:@selector(terminate:) keyEquivalent:@"q"]; appItem.submenu=app;
+        NSMenu *app=[NSMenu new];NSMenuItem *settings=[app addItemWithTitle:@"Settings…" action:@selector(showSettings:) keyEquivalent:@","];settings.target=self.view;[app addItem:NSMenuItem.separatorItem];[app addItemWithTitle:@"Quit Orbiter" action:@selector(terminate:) keyEquivalent:@"q"]; appItem.submenu=app;
         NSMenuItem *fileItem=[NSMenuItem new];fileItem.title=@"File";[main addItem:fileItem];NSMenu *file=[NSMenu new];fileItem.submenu=file;
         NSMenuItem *open=[file addItemWithTitle:@"Open Scenario…" action:@selector(openScenario:) keyEquivalent:@"o"];open.target=self.view;
         NSMenuItem *save=[file addItemWithTitle:@"Save Scenario…" action:@selector(saveScenario:) keyEquivalent:@"s"];save.target=self.view;

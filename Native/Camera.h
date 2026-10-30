@@ -8,6 +8,7 @@ struct CameraPose { Vector offset,up; };
 // The first three tracking frames and object/ground views follow Orbiter's external camera.
 struct OrbitCamera {
     double yaw=25*RAD,pitch=17*RAD,distance=43;
+    double fieldOfView=50*RAD;
     ExternalCameraMode mode=ExternalCameraMode::OrbitalChase;
     BodyId target=BodyId::Earth,groundBody=BodyId::Earth;
     double groundLatitude=0,groundLongitude=0,groundHeight=2,groundFov=50*RAD;

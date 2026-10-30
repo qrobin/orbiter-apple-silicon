@@ -184,6 +184,7 @@ The native animation registry contains **63 components extracted from upstream s
 | G | Toggle landing gear |
 | Option-C | Toggle nose cone |
 | Control-D | Undock from the ISS |
+| Command-, | Open settings and adjust field of view |
 | L | Toggle escape ladder |
 | U | Toggle retro covers |
 | B / Option-B | Extend / retract airbrake by one half-step |

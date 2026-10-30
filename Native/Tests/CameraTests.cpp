@@ -9,6 +9,8 @@ int checks=0;
 void check(bool ok,const char *name){++checks;if(!ok)throw std::runtime_error(name);}
 int main(){try {
     OrbitCamera full,split;full.drag(100,25);
+    check(fabs(full.tanHalfFov()-tan(25*RAD))<1e-12,"Default external field of view");
+    full.fieldOfView=75*RAD;check(fabs(full.tanHalfFov()-tan(37.5*RAD))<1e-12,"External field of view changes projection");
     for(int i=0;i<400;++i)split.drag(.25,.0625);
     check(fabs(full.yaw-split.yaw)<1e-12&&fabs(full.pitch-split.pitch)<1e-12,"Fractional input and event batching preserve the same orbit");
     check(fabs(full.yaw-25*RAD-.9)<1e-12,"Horizontal sensitivity matches native .009 radians per point");

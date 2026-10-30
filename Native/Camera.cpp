@@ -57,7 +57,7 @@ void OrbitCamera::zoom(double scrollPoints){
     if(mode==ExternalCameraMode::GroundObserver){groundFov=std::clamp(groundFov*exp(std::clamp(-scrollPoints*.025,-30.,30.)),.001*RAD,100*RAD);return;}
     distance=std::clamp(distance*exp(std::clamp(-scrollPoints*.025,-30.,30.)),14.,MaxExternalCameraDistance);
 }
-double OrbitCamera::tanHalfFov()const{return tan((mode==ExternalCameraMode::GroundObserver?groundFov:50*RAD)*.5);}
+double OrbitCamera::tanHalfFov()const{return tan((mode==ExternalCameraMode::GroundObserver?groundFov:fieldOfView)*.5);}
 void FreeCamera::enter(BodyId bodyId,const Vector &eye,const Vector &look,const Vector &preferredUp){
     reference=bodyId;position=eye;baseForward=look.length2()>1e-12?look.unit():Vector(0,0,1);
     baseRight=crossp(preferredUp,baseForward);
