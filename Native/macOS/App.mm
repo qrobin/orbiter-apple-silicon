@@ -680,6 +680,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
                 object.model=simd_mul(vesselModel,local); object.options={0,0,(float)g.index,cockpit?(float)switchData.size():0.f};
                 object.color={mat.diffuse[0],mat.diffuse[1],mat.diffuse[2],mat.diffuse[3]};
                 object.specular={mat.specular[0],mat.specular[1],mat.specular[2],mat.power};float emission=cockpit&&flight.glider.instrumentLights?.08f:0.f;object.emission={mat.emissive[0]*emission,mat.emissive[1]*emission,mat.emissive[2]*emission,0};
+                if(cockpit&&g.index==77)object.options.x=6;
                 if(label){object.color={1,1,1,1};object.options.x=4;}
                 [encoder setVertexBuffer:g.vertices offset:0 atIndex:0];
                 [encoder setVertexBytes:&object length:sizeof(object) atIndex:2];

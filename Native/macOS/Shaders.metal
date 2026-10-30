@@ -4,7 +4,7 @@ using Frame=FrameUniforms;
 struct Object { float4x4 model; float4 color; float4 options; float4 specular; float4 emission; };
 struct SwitchUniform { float4 pivotAngle,axisStart,range; };
 struct Vertex { packed_float3 position; packed_float3 normal; packed_float2 uv; };
-struct Raster { float4 position [[position]]; float3 normal; float2 uv; float3 world; };
+struct Raster { float4 position [[position]]; float3 normal; float2 uv; float3 world; float3 local; };
 vertex Raster meshVertex(uint id [[vertex_id]],const device Vertex *vertices [[buffer(0)]],
                          constant Frame &f [[buffer(1)]],constant Object &o [[buffer(2)]],constant SwitchUniform *switches [[buffer(3)]]) {
     Raster out; Vertex v=vertices[id]; float3 local=float3(v.position),normal=float3(v.normal);float2 uv=float2(v.uv);
@@ -24,10 +24,19 @@ vertex Raster meshVertex(uint id [[vertex_id]],const device Vertex *vertices [[b
     float3 view=float3(dot(p,f.right.xyz),dot(p,f.up.xyz),-dot(p,f.forward.xyz));
     out.position=f.projection*float4(view,1);
     out.normal=(o.model*float4(normal,0)).xyz;
-    out.world=p; out.uv=uv; return out;
+    out.world=p; out.uv=uv; out.local=local;return out;
 }
 float4 shadeMesh(Raster in,constant Frame &f,constant Object &o,texture2d<float> tex,texture2d<float> shadows,float sunVisibility) {
     constexpr sampler s(filter::linear,mip_filter::linear,address::repeat, max_anisotropy(8));
+    if(o.options.x>5.5){
+        float3 n=normalize(in.normal),view=normalize(-in.world);
+        float fresnel=pow(1-abs(dot(n,view)),5.0f);
+        float grain=fract(sin(dot(floor(in.local*620),float3(127.1,311.7,74.7)))*43758.5453);
+        float dust=smoothstep(.997f,.9997f,grain)*.045f;
+        float3 h=f.sun.xyz+view;float glint=pow(max(0.0f,abs(dot(n,h/max(length(h),.001f)))),180.0f)*f.sun.w*sunVisibility;
+        float alpha=clamp(.012f+.05f*fresnel+dust+glint*.15f,0.0f,.25f);
+        return float4(float3(.48,.57,.63)+glint*float3(.55,.55,.52),alpha);
+    }
     if(o.options.x>4.5) { float alpha=tex.sample(s,in.uv).a; if(alpha<.03)discard_fragment(); return float4(o.color.rgb,alpha); }
     if(o.options.x>3.5) { float4 label=tex.sample(s,in.uv); if(label.a<.03) discard_fragment(); return label; }
     if(o.options.x>2.5) return float4(tex.sample(s,in.uv).rgb,1);

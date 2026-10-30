@@ -37,6 +37,10 @@ int main(){@autoreleasepool{try{
     check(base[0]>200&&base[0]<width*height/10,"HUD symbols occupy only a small transparent portion of the combiner");
     check(turn[0]>100&&turn[1]<base[1]-35,"HUD moves with the cockpit geometry when looking to the side");
     check(zoom[0]>base[0]*1.3,"HUD grows with cockpit zoom");check(miss[0]==0,"HUD disappears when looking away from the combiner");
+    group=mesh.groups[77];vertices=[gpu newBufferWithBytes:group.vertices.data() length:group.vertices.size()*sizeof(Vertex) options:MTLResourceStorageModeShared];indices=[gpu newBufferWithBytes:group.indices.data() length:group.indices.size()*sizeof(uint32_t) options:MTLResourceStorageModeShared];object.options={6,0,0,0};
+    auto glass=render(0,.466f);size_t glassPixels=0;int maxDifference=0;
+    for(size_t i=0;i<glass.size();i+=4){int difference=abs(int(glass[i])-int(away[i]))+abs(int(glass[i+1])-int(away[i+1]))+abs(int(glass[i+2])-int(away[i+2]));if(difference>2)++glassPixels;maxDifference=std::max(maxDifference,difference);}
+    check(glassPixels>100&&maxDifference<100,"Dry canopy has a subtle transparent surface");
     NSString *path=NSProcessInfo.processInfo.environment[@"ORBITER_COCKPIT_HUD_PREVIEW"];if(path.length){NSBitmapImageRep *out=[[NSBitmapImageRep alloc] initWithBitmapDataPlanes:nullptr pixelsWide:width pixelsHigh:height bitsPerSample:8 samplesPerPixel:4 hasAlpha:YES isPlanar:NO colorSpaceName:NSCalibratedRGBColorSpace bytesPerRow:width*4 bitsPerPixel:32];memcpy(out.bitmapData,straight.data(),straight.size());[[out representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:path atomically:YES];}
     std::cout<<"cockpit HUD geometry and projection verified\n";return 0;
 }catch(const std::exception &e){std::cerr<<e.what()<<'\n';return 1;}}}
