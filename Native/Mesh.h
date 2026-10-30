@@ -6,7 +6,7 @@
 #include <vector>
 namespace native {
 struct Vertex { float x,y,z,nx,ny,nz,u,v; };
-struct Material { std::array<float,4> diffuse{1,1,1,1}; };
+struct Material { std::array<float,4> diffuse{1,1,1,1},ambient{1,1,1,1},specular{},emissive{};float power=0; };
 struct MeshGroup { std::vector<Vertex> vertices; std::vector<uint32_t> indices; size_t material=0,texture=0; std::string label; };
 struct Mesh { std::vector<MeshGroup> groups; std::vector<Material> materials; std::vector<std::string> textures; };
 Mesh loadMesh(const std::filesystem::path &path);

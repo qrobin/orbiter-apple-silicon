@@ -8,7 +8,7 @@
 #include <stdexcept>
 #include <vector>
 using namespace native;
-struct Object {simd_float4x4 model;simd_float4 color,options;};
+struct Object {simd_float4x4 model;simd_float4 color,options,specular,emission;};
 static simd_float4 v4(const Vector &v,float w=0){return {(float)v.x,(float)v.y,(float)v.z,w};}
 static void check(bool value,const char *message){if(!value)throw std::runtime_error(message);}
 int main(){@autoreleasepool{try{

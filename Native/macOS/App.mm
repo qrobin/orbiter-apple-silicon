@@ -38,7 +38,7 @@ static simd_float4x4 projection(float aspect,float t) {
     m.columns[2]={0,0,0,-1}; m.columns[3]={0,0,n,0}; return m;
 }
 struct SwitchUniforms { simd_float4 pivotAngle,axisStart,range; };
-struct ObjectUniforms { simd_float4x4 model; simd_float4 color,options; };
+struct ObjectUniforms { simd_float4x4 model; simd_float4 color,options,specular,emission; };
 struct GpuGroup { id<MTLBuffer> vertices,indices; NSUInteger count; size_t material,texture,index; int mesh; };
 @class FlightView;
 @class GliderPanel;
@@ -620,7 +620,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
             object.model.columns[0]=f4(-baseFrame.north);object.model.columns[1]=f4(baseFrame.up);object.model.columns[2]=f4(baseFrame.east);object.model.columns[3]=f4(basePosition-offset,1);
             object.options={0,0,0,0};
             for(const auto &g:groups) if(g.mesh==2) {
-                const auto &m=materials[g.material];object.color={m.diffuse[0],m.diffuse[1],m.diffuse[2],m.diffuse[3]};
+                const auto &m=materials[g.material];object.color={m.diffuse[0],m.diffuse[1],m.diffuse[2],m.diffuse[3]};object.specular={m.specular[0],m.specular[1],m.specular[2],m.power};object.emission={0,0,0,0};
                 [encoder setVertexBuffer:g.vertices offset:0 atIndex:0];[encoder setVertexBytes:&object length:sizeof(object) atIndex:2];[encoder setFragmentBytes:&object length:sizeof(object) atIndex:2];
                 [encoder setFragmentTexture:textures[g.texture] atIndex:0];[encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle indexCount:g.count indexType:MTLIndexTypeUInt32 indexBuffer:g.indices indexBufferOffset:0];
             }
@@ -635,7 +635,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
                     [encoder setDepthStencilState:transparent?transparentDepth:depthState];
                     for(const auto &g:groups)if(g.mesh==3){
                         const auto &m=materials[g.material];if((m.diffuse[3]<.99)!=(transparent==1))continue;
-                        object.color={m.diffuse[0],m.diffuse[1],m.diffuse[2],m.diffuse[3]};
+                        object.color={m.diffuse[0],m.diffuse[1],m.diffuse[2],m.diffuse[3]};object.specular={m.specular[0],m.specular[1],m.specular[2],m.power};object.emission={0,0,0,0};
                         [encoder setVertexBuffer:g.vertices offset:0 atIndex:0];[encoder setVertexBytes:&object length:sizeof(object) atIndex:2];[encoder setFragmentBytes:&object length:sizeof(object) atIndex:2];
                         [encoder setFragmentTexture:textures[g.texture] atIndex:0];[encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle indexCount:g.count indexType:MTLIndexTypeUInt32 indexBuffer:g.indices indexBufferOffset:0];
                     }
@@ -677,8 +677,9 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
                 local.columns[0]=f4({t.rotation.m11,t.rotation.m21,t.rotation.m31});
                 local.columns[1]=f4({t.rotation.m12,t.rotation.m22,t.rotation.m32});
                 local.columns[2]=f4({t.rotation.m13,t.rotation.m23,t.rotation.m33}); local.columns[3]=f4(t.translation,1);
-                object.model=simd_mul(vesselModel,local); object.options={0,cockpit&&flight.glider.instrumentLights?.20f:0.f,(float)g.index,cockpit?(float)switchData.size():0.f};
+                object.model=simd_mul(vesselModel,local); object.options={0,0,(float)g.index,cockpit?(float)switchData.size():0.f};
                 object.color={mat.diffuse[0],mat.diffuse[1],mat.diffuse[2],mat.diffuse[3]};
+                object.specular={mat.specular[0],mat.specular[1],mat.specular[2],mat.power};float emission=cockpit&&flight.glider.instrumentLights?.08f:0.f;object.emission={mat.emissive[0]*emission,mat.emissive[1]*emission,mat.emissive[2]*emission,0};
                 if(label){object.color={1,1,1,1};object.options.x=4;}
                 [encoder setVertexBuffer:g.vertices offset:0 atIndex:0];
                 [encoder setVertexBytes:&object length:sizeof(object) atIndex:2];

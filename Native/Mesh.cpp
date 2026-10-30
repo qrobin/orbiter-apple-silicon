@@ -58,7 +58,10 @@ Mesh loadMesh(const std::filesystem::path &path) {
     for(size_t j=0;j<count;++j) {
         line(); Material m; std::istringstream s(line());
         for(float &v:m.diffuse) s>>v;
-        line(); line(); line(); mesh.materials.push_back(m);
+        std::istringstream ambient(line());for(float &v:m.ambient)ambient>>v;
+        std::istringstream specular(line());for(float &v:m.specular)specular>>v;specular>>m.power;
+        std::istringstream emissive(line());for(float &v:m.emissive)emissive>>v;
+        mesh.materials.push_back(m);
     }
     if(mesh.materials.empty()) mesh.materials.emplace_back(); // Original base meshes may use MATERIAL 0.
     std::istringstream(line())>>tag>>count;

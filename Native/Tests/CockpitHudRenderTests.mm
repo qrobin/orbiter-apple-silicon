@@ -8,7 +8,7 @@
 #include <stdexcept>
 #include <vector>
 using namespace native;
-struct Object {simd_float4x4 model;simd_float4 color,options;};
+struct Object {simd_float4x4 model;simd_float4 color,options,specular,emission;};
 static void check(bool ok,const char *message){if(!ok)throw std::runtime_error(message);}
 int main(){@autoreleasepool{try{
     [NSApplication sharedApplication];id<MTLDevice> gpu=MTLCreateSystemDefaultDevice();if(!gpu)return 77;

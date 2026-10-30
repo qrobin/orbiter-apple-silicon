@@ -1,7 +1,7 @@
 #include <metal_stdlib>
 using namespace metal;
 using Frame=FrameUniforms;
-struct Object { float4x4 model; float4 color; float4 options; };
+struct Object { float4x4 model; float4 color; float4 options; float4 specular; float4 emission; };
 struct SwitchUniform { float4 pivotAngle,axisStart,range; };
 struct Vertex { packed_float3 position; packed_float3 normal; packed_float2 uv; };
 struct Raster { float4 position [[position]]; float3 normal; float2 uv; float3 world; };
@@ -46,7 +46,7 @@ float4 shadeMesh(Raster in,constant Frame &f,constant Object &o,texture2d<float>
         cloudShade=shadows.sample(s,shadowUV).r;lit*=cloudShade;
     }
     float3 view=normalize(-in.world);
-    float spec=pow(max(0.0f,dot(normal,normalize(f.sun.xyz+view))),40.0f)*.18*lit;
+    float3 spec=o.specular.w>0?o.specular.rgb*pow(max(0.0f,dot(normal,normalize(f.sun.xyz+view))),max(1.0f,o.specular.w))*.18f*lit:float3(0);
     // Planetshine is directional: only surfaces facing a sunlit nearby body
     // receive its reflected light. Space itself provides no solar fill.
     float3 radial=length(f.position.xyz)>.001f?normalize(f.position.xyz):float3(0,1,0);
@@ -54,7 +54,7 @@ float4 shadeMesh(Raster in,constant Frame &f,constant Object &o,texture2d<float>
     float planetDay=smoothstep(-.2f,.3f,dot(radial,f.sun.xyz))*f.sun.w;
     float bounce=planetSize*planetSize*max(0.0f,dot(normal,-radial))*planetDay*.13f;
     float skylight=exp(-max(0.0f,f.environment.y)/9000.0f)*f.body.y*planetDay*.035f;
-    float3 color=albedo.rgb*(.006f+o.options.y+lit*.8f+skylight)+albedo.rgb*float3(.76,.84,1.0)*bounce+spec;
+    float3 color=albedo.rgb*(.006f+o.options.y+lit*.8f+skylight+o.emission.rgb)+albedo.rgb*float3(.76,.84,1.0)*bounce+spec;
     // A low-cost hemispheric fill approximates sunlight scattered back down
     // by cloud cover; it softens shadows without making clouds emit at night.
     if(int(f.surfaceColor.w)==3&&f.clouds.z>0){

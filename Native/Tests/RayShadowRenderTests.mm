@@ -9,7 +9,7 @@
 #include <stdexcept>
 #include <vector>
 using namespace native;
-struct Object {simd_float4x4 model;simd_float4 color,options;};
+struct Object {simd_float4x4 model;simd_float4 color,options,specular,emission;};
 struct ShipFrame {simd_float4 right,up,forward,origin;};
 static void check(bool ok,const char *message){if(!ok)throw std::runtime_error(message);}
 int main(){@autoreleasepool{try{
