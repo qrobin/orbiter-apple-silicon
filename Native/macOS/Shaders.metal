@@ -308,7 +308,6 @@ fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buf
                 float3 north=normalize(cross(east,n));
                 float3 waveNormal=normalize(n-east*slope.x-north*slope.y);
                 float3 halfVector=normalize(f.sun.xyz-ray);
-                float glint=pow(max(0.0f,dot(waveNormal,halfVector)),storm>.5f?96.0f:220.0f);
                 float fresnelWater=pow(1-max(0.0f,dot(waveNormal,-ray)),5.0f);
                 float waveLight=max(0.0f,dot(waveNormal,f.sun.xyz));
                 float3 ocean=base*(.025+waveLight*cloudShade*solarIntensity(f))*day+base*.008*(1-day);
@@ -316,10 +315,17 @@ fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buf
                 // add a subtle blue contribution from the sky at low altitude.
                 ocean+=float3(.001,.006,.018)*(.25f+.75f*day);
                 if(f.clouds.z>0){float3 tint=mix(float3(1,.58,.35),float3(.8,.87,1),smoothstep(.02f,.3f,dot(n,f.sun.xyz)));ocean+=base*tint*f.clouds.z*day*f.sun.w*(.025f+.07f*(1-cloudShade));}
-                float lowSun=1-smoothstep(.05f,.35f,dot(n,f.sun.xyz));
-                float3 sunGlint=mix(float3(.45,.55,.64),float3(.65,.34,.22),lowSun);
                 float3 reflected=reflect(ray,waveNormal);
-                if(dot(reflected,n)>0){
+                // Waves can tilt the mirror ray below the mean horizon. In
+                // that case neighbouring water reflects the horizon rather
+                // than producing a discontinuous black hole.
+                float reflectedElevation=dot(reflected,n);
+                float horizonBlend=smoothstep(-.12f,.04f,reflectedElevation);
+                float3 tangent=reflected-n*reflectedElevation;
+                if(length(tangent)<.0001f)tangent=east;
+                float3 horizonRay=normalize(tangent+n*.01f);
+                reflected=normalize(mix(horizonRay,reflected,horizonBlend));
+                {
                     AirLight reflectedAir=earthAirLight(f,reflected,1e25f);
                     float3 reflection=starMap.sample(stars,skyCoordinates(reflected)).rgb*1.35f*reflectedAir.transmission+reflectedAir.scattering;
                     if(f.clouds.z>0){
@@ -330,9 +336,20 @@ fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buf
                         float3 cloudLight=mix(float3(.12,.14,.19),float3(.85,.90,.97),day)*(.4f+.6f*cloudShade);
                         reflection=mix(reflection,cloudLight,alpha);
                     }
-                    ocean+=reflection*(.04f+.38f*fresnelWater);
+                    ocean+=reflection*(.04f+.38f*fresnelWater)*mix(.65f,1.0f,horizonBlend);
                 }
-                ocean+=sunGlint*glint*.16f*day*cloudShade*solarIntensity(f);
+                // A rough water microfacet lobe spreads the solar disc over
+                // moving wave slopes, producing a broken reflection path.
+                float ndv=max(.001f,dot(waveNormal,-ray)),ndl=max(0.0f,dot(waveNormal,f.sun.xyz));
+                float ndh=max(0.0f,dot(waveNormal,halfVector)),vdh=max(0.0f,dot(-ray,halfVector));
+                float roughness=mix(.18f,.32f,storm),a2=roughness*roughness;
+                float denominator=ndh*ndh*(a2-1)+1;
+                float distribution=a2/(M_PI_F*denominator*denominator);
+                float k=(roughness+1)*(roughness+1)/8;
+                float visibility=(ndv/(ndv*(1-k)+k))*(ndl/(ndl*(1-k)+k));
+                float fresnel=.02f+.98f*pow(1-vdh,5.0f);
+                float solarGlint=min(5.0f,distribution*visibility*fresnel/(4*ndv));
+                ocean+=earthSunTransmission(f)*solarGlint*f.sun.w*day*cloudShade*solarIntensity(f)*1.4f;
                 float crest=swell.b*.35f+waves.b*.25f+chop.b*.25f+ripples.b*.15f;
                 float foam=smoothstep(.60f,.78f,crest)*smoothstep(.04f,.17f,length(slope))*storm*.08f;
                 ocean=mix(ocean,float3(.5,.57,.58)*(.12+.88*day)*cloudShade,foam);

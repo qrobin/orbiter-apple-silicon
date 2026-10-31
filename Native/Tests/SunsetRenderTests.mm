@@ -94,6 +94,15 @@ int main(){@autoreleasepool{
         for(NSUInteger x=0;x<width;++x){size_t i=(y*width+x)*4;green+=clear[i+1];blue+=clear[i+2];}
         require(blue>green*.70,"The horizon away from a low Sun must not become yellow-green");
     }
+    if(NSProcessInfo.processInfo.environment[@"ORBITER_SUNSET_WATER_CHECK"]){
+        f.sun.w=0;auto eclipsed=render(false);f.sun.w=1;
+        double lit=0,dark=0;size_t count=0,holes=0,waterPixels=0;
+        for(NSUInteger y=height*56/100;y<height*88/100;++y)for(NSUInteger x=width*43/100;x<width*57/100;++x){size_t i=(y*width+x)*4;lit+=clear[i]+clear[i+1]+clear[i+2];dark+=eclipsed[i]+eclipsed[i+1]+eclipsed[i+2];++count;}
+        for(NSUInteger y=height*57/100;y<height*75/100;++y)for(NSUInteger x=0;x<width;++x){size_t i=(y*width+x)*4;if(std::max({clear[i],clear[i+1],clear[i+2]})<35)++holes;++waterPixels;}
+        printf("Water reflection gain %.1f RGB levels; dark holes %.3f%%\n",(lit-dark)/count,100.0*holes/waterPixels);
+        require((lit-dark)/count>8,"Sunlight must create a visible reflection on the water");
+        require(holes*300<waterPixels,"Grazing waves must not turn into black patches");
+    }
     if(debug){
         std::vector<float> cv(cw*ch*4),dv(cw*ch*4);
         [clouds[1] getBytes:cv.data() bytesPerRow:cw*16 fromRegion:MTLRegionMake2D(0,0,cw,ch) mipmapLevel:0];
