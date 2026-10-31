@@ -134,7 +134,7 @@ float cloudDensity(float3 p,constant FrameUniforms &f,texture3d<float> noise,flo
         float profile=smoothstep(0.0f,.18f,height)*(1-smoothstep(.72f,1.0f,height));
         density+=shape*profile*saturate(region*2.0f)*(.00010f+.00004f*f.clouds.w);
     }
-    return density;
+    return density*1.32f;
 }
 // Stable sphere intersections avoid subtracting two large, nearly equal squared radii.
 float2 cloudShellRoots(float cameraHeight,float shellHeight,float mu,float radius) {
@@ -332,7 +332,7 @@ fragment float4 compositeClouds(SkyRaster in [[stage_in]],constant FrameUniforms
             float viewCosine=abs(dot(normal,ray)),mu=max(.55f,viewCosine);
             // Grazing cloud-shell intersections occupy less than a pixel and
             // are heavily obscured by atmospheric haze at the horizon.
-            float alpha=(1-pow(max(.001f,1-coverage),1/mu))*smoothstep(.025f,.12f,viewCosine);
+            float alpha=min(.98f,(1-pow(max(.001f,1-coverage),1/mu))*1.28f)*smoothstep(.025f,.12f,viewCosine);
             float daylight=smoothstep(-.08f,.10f,dot(normal,f.sun.xyz))*f.sun.w;
             float3 illumination=mix(float3(.005,.008,.018),float3(.85,.91,1.0)*(0.30+0.42*max(0.0f,dot(normal,f.sun.xyz)))*mix(.70f,1.0f,mask)*detailLight*solarIntensity(f),daylight);
             cloud=mix(cloud,float4(illumination*alpha,alpha),orbital);
