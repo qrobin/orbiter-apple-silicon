@@ -59,6 +59,34 @@ int main(){@autoreleasepool{
     require(changed>10000&&changed<width*height*3/4,"Satellite clouds must change the globe without covering the whole sky");
     require(abs(int(cloud[0])-int(clear[0]))<3&&abs(int(cloud[1])-int(clear[1]))<3&&abs(int(cloud[2])-int(clear[2]))<3,
             "Cloud shell misses leave empty space unchanged");
+    // Check the final composite, not just the volume march: distant opaque
+    // clouds must hide the background even while atmospheric haze colours them.
+    {
+        FrameUniforms saved=f;
+        f.position={0,0,1+1000.0f/6371010,0};f.environment={1000.0f/6371010,1000,0,0};
+        f.right={0,1,0,0};f.up={0,0,1,0};f.forward={1,0,0,0};f.sun={0,0,1,1};f.sunShape={0,0,0,1};f.weather={0,0,0,0};f.clouds={0,0,0,0};
+        id<MTLTexture> cloudFixture=texture(MTLPixelFormatRGBA32Float,1,1,MTLTextureUsageShaderRead);
+        id<MTLTexture> dataFixture=texture(MTLPixelFormatRGBA32Float,1,1,MTLTextureUsageShaderRead);
+        auto compositeFixture=[&](id<MTLTexture> background,float distance,float alpha){
+            float sample[4]={.15f*alpha,.15f*alpha,.15f*alpha,alpha},info[4]={1e9f,distance,0,0};
+            [cloudFixture replaceRegion:MTLRegionMake2D(0,0,1,1) mipmapLevel:0 withBytes:sample bytesPerRow:sizeof(sample)];
+            [dataFixture replaceRegion:MTLRegionMake2D(0,0,1,1) mipmapLevel:0 withBytes:info bytesPerRow:sizeof(info)];
+            id<MTLCommandBuffer> cb=[queue commandBuffer];
+            MTLRenderPassDescriptor *clearPass=[MTLRenderPassDescriptor renderPassDescriptor];clearPass.depthAttachment.texture=depth;clearPass.depthAttachment.loadAction=MTLLoadActionClear;clearPass.depthAttachment.clearDepth=0;clearPass.depthAttachment.storeAction=MTLStoreActionStore;
+            id<MTLRenderCommandEncoder> e=[cb renderCommandEncoderWithDescriptor:clearPass];[e endEncoding];
+            MTLRenderPassDescriptor *pass=[MTLRenderPassDescriptor renderPassDescriptor];pass.colorAttachments[0].texture=output;pass.colorAttachments[0].loadAction=MTLLoadActionClear;pass.colorAttachments[0].storeAction=MTLStoreActionStore;
+            e=[cb renderCommandEncoderWithDescriptor:pass];[e setRenderPipelineState:composite];[e setFragmentBytes:&f length:sizeof(f) atIndex:0];
+            [e setFragmentTexture:background atIndex:0];[e setFragmentTexture:cloudFixture atIndex:1];[e setFragmentTexture:dataFixture atIndex:2];[e setFragmentTexture:depth atIndex:3];[e setFragmentTexture:cloudMap atIndex:4];[e setFragmentTexture:cloudNoise atIndex:5];
+            [e drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];[e endEncoding];[cb commit];[cb waitUntilCompleted];require(cb.error==nil,"Cloud composite fixture failed");
+            std::array<unsigned char,4> pixel{};[output getBytes:pixel.data() bytesPerRow:4 fromRegion:MTLRegionMake2D(width/2,height/2,1,1) mipmapLevel:0];return pixel;
+        };
+        auto nearCloud=compositeFixture(zero,2000,1),farDark=compositeFixture(zero,200000,1),farLight=compositeFixture(white,200000,1);
+        auto thinDark=compositeFixture(zero,200000,.5f),thinLight=compositeFixture(white,200000,.5f);
+        require(abs(int(farDark[0])-int(farLight[0]))<=2,"Distant opaque clouds must hide the scene behind them");
+        require(int(thinLight[0])-int(thinDark[0])>25,"Thin clouds must preserve their partial transparency");
+        require(abs(int(nearCloud[0])-int(farDark[0]))>2||abs(int(nearCloud[2])-int(farDark[2]))>2,"Air must still affect distant cloud colour");
+        f=saved;
+    }
     // Reproduce a low-orbit view like the reported screenshot, and compare
     // the 8K map against the same data reduced to 2K.
     NSData *regional=[NSData dataWithContentsOfFile:[root stringByAppendingPathComponent:@"Native/Assets/earth-clouds.r8"]];require(regional.length==2048*1024,"Regional map is present");
@@ -206,6 +234,8 @@ int main(){@autoreleasepool{
         [e setTexture:noise atIndex:0];[e setTexture:zero atIndex:1];[e setTexture:zero atIndex:2];[e setTexture:data atIndex:3];[e setTexture:volume atIndex:4];[e setTexture:volumeData atIndex:5];[e setTexture:regional atIndex:6];
         [e dispatchThreads:MTLSizeMake(16,16,1) threadsPerThreadgroup:MTLSizeMake(8,8,1)];[e endEncoding];[cb commit];[cb waitUntilCompleted];require(cb.error==nil,"Cloud march failed");std::array<float,4> pixel;[volume getBytes:pixel.data() bytesPerRow:sizeof(pixel) fromRegion:MTLRegionMake2D(8,8,1,1) mipmapLevel:0];return pixel;};
     float empty=march(zero)[3],dense=march(white)[3];require(empty<.001f&&dense>.05f,"Regional cloud map must affect local cloud volumes");
+    f.weather.x=1;float scatteredCore=march(white)[3];f.weather.x=4;
+    require(scatteredCore>.70f,"Scattered weather must still produce opaque cloud cores");
     // Looking up through thicker cloud should block more of the background
     // and transmit less direct sunlight to the cloud's lower face.
     f.sun={.8f,0,.6f,1};f.clouds={1800,3500,.48,0};auto thin=march(white);

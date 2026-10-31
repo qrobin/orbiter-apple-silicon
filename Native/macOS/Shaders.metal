@@ -145,7 +145,6 @@ float earthSunHaze(constant Frame &f){
     float m=atmosphericColumn(height,sunMu,1200.0f,f.body.x,1e25f);
     return 1-exp(-(r*1.35e-5f+m*2.1e-5f));
 }
-struct AirLight {float3 transmission,scattering;};
 // NASA's map is J2000 equatorial, while Orbiter's world axes are ecliptic.
 // Its right ascension increases leftward from the centre of the texture.
 float2 skyCoordinates(float3 ray){

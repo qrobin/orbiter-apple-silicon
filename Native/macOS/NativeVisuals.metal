@@ -1,6 +1,8 @@
 // Cloud volumes, temporal reconstruction and exhaust implemented directly in Metal.
 float earthSunHaze(constant FrameUniforms &f);
 float solarIntensity(constant FrameUniforms &f);
+struct AirLight {float3 transmission,scattering;};
+AirLight earthAirLight(constant FrameUniforms &f,float3 ray,float maximumDistance);
 uint visualHash(uint x) { x^=x>>16;x*=0x7feb352du;x^=x>>15;x*=0x846ca68bu;return x^(x>>16); }
 float visualRandom(uint x) { return float(visualHash(x)&0xffffffu)/16777216.0f; }
 float noiseCorner(int3 p,int period) {
@@ -113,15 +115,15 @@ float cloudDensity(float3 p,constant FrameUniforms &f,texture3d<float> noise,flo
     if(h<lowTop){
         float height=(h-f.clouds.x)/max(1.0f,lowTop-f.clouds.x);
         float weather=noise.sample(s,w/320000.0f).b;
-        float coverage=clamp(.22+region*.50+(weather-.5)*.2,.01f,.98f);
+        float coverage=clamp(.30+region*.55+(weather-.5)*.2,.01f,.98f);
         float shape=noise.sample(s,w/22000.0f).r;
-        float threshold=.92-coverage*.70+height*height*.16;
+        float threshold=.84-coverage*.75+height*height*.16;
         float lower=smoothstep(threshold,threshold+.11,shape);
         if(lower>0){
             float detail=noise.sample(s,w/4500.0f).g;
             lower=max(0.0f,lower-(1-detail)*.32*(1-lower));
             float profile=smoothstep(0.0f,.14f,height)*(1-smoothstep(.55f,1.0f,height));
-            density=lower*profile*region*(.00065+f.clouds.w*.00045);
+            density=lower*profile*sqrt(region)*(.00065+f.clouds.w*.00045);
         }
     }
     // Thin, independently patterned high cloud sits above the lower cumulus
@@ -306,8 +308,12 @@ fragment float4 compositeClouds(SkyRaster in [[stage_in]],constant FrameUniforms
     float cameraHeight=f.environment.x*f.body.x;
     if(cloud.a>.0001f){
         float distance=weightedDistance/max(.0001f,total*cloud.a);
-        float airDensity=exp(-max(0.0f,cameraHeight)/8000.0f);
-        cloud*=exp(-max(0.0f,distance-10000.0f)*airDensity/90000.0f);
+        // Air between the viewer and a cloud changes its colour, not its
+        // opacity. Fading alpha here made distant cloud cores see-through.
+        if(distance>10000.0f&&int(f.surfaceColor.w)==3){
+            AirLight air=earthAirLight(f,ray,distance);
+            cloud.rgb=cloud.rgb*air.transmission+air.scattering*cloud.a;
+        }
     }
     float orbital=smoothstep(40000.0f,120000.0f,cameraHeight);
     if(orbital>0&&f.clouds.z>0){
