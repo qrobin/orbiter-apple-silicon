@@ -109,14 +109,14 @@ float cloudDensity(float3 p,constant FrameUniforms &f,texture3d<float> noise,flo
     if(h<=f.clouds.x||h>=f.clouds.y)return 0;
     constexpr sampler s(filter::linear,address::repeat);
     float3 w=terrestrial(p,f)+float3(f.environment.w*14,0,f.environment.w*7);
-    float density=0,lowTop=lowCloudTop(f);
+    float density=0,highDensity=0,lowTop=lowCloudTop(f);
     if(h<lowTop){
         float height=(h-f.clouds.x)/max(1.0f,lowTop-f.clouds.x);
         float weather=noise.sample(s,w/320000.0f).b;
-        float coverage=clamp(.30+region*.55+(weather-.5)*.2,.01f,.98f);
+        float coverage=clamp(.22+region*.50+(weather-.5)*.2,.01f,.98f);
         float shape=noise.sample(s,w/22000.0f).r;
-        float threshold=.84-coverage*.75+height*height*.16;
-        float lower=smoothstep(threshold,threshold+.20,shape);
+        float threshold=.92-coverage*.70+height*height*.16;
+        float lower=smoothstep(threshold,threshold+.11,shape);
         if(lower>0){
             float detail=noise.sample(s,w/4500.0f).g;
             lower=max(0.0f,lower-(1-detail)*.32*(1-lower));
@@ -132,9 +132,12 @@ float cloudDensity(float3 p,constant FrameUniforms &f,texture3d<float> noise,flo
         float wisps=noise.sample(s,w/18000.0f+float3(.53,.11,.27)).r;
         float shape=smoothstep(.43f,.62f,broad*.7f+wisps*.3f);
         float profile=smoothstep(0.0f,.18f,height)*(1-smoothstep(.72f,1.0f,height));
-        density+=shape*profile*saturate(region*2.0f)*(.00010f+.00004f*f.clouds.w);
+        highDensity=shape*profile*saturate(region*2.0f)*(.00010f+.00004f*f.clouds.w);
     }
-    return density*1.32f;
+    // Keep cloud cores visually solid even in the low-density scattered preset.
+    // The extinction is shared by camera rays, solar self-shadowing and shadows
+    // on the surface so opaque billows also block direct light consistently.
+    return density*2.6f+highDensity*1.32f;
 }
 // Stable sphere intersections avoid subtracting two large, nearly equal squared radii.
 float2 cloudShellRoots(float cameraHeight,float shellHeight,float mu,float radius) {
@@ -522,7 +525,7 @@ fragment float4 flameFragment(FlameRaster in [[stage_in]],constant FrameUniforms
         float width=in.properties.x*(.90+along*(.9+in.properties.w*3))*pow(max(.001f,1-along),.45f);
         float2 crossSection=float2(dot(lateral,basis),dot(lateral,second))/max(.001f,width);
         // Advect the turbulent combustion pattern rapidly away from the nozzle.
-        float3 samplePoint=float3(along*5-fmod(in.time*10,16.0f),crossSection*1.4+fmod(in.time*.55,16.0f));
+        float3 samplePoint=float3(along*5-fmod(in.time*24,16.0f),crossSection*1.4+fmod(in.time*1.1,16.0f));
         float n=noise.sample(s,samplePoint).g,detail=noise.sample(s,samplePoint*2.2+float3(3,1,7)).b;
         float r=length(crossSection),edge=1-smoothstep(.63f,1.10f,r+(n-.5)*.55+(detail-.5)*.18);
         float density=edge*(.28+.72*smoothstep(.16f,.76f,n*.72+detail*.28))*(1-smoothstep(.90f,1.0f,along));
@@ -575,14 +578,14 @@ fragment float4 trailVolumeFragment(TrailRaster in [[stage_in]],constant FrameUn
     float4 coarse=noise.sample(sampler3d,uv);float detail=noise.sample(sampler3d,uv*2+float3(.19,.43,.07)).r;
     float turbulence=coarse.g*.64+detail*.36,billows=smoothstep(.36f,.72f,turbulence);
     float3 ray=normalize(in.ray),normal=normalize(in.normal);float facing=pow(abs(dot(ray,normal)),1.2f);
-    float material=.16+1.30*billows*billows,optical=clamp(in.opacityAge.x,0.0f,.95f);
+    float material=.24+2.15*billows*billows,optical=clamp(in.opacityAge.x,0.0f,.98f);
     float alpha=(1-pow(max(.001f,1-optical),material*.5))*facing*fade;
     if(in.cap>.5)alpha*=.75*smoothstep(.72f,.95f,abs(dot(ray,normal)))*(1-smoothstep(.20f,1.0f,in.edge));
     if(alpha<.00002)discard_fragment();
     float sunPhase=clamp(.55f*(1-.45f*.45f)/pow(max(.05f,1+.45f*.45f-.9f*dot(ray,f.sun.xyz)),1.5f),.25f,2.0f);
     float light=f.sun.w*sunPhase*(.35+.65*abs(dot(normal,f.sun.xyz)))*exp(-optical*coarse.g*.8);
     float hot=exp(-in.opacityAge.y*(in.vacuum>.5?1.6f:2.5f));
-    float3 color=in.vacuum>.5?float3(.46,.59,.76):float3(.74,.77,.80);
+    float3 color=in.vacuum>.5?float3(.46,.59,.76):float3(.84,.83,.78);
     color*=.16+.84*light;color+=hot*(in.vacuum>.5?float3(.60,.38,.18):float3(.50,.28,.12));
     if(f.environment.x*f.body.x<f.clouds.y+1000&&f.clouds.z>0){
         float distance=length(in.ray);float3 midpoint=f.position.xyz*f.body.x+in.ray*.5;

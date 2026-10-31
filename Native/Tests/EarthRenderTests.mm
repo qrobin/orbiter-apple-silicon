@@ -211,7 +211,8 @@ int main(){@autoreleasepool{
     f.sun={.8f,0,.6f,1};f.clouds={1800,3500,.48,0};auto thin=march(white);
     f.clouds.y=8500;auto thick=march(white);
     printf("Cloud thickness: alpha %.3f -> %.3f, light per opacity %.3f -> %.3f\n",thin[3],thick[3],thin[0]/thin[3],thick[0]/thick[3]);
-    require(thick[3]>thin[3]+.2f,"Thicker clouds must block more background light");
+    require(thick[3]>thin[3]+.08f,"Thicker clouds must block more background light");
+    require(thin[3]>.80f&&thick[3]>.97f,"Dense cumulus cores should read as opaque clouds");
     require(thick[0]/thick[3]<thin[0]/thin[3]*.85f,"Thicker clouds must transmit less sunlight");
     f.sun.w=0;auto eclipsedCloud=march(white);
     require(eclipsedCloud[0]<thick[0]*.15f,"Eclipsed clouds must not retain direct sunlight");
