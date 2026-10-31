@@ -585,14 +585,15 @@ fragment float4 trailVolumeFragment(TrailRaster in [[stage_in]],constant FrameUn
     float turbulence=coarse.g*.64+detail*.36,billows=smoothstep(.36f,.72f,turbulence);
     float3 ray=normalize(in.ray),normal=normalize(in.normal);float facing=pow(abs(dot(ray,normal)),1.2f);
     float material=.24+2.15*billows*billows,optical=clamp(in.opacityAge.x,0.0f,.98f);
-    float alpha=(1-pow(max(.001f,1-optical),material*.5))*facing*fade;
+    float extinction=in.vacuum>.5f?.5f:4.0f;
+    float alpha=(1-pow(max(.001f,1-optical),material*extinction))*facing*fade;
     if(in.cap>.5)alpha*=.75*smoothstep(.72f,.95f,abs(dot(ray,normal)))*(1-smoothstep(.20f,1.0f,in.edge));
     if(alpha<.00002)discard_fragment();
     float sunPhase=clamp(.55f*(1-.45f*.45f)/pow(max(.05f,1+.45f*.45f-.9f*dot(ray,f.sun.xyz)),1.5f),.25f,2.0f);
     float light=f.sun.w*sunPhase*(.35+.65*abs(dot(normal,f.sun.xyz)))*exp(-optical*coarse.g*.8);
     float hot=exp(-in.opacityAge.y*(in.vacuum>.5?1.6f:2.5f));
     float3 color=in.vacuum>.5?float3(.46,.59,.76):float3(.84,.83,.78);
-    color*=.16+.84*light;color+=hot*(in.vacuum>.5?float3(.60,.38,.18):float3(.50,.28,.12));
+    color*=(in.vacuum>.5f?.16f:.25f)+.84f*light;color+=hot*(in.vacuum>.5?float3(.60,.38,.18):float3(.50,.28,.12));
     if(f.environment.x*f.body.x<f.clouds.y+1000&&f.clouds.z>0){
         float distance=length(in.ray);float3 midpoint=f.position.xyz*f.body.x+in.ray*.5;
         alpha*=exp(-cloudDensity(midpoint,f,noise,cloudRegion(midpoint,f,cloudMap))*distance);

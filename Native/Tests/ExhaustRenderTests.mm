@@ -55,7 +55,7 @@ int main(){@autoreleasepool{
     id<MTLCommandBuffer> prepare=[queue commandBuffer];id<MTLComputeCommandEncoder> compute=[prepare computeCommandEncoder];
     [compute setComputePipelineState:noiseKernel];[compute setTexture:noise atIndex:0];
     [compute dispatchThreads:MTLSizeMake(32,32,32) threadsPerThreadgroup:MTLSizeMake(4,4,4)];[compute endEncoding];[prepare commit];[prepare waitUntilCompleted];require(prepare.error==nil,"Noise generation failed");
-    auto render=[&](EmitterUniforms jet,float time,float depthClear,bool drawSmoke,float smokeOpacity,bool endOnTrail=false){
+    auto render=[&](EmitterUniforms jet,float time,float depthClear,bool drawSmoke,float smokeOpacity,bool endOnTrail=false,bool skyBackground=false){
         EffectUniforms effects{};effects.clock={.016f,time,time-.016f,1};
         TrailSegmentUniforms volume{{-6,0,32,2},{6,0,32,2},{smokeOpacity,smokeOpacity,3,3},{0,0,0,0}};
         if(endOnTrail){volume.startRadius={0,0,25,2};volume.endRadius={0,0,35,2};}
@@ -65,7 +65,7 @@ int main(){@autoreleasepool{
         id<MTLRenderCommandEncoder> clear=[cb renderCommandEncoderWithDescriptor:clearDepth];[clear endEncoding];
         MTLRenderPassDescriptor *pass=[MTLRenderPassDescriptor renderPassDescriptor];
         pass.colorAttachments[0].texture=color;pass.colorAttachments[0].loadAction=MTLLoadActionClear;pass.colorAttachments[0].storeAction=MTLStoreActionStore;
-        pass.colorAttachments[0].clearColor=MTLClearColorMake(0,0,0,1);
+        pass.colorAttachments[0].clearColor=skyBackground?MTLClearColorMake(.10,.16,.26,1):MTLClearColorMake(0,0,0,1);
         if(!drawSmoke){pass.depthAttachment.texture=depth;pass.depthAttachment.loadAction=MTLLoadActionLoad;pass.depthAttachment.storeAction=MTLStoreActionStore;}
         id<MTLRenderCommandEncoder> r=[cb renderCommandEncoderWithDescriptor:pass];if(!drawSmoke)[r setDepthStencilState:depthState];[r setCullMode:MTLCullModeNone];
         [r setVertexBytes:&frame length:sizeof(frame) atIndex:0];[r setFragmentBytes:&frame length:sizeof(frame) atIndex:0];
@@ -92,6 +92,10 @@ int main(){@autoreleasepool{
     require(energy(render(side,30,.04,false,0))==0,"Depth must hide flames behind foreground geometry");
     auto thick=energy(render(side,30,0,true,.3f)),thin=energy(render(side,30,0,true,.03f));
     require(thick>1000&&thick>thin*3,"Smoke must render and fade with opacity");
+    auto lowThrottle=render(side,30,0,true,.16f,false,true),emptySky=render(side,30,0,true,0,false,true);
+    int smokeContrast=0;for(size_t i=0;i<lowThrottle.size();i+=4)for(int c=0;c<3;++c)smokeContrast=std::max(smokeContrast,abs(int(lowThrottle[i+c])-int(emptySky[i+c])));
+    printf("Low-throttle smoke contrast against sky: %d/255\n",smokeContrast);
+    require(smokeContrast>18,"Moderate-power exhaust must be visible against the sky");
     auto volume=render(side,30,0,true,.3f);uint64_t outside=0;
     for(size_t y=0;y<height;++y)for(size_t x=0;x<width;++x)if(x<117||x>203){size_t i=(y*width+x)*4;outside+=volume[i]+volume[i+1]+volume[i+2];}
     require(outside==0,"A world-space volume must not stretch past its endpoints");
