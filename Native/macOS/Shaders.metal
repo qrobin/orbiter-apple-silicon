@@ -229,6 +229,12 @@ AirLight earthAirLight(constant Frame &f,float3 ray,float maximumDistance){
     scattered*=mix(float3(1),float3(1.12,.48,1.12),twilight*towardSun*(.55f+.45f*horizon));
     float antisolar=(1-smoothstep(-.55f,.2f,cosine))*(1-smoothstep(.02f,.55f,abs(mu)))*twilight;
     scattered*=1-.65f*antisolar;
+    // Away from a low Sun, restore the blue and rose skylight that the
+    // single-scattering approximation loses at long horizon distances.
+    float away=1-smoothstep(-.1f,.65f,cosine);
+    float amount=twilight*exp(-abs(mu)*3.0f)*away*.95f;
+    float3 dusk=float3(scattered.r,min(scattered.g,scattered.r*.70f+scattered.b*.15f),max(scattered.b,scattered.r*.75f));
+    scattered=mix(scattered,dusk,amount);
     return {transmission,scattered};
 }
 fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buffer(1)]],

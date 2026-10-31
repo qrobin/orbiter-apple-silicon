@@ -53,8 +53,11 @@ int main(){@autoreleasepool{
     if(NSString *altitude=NSProcessInfo.processInfo.environment[@"ORBITER_SUNSET_ALTITUDE"])flight.position=flight.position.unit()*(flight.centralBody().radius+altitude.doubleValue);
     const auto &b=flight.centralBody();double date=flight.mjd+flight.elapsed/86400.;Vector eyeOffset=flight.up*1.467+flight.forward*6.782,eye=flight.position+eyeOffset;
     NSString *pitchOverride=NSProcessInfo.processInfo.environment[@"ORBITER_SUNSET_PITCH"];
+    NSString *azimuthOverride=NSProcessInfo.processInfo.environment[@"ORBITER_SUNSET_AZIMUTH"];
     double pitch=pitchOverride?pitchOverride.doubleValue:-.25;
-    Vector direction=(flight.forward*cos(pitch)+flight.up*sin(pitch)).unit(),right=crossp(flight.up,direction).unit(),up=crossp(direction,right).unit(),sunDirection=(-(bodyState(BodyId::Earth,date).position+eye)).unit();
+    double azimuth=azimuthOverride?Rad(azimuthOverride.doubleValue):0;
+    Vector horizontal=flight.forward*cos(azimuth)+flight.right*sin(azimuth);
+    Vector direction=(horizontal*cos(pitch)+flight.up*sin(pitch)).unit(),right=crossp(flight.up,direction).unit(),up=crossp(direction,right).unit(),sunDirection=(-(bodyState(BodyId::Earth,date).position+eye)).unit();
     FrameUniforms f{};f.right=v4(right);f.up=v4(up);f.forward=v4(direction);f.position=v4(eye/b.radius);f.sun=v4(sunDirection,1);
     f.screen={(float)width,(float)height,(float)tan(25*RAD),(float)(b.rotation(date)/Pi2)};f.environment={(float)(eye.length()/b.radius-1),(float)(eye.length()-b.radius),0,(float)flight.elapsed};
     f.body={(float)b.radius,1,13000,0};f.haze={.1,.33,.75,78000};f.equatorX=v4(b.equatorX(),1);f.pole=v4(b.pole());f.equatorZ=v4(b.equatorZ());f.surfaceColor=v4(b.color,(int)b.id);
@@ -86,13 +89,18 @@ int main(){@autoreleasepool{
     };
     auto clear=render(false),cloudy=render(true);auto write=[&](NSString *suffix,const auto &pixels){NSString *base=NSProcessInfo.processInfo.environment[@"ORBITER_SUNSET_PREVIEW"];if(!base.length)return;NSBitmapImageRep *out=[[NSBitmapImageRep alloc] initWithBitmapDataPlanes:nullptr pixelsWide:width pixelsHigh:height bitsPerSample:8 samplesPerPixel:4 hasAlpha:YES isPlanar:NO colorSpaceName:NSCalibratedRGBColorSpace bytesPerRow:width*4 bitsPerPixel:32];memcpy(out.bitmapData,pixels.data(),pixels.size());[[out representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:[base stringByAppendingString:suffix] atomically:YES];};
     write(@"-clear.png",clear);write(@"-clouds.png",cloudy);
+    if(azimuthOverride&&fabs(fabs(azimuth)-M_PI)<.01&&eye.length()-b.radius<1000){
+        double blue=0,green=0;NSUInteger y=height*46/100;
+        for(NSUInteger x=0;x<width;++x){size_t i=(y*width+x)*4;green+=clear[i+1];blue+=clear[i+2];}
+        require(blue>green*.70,"The horizon away from a low Sun must not become yellow-green");
+    }
     if(debug){
         std::vector<float> cv(cw*ch*4),dv(cw*ch*4);
         [clouds[1] getBytes:cv.data() bytesPerRow:cw*16 fromRegion:MTLRegionMake2D(0,0,cw,ch) mipmapLevel:0];
         [data[1] getBytes:dv.data() bytesPerRow:cw*16 fromRegion:MTLRegionMake2D(0,0,cw,ch) mipmapLevel:0];
         for(int y=55;y<85;++y){size_t i=(size_t(y)*cw+cw/2)*4;printf("cloud row %d: rgb %.3f %.3f %.3f a %.3f geom %.0f sample %.0f start %.0f\n",y,cv[i],cv[i+1],cv[i+2],cv[i+3],dv[i],dv[i+1],dv[i+2]);}
     }
-    if(!shaderDirectory.length&&!pitchOverride&&!weatherOverride&&!NSProcessInfo.processInfo.environment[@"ORBITER_SUNSET_ALTITUDE"]&&!NSProcessInfo.processInfo.environment[@"ORBITER_SUNSET_LATER"]){
+    if(!shaderDirectory.length&&!pitchOverride&&!azimuthOverride&&!weatherOverride&&!NSProcessInfo.processInfo.environment[@"ORBITER_SUNSET_ALTITUDE"]&&!NSProcessInfo.processInfo.environment[@"ORBITER_SUNSET_LATER"]){
         auto channel=[&](const auto &p,int x,int y,int c){return int(p[(size_t(y)*width+x)*4+c]);};
         double maxJump=0;for(int y=100;y<190;++y)for(int c=0;c<3;++c){double delta=0;for(int x=0;x<(int)width;++x)delta+=channel(cloudy,x,y+1,c)-channel(cloudy,x,y,c);maxJump=std::max(maxJump,fabs(delta/width));}
         require(maxJump<6,"The Hawaii cloud layer must not form a rectangular horizon stripe");
