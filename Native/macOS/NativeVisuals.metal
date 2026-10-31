@@ -3,6 +3,15 @@ float earthSunHaze(constant FrameUniforms &f);
 float solarIntensity(constant FrameUniforms &f);
 struct AirLight {float3 transmission,scattering;};
 AirLight earthAirLight(constant FrameUniforms &f,float3 ray,float maximumDistance);
+// An artistic apparent-size boost: strongest through dense air near the
+// horizon, and smoothly absent above the atmosphere.
+float atmosphericDiscScale(constant FrameUniforms &f,float3 direction){
+    if(int(f.surfaceColor.w)!=3||f.body.y<=0||length(f.position.xyz)<.001f)return 1;
+    float density=exp(-max(0.0f,f.environment.x*f.body.x)/8500.0f);
+    float elevation=abs(dot(normalize(f.position.xyz),direction));
+    float horizon=1-smoothstep(.04f,.45f,elevation);
+    return 1+density*(.25f+.75f*horizon);
+}
 uint visualHash(uint x) { x^=x>>16;x*=0x7feb352du;x^=x>>15;x*=0x846ca68bu;return x^(x>>16); }
 float visualRandom(uint x) { return float(visualHash(x)&0xffffffu)/16777216.0f; }
 float noiseCorner(int3 p,int period) {
@@ -619,7 +628,8 @@ kernel void extractBloom(texture2d<float> source [[texture(0)]],texture2d<float,
         float haze=int(f.surfaceColor.w)==3?earthSunHaze(f):0;
         float angle=length(cross(viewRay(uv,f),f.sun.xyz));
         float footprint=4*f.screen.z/max(1.0f,f.screen.y);
-        float sunMask=1-smoothstep(f.sunShape.x*.5f,f.sunShape.x*1.6f+footprint,angle);
+        float radius=f.sunShape.x*atmosphericDiscScale(f,f.sun.xyz);
+        float sunMask=1-smoothstep(radius*.5f,radius*1.6f+footprint,angle);
         bloom*=1-sunMask*(1-smoothstep(.005f,.04f,haze));
     }
     output.write(float4(bloom,1),id);

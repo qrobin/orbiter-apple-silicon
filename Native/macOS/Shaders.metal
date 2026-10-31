@@ -309,7 +309,7 @@ fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buf
     // Atmospheric forward scattering creates an aureole larger than the
     // physical solar disc; cloud and surface depth can still obscure it.
     if(distance>1e24f&&f.sun.w>0&&f.sunShape.x>0){
-        float cosine=dot(ray,f.sun.xyz),radius=clamp(f.sunShape.x,.00001f,.05f);
+        float cosine=dot(ray,f.sun.xyz),radius=clamp(f.sunShape.x*atmosphericDiscScale(f,f.sun.xyz),.00001f,.05f);
         float angle2=max(0.0f,2*(1-cosine));
         if(angle2<radius*radius*900){
             if(earth&&f.sunShape.z<.5f){

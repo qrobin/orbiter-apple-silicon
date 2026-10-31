@@ -1,13 +1,17 @@
 struct CelestialRaster {float4 position [[position]];};
 vertex CelestialRaster celestialVertex(uint id [[vertex_id]],constant FrameUniforms &f [[buffer(0)]],constant CelestialUniforms &b [[buffer(1)]]){
     float2 quad[4]={float2(-1,-1),float2(1,-1),float2(-1,1),float2(1,1)};
-    float z=dot(b.directionRadius.xyz,f.forward.xyz),r=b.directionRadius.w*max(1.0f,b.rings.y);
+    bool visibleDisc=b.pole.w>1.5f||int(b.material.w)==4;
+    float scale=visibleDisc?atmosphericDiscScale(f,b.directionRadius.xyz):1;
+    float z=dot(b.directionRadius.xyz,f.forward.xyz),r=b.directionRadius.w*scale*max(1.0f,b.rings.y);
     float2 center=float2(dot(b.directionRadius.xyz,f.right.xyz)/(f.screen.z*f.screen.x/f.screen.y),dot(b.directionRadius.xyz,f.up.xyz)/f.screen.z)/max(.001f,z);
     float2 extent=float2(r/(f.screen.z*f.screen.x/f.screen.y),r/f.screen.z)/max(.001f,z)*1.3;
     return {z>0?float4(center+quad[id]*extent,0,1):float4(2,2,2,1)};
 }
 fragment SkyOutput celestialFragment(CelestialRaster in [[stage_in]],constant FrameUniforms &f [[buffer(0)]],constant CelestialUniforms &b [[buffer(1)]],texture2d<float> map [[texture(0)]],texture2d<float> rings [[texture(1)]]){
-    float3 ray=viewRay(in.position.xy/f.screen.xy,f),center=b.directionRadius.xyz;float radius=b.directionRadius.w;
+    bool visibleDisc=b.pole.w>1.5f||int(b.material.w)==4;
+    float3 ray=viewRay(in.position.xy/f.screen.xy,f),center=b.directionRadius.xyz;
+    float radius=b.directionRadius.w*(visibleDisc?atmosphericDiscScale(f,center):1);
     float projection=dot(ray,center),perpendicular=length(cross(ray,center)),disc=radius*radius-perpendicular*perpendicular;
     float distance=1e25;float3 color=0;float alpha=0;
     if(disc>=0&&projection>0){
@@ -18,8 +22,10 @@ fragment SkyOutput celestialFragment(CelestialRaster in [[stage_in]],constant Fr
         float light=max(0.0f,dot(normal,b.light.xyz));float irradiance=b.rings.z>0?b.rings.z:1.0f;color=surface*(.008+light*irradiance);
         if(b.pole.w>1.5)color=mix(surface,float3(1.0,.98,.94),.85f)*180;
         alpha=1;
-        if(b.pole.w>1.5&&int(f.surfaceColor.w)==3){
-            float edge=radius*(.025f+.28f*earthSunHaze(f));
+        if(visibleDisc&&int(f.surfaceColor.w)==3){
+            float density=exp(-max(0.0f,f.environment.x*f.body.x)/8500.0f);
+            float horizon=1-smoothstep(.04f,.45f,abs(dot(normalize(f.position.xyz),center)));
+            float edge=radius*(b.pole.w>1.5f?.025f+.28f*earthSunHaze(f):.01f+density*(.025f+.055f*horizon));
             alpha=smoothstep(0.0f,edge,radius-perpendicular);
         }
     }

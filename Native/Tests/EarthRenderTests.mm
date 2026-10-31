@@ -189,6 +189,18 @@ int main(){@autoreleasepool{
     require(darkMoonDay[2]>darkMoonVacuum[2]+.05f&&darkMoonDay[2]>darkMoonDay[0],"The dark Moon is veiled by blue daylight air");
     sunFrame.sun={0,0,-1,1};auto darkMoonNight=renderSun(true);
     require(darkMoonNight[2]<darkMoonDay[2]*.2f,"The daylight veil fades at night");
+    // Count the actual rendered Sun and Moon discs, not just the scale helper.
+    // Looking horizontally puts either body on the observer's horizon.
+    sunFrame.position={0,1,0,0};sunFrame.sun={0,0,1,1};sunBody.directionRadius={0,0,1,.02f};
+    auto discPixels=[&](bool moon,bool atmosphere,float height){
+        sunFrame.surfaceColor.w=atmosphere?3:0;sunFrame.environment.x=height/6371010.0f;
+        sunBody.pole.w=moon?0:2;sunBody.material.w=moon?4:0;sunBody.light={0,0,-1,1};
+        id<MTLCommandBuffer> cb=[queue commandBuffer];MTLRenderPassDescriptor *pass=[MTLRenderPassDescriptor renderPassDescriptor];pass.colorAttachments[0].texture=sunColor;pass.colorAttachments[0].loadAction=MTLLoadActionClear;pass.colorAttachments[0].clearColor=MTLClearColorMake(0,0,0,0);pass.colorAttachments[0].storeAction=MTLStoreActionStore;pass.depthAttachment.texture=sunDepth;pass.depthAttachment.loadAction=MTLLoadActionClear;pass.depthAttachment.clearDepth=0;pass.depthAttachment.storeAction=MTLStoreActionDontCare;
+        id<MTLRenderCommandEncoder> e=[cb renderCommandEncoderWithDescriptor:pass];[e setDepthStencilState:depthState];[e setRenderPipelineState:sunPipeline];[e setVertexBytes:&sunFrame length:sizeof(sunFrame) atIndex:0];[e setVertexBytes:&sunBody length:sizeof(sunBody) atIndex:1];[e setFragmentBytes:&sunFrame length:sizeof(sunFrame) atIndex:0];[e setFragmentBytes:&sunBody length:sizeof(sunBody) atIndex:1];[e setFragmentTexture:white atIndex:0];[e setFragmentTexture:white atIndex:1];[e drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];[e endEncoding];[cb commit];[cb waitUntilCompleted];require(cb.error==nil,"Atmospheric disc render failed");
+        std::vector<float> pixels(64*64*4);[sunColor getBytes:pixels.data() bytesPerRow:64*16 fromRegion:MTLRegionMake2D(0,0,64,64) mipmapLevel:0];size_t count=0;for(size_t i=3;i<pixels.size();i+=4)if(pixels[i]>.5f)++count;return count;
+    };
+    for(bool moon:{false,true}){size_t vacuum=discPixels(moon,false,0),air=discPixels(moon,true,0),orbit=discPixels(moon,true,100000);
+        require(air>vacuum*2&&abs((long)orbit-(long)vacuum)<(long)vacuum/3,"Sun and Moon discs grow near the horizon and return to normal in space");}
     // Animated waves must appear over water and leave the land material still.
     f.position={1+5000.0f/6371010,0,0,0};f.environment={5000.0f/6371010,5000,0,1};
     f.forward={-1,0,0,0};f.right={0,0,1,0};f.up={0,1,0,0};f.sun={.8,.4,.447,1};f.weather={3,.8f,0,0};f.lightning.w=0;
