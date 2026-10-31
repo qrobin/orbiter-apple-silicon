@@ -41,16 +41,26 @@ int main(){@autoreleasepool{try{
     f.projection.columns[0]={1/.466f,0,0,0};f.projection.columns[1]={0,1/.466f,0,0};f.projection.columns[2]={0,0,0,-1};f.projection.columns[3]={0,0,.2f,0};
     Object object{};object.model.columns[0]={1,0,0,0};object.model.columns[1]={0,1,0,0};object.model.columns[2]={0,0,1,0};object.model.columns[3]={0,0,0,1};object.color={1,1,1,1};
     ShipFrame ship={{1,0,0,0},{0,1,0,0},{0,0,1,0},{0,0,0,0}};
-    auto render=[&](bool traced){id<MTLCommandBuffer> cb=[queue commandBuffer];MTLRenderPassDescriptor *pass=[MTLRenderPassDescriptor renderPassDescriptor];pass.colorAttachments[0].texture=image;pass.colorAttachments[0].loadAction=MTLLoadActionClear;pass.colorAttachments[0].storeAction=MTLStoreActionStore;pass.depthAttachment.texture=depth;pass.depthAttachment.loadAction=MTLLoadActionClear;pass.depthAttachment.clearDepth=0;pass.depthAttachment.storeAction=MTLStoreActionStore;
+    auto render=[&](bool traced,id<MTLTexture> planet=nil,id<MTLTexture> stars=nil){id<MTLCommandBuffer> cb=[queue commandBuffer];MTLRenderPassDescriptor *pass=[MTLRenderPassDescriptor renderPassDescriptor];pass.colorAttachments[0].texture=image;pass.colorAttachments[0].loadAction=MTLLoadActionClear;pass.colorAttachments[0].storeAction=MTLStoreActionStore;pass.depthAttachment.texture=depth;pass.depthAttachment.loadAction=MTLLoadActionClear;pass.depthAttachment.clearDepth=0;pass.depthAttachment.storeAction=MTLStoreActionStore;
         id<MTLRenderCommandEncoder> e=[cb renderCommandEncoderWithDescriptor:pass];[e setRenderPipelineState:traced?ray.pipeline:regular];[e setDepthStencilState:depthState];[e setCullMode:MTLCullModeNone];
         [e setVertexBuffer:vertexBuffer offset:0 atIndex:0];[e setVertexBytes:&f length:sizeof(f) atIndex:1];[e setVertexBytes:&object length:sizeof(object) atIndex:2];float dummy[12]={};[e setVertexBytes:dummy length:sizeof(dummy) atIndex:3];
-        [e setFragmentBytes:&f length:sizeof(f) atIndex:1];[e setFragmentBytes:&object length:sizeof(object) atIndex:2];[e setFragmentTexture:white atIndex:0];[e setFragmentTexture:white atIndex:1];
+        [e setFragmentBytes:&f length:sizeof(f) atIndex:1];[e setFragmentBytes:&object length:sizeof(object) atIndex:2];[e setFragmentTexture:white atIndex:0];[e setFragmentTexture:white atIndex:1];[e setFragmentTexture:planet?:white atIndex:2];[e setFragmentTexture:white atIndex:3];[e setFragmentTexture:stars?:white atIndex:4];
         if(traced){[e setFragmentBytes:&ship length:sizeof(ship) atIndex:4];[e setFragmentAccelerationStructure:ray.structure atBufferIndex:5];[e useResource:ray.structure usage:MTLResourceUsageRead stages:MTLRenderStageFragment];}
         [e drawIndexedPrimitives:MTLPrimitiveTypeTriangle indexCount:indices.size() indexType:MTLIndexTypeUInt32 indexBuffer:indexBuffer indexBufferOffset:0];[e endEncoding];[cb commit];[cb waitUntilCompleted];if(cb.error)std::cerr<<cb.error.localizedDescription.UTF8String<<'\n';check(cb.error==nil,"Ray-shadow render failed");
         std::vector<uint8_t> pixels(width*height*4);[image getBytes:pixels.data() bytesPerRow:width*4 fromRegion:MTLRegionMake2D(0,0,width,height) mipmapLevel:0];return pixels;};
     auto fallback=render(false),traced=render(true);auto red=[](const auto &v,int x,int y){return int(v[(y*width+x)*4]);};
     check(red(fallback,128,128)>200&&red(traced,128,128)+70<red(fallback,128,128),"An occluding triangle blocks direct sunlight");
     check(abs(red(traced,50,128)-red(fallback,50,128))<3,"Unoccluded surfaces remain lit");
+    auto solid=[&](uint32_t value){id<MTLTexture> t=[gpu newTextureWithDescriptor:td];[t replaceRegion:MTLRegionMake2D(0,0,1,1) mipmapLevel:0 withBytes:&value bytesPerRow:4];return t;};
+    id<MTLTexture> redWorld=solid(0xff0000ff),blueWorld=solid(0xffff0000),black=solid(0xff000000);
+    f.position={0,0,2,0};f.body={6371010,0,13000,0};f.environment={1,6371010,0,0};f.equatorX={1,0,0,1};f.pole={0,1,0,0};f.equatorZ={0,0,1,0};f.sun={0,0,1,1};
+    object.options.y=-1;object.specular={1,1,1,40};
+    auto earthRed=render(false,redWorld,black),earthBlue=render(false,blueWorld,black);
+    auto tracedRed=render(true,redWorld,black),tracedBlue=render(true,blueWorld,black);
+    check(red(earthRed,128,128)>red(earthBlue,128,128)+10,"The hull reflects the planet facing it");
+    check(red(tracedRed,128,128)>red(tracedBlue,128,128)+10,"Ray-shadowed hulls also reflect the planet");
+    f.position={0,0,-2,0};auto skyRed=render(false,black,redWorld),skyBlue=render(false,black,blueWorld);
+    check(red(skyRed,128,128)>red(skyBlue,128,128)+10,"The hull reflects the sky when it faces away from the planet");
     auto hull=loadMesh(std::filesystem::path(ORBITER_TEST_DATA)/"Src/Vessel/DeltaGlider/Meshes/deltaglider_ns.msh");std::vector<bool> moving(hull.groups.size());
     for(const auto &a:Glider::animations())if(a.mesh==0)for(size_t index:a.groups)if(index<moving.size())moving[index]=true;
     NSMutableArray<MTLAccelerationStructureGeometryDescriptor *> *parts=[NSMutableArray new];size_t triangles=0;

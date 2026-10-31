@@ -6,7 +6,7 @@ using namespace metal::raytracing;
 struct RayShadowFrame {float4 right,up,forward,origin;};
 fragment float4 rayShadowMeshFragment(Raster in [[stage_in]],constant Frame &f [[buffer(1)]],
     constant Object &o [[buffer(2)]],constant RayShadowFrame &ship [[buffer(4)]],
-    primitive_acceleration_structure hull [[buffer(5)]],texture2d<float> tex [[texture(0)]],texture2d<float> shadows [[texture(1)]]) {
+    primitive_acceleration_structure hull [[buffer(5)]],texture2d<float> tex [[texture(0)]],texture2d<float> shadows [[texture(1)]],texture2d<float> planet [[texture(2)]],texture2d<float> clouds [[texture(3)]],texture2d<float> stars [[texture(4)]]) {
     float3 normal=normalize(in.normal);if(dot(normal,-in.world)<0)normal=-normal;
     float visibility=1;
     if(f.sun.w>0&&dot(normal,f.sun.xyz)>.001f){
@@ -18,5 +18,5 @@ fragment float4 rayShadowMeshFragment(Raster in [[stage_in]],constant Frame &f [
         intersector<triangle_data> trace;trace.accept_any_intersection(true);
         visibility=trace.intersect(r,hull).type==intersection_type::none?1.0f:0.0f;
     }
-    return shadeMesh(in,f,o,tex,shadows,visibility);
+    return shadeMesh(in,f,o,tex,shadows,planet,clouds,stars,visibility);
 }

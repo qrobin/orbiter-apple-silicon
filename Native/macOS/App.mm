@@ -586,6 +586,8 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     [solar encodeBodies:encoder frame:uniforms flight:flight offset:offset];
     [encoder setFragmentBytes:&uniforms length:sizeof(uniforms) atIndex:1];
     [encoder setFragmentTexture:visuals.cloudShadows atIndex:1];
+    [encoder setFragmentTexture:[solar textureForBody:flight.reference] atIndex:2];
+    [encoder setFragmentTexture:[visuals satelliteClouds] atIndex:3];[encoder setFragmentTexture:starTexture atIndex:4];
     {
         [encoder setRenderPipelineState:meshPipeline]; [encoder setDepthStencilState:depthState]; [encoder setCullMode:MTLCullModeNone];
         [encoder setVertexBytes:&uniforms length:sizeof(uniforms) atIndex:1];
@@ -637,7 +639,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
             Vector relative=station.position-flight.position-offset;
             if(relative.length()<250000){
                 object.model.columns[0]=f4(station.right);object.model.columns[1]=f4(station.up);object.model.columns[2]=f4(station.forward);object.model.columns[3]=f4(relative,1);
-                object.options={0,0,0,0};
+                object.options={0,-1,0,0};
                 for(int transparent=0;transparent<2;++transparent){
                     [encoder setDepthStencilState:transparent?transparentDepth:depthState];
                     for(const auto &g:groups)if(g.mesh==3){
@@ -686,7 +688,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
                 local.columns[0]=f4({t.rotation.m11,t.rotation.m21,t.rotation.m31});
                 local.columns[1]=f4({t.rotation.m12,t.rotation.m22,t.rotation.m32});
                 local.columns[2]=f4({t.rotation.m13,t.rotation.m23,t.rotation.m33}); local.columns[3]=f4(t.translation,1);
-                object.model=simd_mul(vesselModel,local); object.options={0,0,(float)g.index,cockpit?(float)switchData.size():0.f};
+                object.model=simd_mul(vesselModel,local); object.options={0,(cockpit&&g.index!=77)?0.f:-1.f,(float)g.index,cockpit?(float)switchData.size():0.f};
                 object.color={mat.diffuse[0],mat.diffuse[1],mat.diffuse[2],mat.diffuse[3]};
                 object.specular={mat.specular[0],mat.specular[1],mat.specular[2],mat.power};float emission=cockpit&&flight.glider.instrumentLights?.08f:0.f;object.emission={mat.emissive[0]*emission,mat.emissive[1]*emission,mat.emissive[2]*emission,0};
                 if(cockpit&&g.index==77)object.options.x=6;

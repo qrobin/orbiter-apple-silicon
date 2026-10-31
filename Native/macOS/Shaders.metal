@@ -4,6 +4,7 @@ using Frame=FrameUniforms;
 struct Object { float4x4 model; float4 color; float4 options; float4 specular; float4 emission; };
 float3 earthSunTransmission(constant Frame &f);
 float solarIntensity(constant Frame &f){return f.sunShape.w>0?f.sunShape.w:1.0f;}
+float2 skyCoordinates(float3 ray);
 struct SwitchUniform { float4 pivotAngle,axisStart,range; };
 struct Vertex { packed_float3 position; packed_float3 normal; packed_float2 uv; };
 struct Raster { float4 position [[position]]; float3 normal; float2 uv; float3 world; float3 local; };
@@ -28,7 +29,45 @@ vertex Raster meshVertex(uint id [[vertex_id]],const device Vertex *vertices [[b
     out.normal=(o.model*float4(normal,0)).xyz;
     out.world=p; out.uv=uv; out.local=local;return out;
 }
-float4 shadeMesh(Raster in,constant Frame &f,constant Object &o,texture2d<float> tex,texture2d<float> shadows,float sunVisibility) {
+// Approximate the environment along a reflection ray using the same planetary
+// maps and sky scattering as the main view. The cloud map is a distant
+// approximation; nearby moving geometry is not part of this reflection.
+float3 reflectedEnvironment(constant Frame &f,float3 ray,float roughness,texture2d<float> planet,texture2d<float> clouds,texture2d<float> stars){
+    constexpr sampler s(filter::linear,mip_filter::linear,s_address::repeat,t_address::clamp_to_edge);
+    float mip=roughness*5.0f;
+    float3 origin=f.position.xyz,radial=normalize(origin);
+    float b=dot(origin,ray),c=max(0.0f,dot(origin,origin)-1),disc=b*b-c;
+    float t=disc>=0&&b<0?c/max(.000001f,-b+sqrt(disc)):1e25f;
+    float distance=t*f.body.x;
+    float3 reflected=stars.sample(s,skyCoordinates(ray),level(mip)).rgb*1.35f;
+    if(t<1e20f){
+        float3 n=normalize(origin+ray*t);float2 uv=terrestrialUV(n,f);
+        float3 albedo=f.equatorX.w>.5f?planet.sample(s,uv,level(mip)).rgb:f.surfaceColor.rgb;
+        float day=max(0.0f,dot(n,f.sun.xyz))*f.sun.w*solarIntensity(f);
+        reflected=albedo*(.005f+.85f*day);
+    }
+    if(int(f.surfaceColor.w)==3){
+        AirLight air=earthAirLight(f,ray,distance);
+        reflected=reflected*air.transmission+air.scattering;
+        if(f.clouds.z>0){
+            float height=max(0.0f,f.environment.x*f.body.x);
+            float shellHeight=mix(f.clouds.x,lowCloudTop(f),.5f);
+            float2 roots=cloudShellRoots(height,shellHeight,dot(radial,ray),f.body.x);
+            float cloudDistance=roots.x>1?roots.x:roots.y;
+            if(roots.y>roots.x&&cloudDistance>1&&cloudDistance<distance){
+                float3 point=normalize(radial*(f.body.x+height)+ray*cloudDistance);
+                float mask=clouds.sample(s,terrestrialUV(point,f),level(mip)).r;
+                float opacity=saturate(regionalCloudCoverage(mask,f.weather.x)*min(1.5f,f.clouds.z/.48f)*1.5f);
+                float day=smoothstep(-.08f,.10f,dot(point,f.sun.xyz))*f.sun.w;
+                float3 lit=mix(float3(.004,.006,.012),float3(.7,.75,.8)*(.35f+.65f*max(0.0f,dot(point,f.sun.xyz)))*solarIntensity(f),day);
+                AirLight cloudAir=earthAirLight(f,ray,cloudDistance);
+                reflected=mix(reflected,lit*cloudAir.transmission+cloudAir.scattering,opacity);
+            }
+        }
+    }
+    return reflected;
+}
+float4 shadeMesh(Raster in,constant Frame &f,constant Object &o,texture2d<float> tex,texture2d<float> shadows,texture2d<float> planet,texture2d<float> clouds,texture2d<float> stars,float sunVisibility) {
     constexpr sampler s(filter::linear,mip_filter::linear,address::repeat, max_anisotropy(8));
     if(o.options.x>5.5){
         float3 n=normalize(in.normal),view=normalize(-in.world);
@@ -37,7 +76,8 @@ float4 shadeMesh(Raster in,constant Frame &f,constant Object &o,texture2d<float>
         float dust=smoothstep(.997f,.9997f,grain)*.045f;
         float3 h=f.sun.xyz+view;float glint=pow(max(0.0f,abs(dot(n,h/max(length(h),.001f)))),180.0f)*f.sun.w*sunVisibility;
         float alpha=clamp(.012f+.05f*fresnel+dust+glint*.15f,0.0f,.25f);
-        return float4(float3(.48,.57,.63)+glint*float3(.55,.55,.52),alpha);
+        float3 reflected=o.options.y<0?reflectedEnvironment(f,reflect(-view,n),.12f,planet,clouds,stars):float3(0);
+        return float4(float3(.48,.57,.63)+glint*float3(.55,.55,.52)+reflected*.55f,alpha);
     }
     if(o.options.x>4.5) { float alpha=tex.sample(s,in.uv).a; if(alpha<.03)discard_fragment(); return float4(o.color.rgb,alpha); }
     if(o.options.x>3.5) { float4 label=tex.sample(s,in.uv); if(label.a<.03) discard_fragment(); return label; }
@@ -66,7 +106,7 @@ float4 shadeMesh(Raster in,constant Frame &f,constant Object &o,texture2d<float>
     float bounce=planetSize*planetSize*max(0.0f,dot(normal,-radial))*planetDay*.13f;
     float skylight=exp(-max(0.0f,f.environment.y)/9000.0f)*f.body.y*planetDay*.035f;
     float3 sunlight=int(f.surfaceColor.w)==3?earthSunTransmission(f):float3(1);
-    float3 color=albedo.rgb*(.006f+o.options.y+skylight+o.emission.rgb)+albedo.rgb*sunlight*lit*.8f+albedo.rgb*float3(.76,.84,1.0)*bounce*solarIntensity(f)+spec*sunlight;
+    float3 color=albedo.rgb*(.006f+max(0.0f,o.options.y)+skylight+o.emission.rgb)+albedo.rgb*sunlight*lit*.8f+albedo.rgb*float3(.76,.84,1.0)*bounce*solarIntensity(f)+spec*sunlight;
     // A low-cost hemispheric fill approximates sunlight scattered back down
     // by cloud cover; it softens shadows without making clouds emit at night.
     if(int(f.surfaceColor.w)==3&&f.clouds.z>0){
@@ -77,11 +117,18 @@ float4 shadeMesh(Raster in,constant Frame &f,constant Object &o,texture2d<float>
         float3 tint=mix(float3(1,.58,.35),float3(.80,.87,1),smoothstep(.02f,.3f,mu));
         color+=albedo.rgb*tint*cloudFill*(.5f+.5f*max(0.0f,dot(normal,normalize(f.position.xyz))));
     }
+    if(o.options.y<0){
+        float gloss=saturate(max(o.specular.r,max(o.specular.g,o.specular.b)));
+        float roughness=o.specular.w>0?clamp(sqrt(2/(o.specular.w+2)),.12f,.7f):.65f;
+        float fresnel=pow(1-max(0.0f,dot(normal,view)),5.0f);
+        float3 reflected=reflectedEnvironment(f,reflect(-view,normal),roughness,planet,clouds,stars);
+        color+=reflected*(.10f+.32f*fresnel)*mix(.25f,1.0f,gloss);
+    }
     return float4(color,albedo.a);
 }
 fragment float4 meshFragment(Raster in [[stage_in]],constant Frame &f [[buffer(1)]],
-                             constant Object &o [[buffer(2)]],texture2d<float> tex [[texture(0)]],texture2d<float> shadows [[texture(1)]]) {
-    return shadeMesh(in,f,o,tex,shadows,1);
+                             constant Object &o [[buffer(2)]],texture2d<float> tex [[texture(0)]],texture2d<float> shadows [[texture(1)]],texture2d<float> planet [[texture(2)]],texture2d<float> clouds [[texture(3)]],texture2d<float> stars [[texture(4)]]) {
+    return shadeMesh(in,f,o,tex,shadows,planet,clouds,stars,1);
 }
 vertex SkyRaster skyVertex(uint id [[vertex_id]]) {
     float2 p=float2((id<<1)&2,id&2); return {float4(p*2-1,1,1),p};
