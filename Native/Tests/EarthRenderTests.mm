@@ -250,11 +250,11 @@ int main(){@autoreleasepool{
     require(scatteredCore>.70f,"Scattered weather must still produce opaque cloud cores");
     // Looking up through thicker cloud should block more of the background
     // and transmit less direct sunlight to the cloud's lower face.
-    f.sun={.8f,0,.6f,1};f.clouds={1800,3500,.48,0};auto thin=march(white);
+    f.sun={.8f,0,.6f,1};f.clouds={1800,2200,.48,0};auto thin=march(white);
+    f.clouds.y=3500;auto core=march(white);
     f.clouds.y=8500;auto thick=march(white);
-    printf("Cloud thickness: alpha %.3f -> %.3f, light per opacity %.3f -> %.3f\n",thin[3],thick[3],thin[0]/thin[3],thick[0]/thick[3]);
-    require(thick[3]>thin[3]+.08f,"Thicker clouds must block more background light");
-    require(thin[3]>.80f&&thick[3]>.97f,"Dense cumulus cores should read as opaque clouds");
+    printf("Cloud thickness: alpha %.3f -> %.3f -> %.3f, light per opacity %.3f -> %.3f\n",thin[3],core[3],thick[3],thin[0]/thin[3],thick[0]/thick[3]);
+    require(thin[3]>.1f&&thin[3]<.9f&&core[3]>.94f&&thick[3]>.97f,"Thin clouds transmit light while dense cumulus cores are opaque");
     require(thick[0]/thick[3]<thin[0]/thin[3]*.85f,"Thicker clouds must transmit less sunlight");
     f.sun.w=0;auto eclipsedCloud=march(white);
     require(eclipsedCloud[0]<thick[0]*.15f,"Eclipsed clouds must not retain direct sunlight");
@@ -267,11 +267,34 @@ int main(){@autoreleasepool{
     // camera or whichever piece of ground happens to be behind the cockpit.
     id<MTLComputePipelineState> shipShadow=[device newComputePipelineStateWithFunction:[library newFunctionWithName:@"vesselCloudShadow"] error:&error];require(shipShadow!=nil,"Vessel shadow pipeline failed");
     id<MTLTexture> shipShadowOutput=texture(MTLPixelFormatR32Float,1,1,MTLTextureUsageShaderRead|MTLTextureUsageShaderWrite);
+    id<MTLTexture> activeNoise=noise;
     auto shadowAt=[&](simd_float4 position){id<MTLCommandBuffer> cb=[queue commandBuffer];id<MTLComputeCommandEncoder> e=[cb computeCommandEncoder];
         [e setComputePipelineState:shipShadow];[e setBytes:&f length:sizeof(f) atIndex:0];[e setBytes:&position length:sizeof(position) atIndex:1];
-        [e setTexture:noise atIndex:0];[e setTexture:white atIndex:1];[e setTexture:shipShadowOutput atIndex:2];
+        [e setTexture:activeNoise atIndex:0];[e setTexture:white atIndex:1];[e setTexture:shipShadowOutput atIndex:2];
         [e dispatchThreads:MTLSizeMake(1,1,1) threadsPerThreadgroup:MTLSizeMake(1,1,1)];[e endEncoding];[cb commit];[cb waitUntilCompleted];require(cb.error==nil,"Vessel shadow failed");
         float value=0;[shipShadowOutput getBytes:&value bytesPerRow:sizeof(value) fromRegion:MTLRegionMake2D(0,0,1,1) mipmapLevel:0];return value;};
+    id<MTLComputePipelineState> groundShadow=[device newComputePipelineStateWithFunction:[library newFunctionWithName:@"cloudShadowMap"] error:&error];require(groundShadow!=nil,"Ground shadow pipeline failed");
+    id<MTLTexture> groundShadowOutput=texture(MTLPixelFormatR32Float,1,1,MTLTextureUsageShaderRead|MTLTextureUsageShaderWrite);
+    auto shadowOnGround=[&](){id<MTLCommandBuffer> cb=[queue commandBuffer];id<MTLComputeCommandEncoder> e=[cb computeCommandEncoder];
+        [e setComputePipelineState:groundShadow];[e setBytes:&f length:sizeof(f) atIndex:0];[e setTexture:activeNoise atIndex:0];[e setTexture:groundShadowOutput atIndex:1];[e setTexture:white atIndex:2];
+        [e dispatchThreads:MTLSizeMake(1,1,1) threadsPerThreadgroup:MTLSizeMake(1,1,1)];[e endEncoding];[cb commit];[cb waitUntilCompleted];require(cb.error==nil,"Ground cloud shadow failed");
+        float value=0;[groundShadowOutput getBytes:&value bytesPerRow:sizeof(value) fromRegion:MTLRegionMake2D(0,0,1,1) mipmapLevel:0];return value;};
+    // A single cloud lies east of the surface point. Only sunlight from the
+    // east passes through it, so the shadow must move with the Sun.
+    nd.width=128;id<MTLTexture> striped=[device newTextureWithDescriptor:nd];std::array<uint8_t,128*4> stripes{};
+    for(size_t i=0;i<128;++i){stripes[4*i]=(i>=18&&i<=42)?255:0;stripes[4*i+1]=255;stripes[4*i+2]=128;stripes[4*i+3]=255;}
+    [striped replaceRegion:MTLRegionMake3D(0,0,0,128,1,1) mipmapLevel:0 slice:0 withBytes:stripes.data() bytesPerRow:128*4 bytesPerImage:128*4];
+    f.position={0,0,1+1000.0f/6371010,0};f.environment={1000.0f/6371010,1000,0,0};f.forward={0,0,-1,0};f.right={1,0,0,0};f.up={0,1,0,0};f.screen={1,1,.25,0};f.weather.x=4;f.clouds={1800,6500,.48,0};
+    simd_float4 groundPosition={0,0,1,0};
+    activeNoise=striped;f.sun={.8f,0,.6f,1};float eastShadow=shadowOnGround(),eastShip=shadowAt(groundPosition);
+    f.sun={-.8f,0,.6f,1};float westShadow=shadowOnGround();
+    printf("Directional cloud shadow: east %.3f, west %.3f, vessel %.3f\n",eastShadow,westShadow,eastShip);
+    require(eastShadow<.05f&&westShadow>.98f&&fabsf(eastShadow-eastShip)<.02f,"Opaque clouds must block sunlight in the Sun's direction for both ground and vessel");
+    // At a very low Sun angle, curvature places the cloud crossing more than
+    // 100 km away. Both ground and vessel shadows must still see it.
+    activeNoise=noise;f.sun={.99995f,0,.01f,1};float lowSun=shadowOnGround(),lowShip=shadowAt(groundPosition);
+    printf("Low-Sun cloud shadow: ground %.3f, vessel %.3f\n",lowSun,lowShip);
+    require(lowSun<.05f&&fabsf(lowSun-lowShip)<.02f,"Low-Sun shadows must follow the curved cloud layer without a distance cutoff");
     f.sun={0,0,1,1};simd_float4 ship={0,0,1+1000.0f/6371010,0};float sheltered=shadowAt(ship);
     f.position={.2f,0,1.1f,0};f.forward={1,0,0,0};float movedCamera=shadowAt(ship);
     simd_float4 above={0,0,1+150000.0f/6371010,0};float exposed=shadowAt(above);

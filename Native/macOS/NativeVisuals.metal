@@ -148,7 +148,7 @@ float cloudDensity(float3 p,constant FrameUniforms &f,texture3d<float> noise,flo
     // Keep cloud cores visually solid even in the low-density scattered preset.
     // The extinction is shared by camera rays, solar self-shadowing and shadows
     // on the surface so opaque billows also block direct light consistently.
-    return density*2.6f+highDensity*1.32f;
+    return density*4.2f+highDensity*1.32f;
 }
 // Stable sphere intersections avoid subtracting two large, nearly equal squared radii.
 float2 cloudShellRoots(float cameraHeight,float shellHeight,float mu,float radius) {
@@ -183,22 +183,48 @@ float cloudSunTransmittance(float3 p,constant FrameUniforms &f,texture3d<float> 
     }
     return exp(-optical);
 }
+// Follow sunlight through the first connected part of the spherical cloud
+// layer. The flat height / sun elevation shortcut breaks near the horizon.
+float2 cloudSunSegment(float3 origin,constant FrameUniforms &f) {
+    float height=length(origin)-f.body.x,mu=dot(normalize(origin),f.sun.xyz);
+    float2 outer=cloudShellRoots(height,f.clouds.y,mu,f.body.x);
+    float start=max(0.0f,outer.x),end=outer.y;
+    float2 inner=cloudShellRoots(height,f.clouds.x,mu,f.body.x);
+    if(inner.y>inner.x){
+        if(height<f.clouds.x)start=max(start,inner.y);
+        else if(inner.x>start)end=min(end,inner.x);
+    }
+    if(mu<0){
+        float2 ground=cloudShellRoots(height,0,mu,f.body.x);
+        if(ground.y>ground.x&&ground.x>0)end=min(end,ground.x);
+    }
+    return float2(start,max(start,end));
+}
+float cloudShadowTransmission(float3 origin,constant FrameUniforms &f,texture3d<float> noise,texture2d<float> cloudMap) {
+    float2 segment=cloudSunSegment(origin,f);
+    float step=(segment.y-segment.x)/8.0f,optical=0;
+    if(step<=0)return 1;
+    for(int i=0;i<8;++i){
+        float3 point=origin+f.sun.xyz*(segment.x+(float(i)+.5f)*step);
+        optical+=cloudDensity(point,f,noise,cloudRegion(point,f,cloudMap))*step;
+    }
+    return exp(-optical);
+}
 kernel void cloudShadowMap(constant FrameUniforms &f [[buffer(0)]],texture3d<float> noise [[texture(0)]],
                            texture2d<float,access::write> shadow [[texture(1)]],texture2d<float> cloudMap [[texture(2)]],uint2 id [[thread_position_in_grid]]) {
     if(id.x>=shadow.get_width()||id.y>=shadow.get_height())return;
     float2 uv=(float2(id)+.5)/float2(shadow.get_width(),shadow.get_height());
     float3 ray=viewRay(uv,f);float cameraHeight=f.environment.x*f.body.x;
     float2 roots=cloudShellRoots(cameraHeight,0,dot(normalize(f.position.xyz),ray),f.body.x);
-    float optical=0;
+    float transmission=1;
     if(roots.x>=0&&roots.y>roots.x&&f.clouds.z>0){
         float3 surface=normalize(normalize(f.position.xyz)*(f.body.x+cameraHeight)+ray*roots.x)*f.body.x;
         float mu=dot(normalize(surface),f.sun.xyz);
-        if(mu>.02){
-            float step=(f.clouds.y-f.clouds.x)/4,region=cloudRegion(surface,f,cloudMap);
-            for(int i=0;i<4;++i){float t=(f.clouds.x+(i+.5)*step)/max(.08f,mu);optical+=cloudDensity(surface+f.sun.xyz*t,f,noise,region)*step/max(.08f,mu);}
-        }
+        if(mu>0)transmission=cloudShadowTransmission(surface,f,noise,cloudMap);
     }
-    shadow.write(float4(.26+.74*exp(-optical)),id);
+    // Direct sunlight is blocked by opaque cloud; diffuse skylight is added
+    // separately by the surface and vessel lighting passes.
+    shadow.write(float4(transmission),id);
 }
 // The ground shadow map is projected in screen space. A nearby ship needs
 // its own world-space sample, otherwise that ground pattern crosses its hull.
@@ -206,28 +232,8 @@ kernel void vesselCloudShadow(constant FrameUniforms &f [[buffer(0)]],constant f
                               texture3d<float> noise [[texture(0)]],texture2d<float> cloudMap [[texture(1)]],
                               texture2d<float,access::write> output [[texture(2)]],uint2 id [[thread_position_in_grid]]) {
     if(any(id>0))return;
-    float optical=0;
-    if(f.clouds.z>0){
-        float3 origin=position.xyz*f.body.x;
-        float height=length(origin)-f.body.x,mu=dot(normalize(origin),f.sun.xyz);
-        float2 outer=cloudShellRoots(height,f.clouds.y,mu,f.body.x);
-        float start=max(0.0f,outer.x),end=min(outer.y,100000.0f);
-        float2 inner=cloudShellRoots(height,f.clouds.x,mu,f.body.x);
-        if(inner.y>inner.x){
-            if(height<f.clouds.x)start=max(start,inner.y);
-            else if(inner.x>start)end=min(end,inner.x);
-        }
-        if(mu<0){
-            float2 ground=cloudShellRoots(height,0,mu,f.body.x);
-            if(ground.y>ground.x&&ground.x>0)end=min(end,ground.x);
-        }
-        if(end>start){
-            float step=(end-start)/8.0f;
-            float region=cloudRegion(origin+f.sun.xyz*(start+min((end-start)*.25f,8000.0f)),f,cloudMap);
-            for(int i=0;i<8;++i)optical+=cloudDensity(origin+f.sun.xyz*(start+(float(i)+.5f)*step),f,noise,region)*step;
-        }
-    }
-    output.write(float4(.26f+.74f*exp(-optical)),id);
+    float transmission=f.clouds.z>0?cloudShadowTransmission(position.xyz*f.body.x,f,noise,cloudMap):1;
+    output.write(float4(transmission),id);
 }
 kernel void marchClouds(constant FrameUniforms &f [[buffer(0)]],constant uint &frameIndex [[buffer(1)]],
                         texture3d<float> noise [[texture(0)]],texture2d<float,access::read> depth [[texture(1)]],

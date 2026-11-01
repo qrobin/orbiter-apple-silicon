@@ -107,6 +107,9 @@ int main(){@autoreleasepool{
         std::vector<float> cv(cw*ch*4),dv(cw*ch*4);
         [clouds[1] getBytes:cv.data() bytesPerRow:cw*16 fromRegion:MTLRegionMake2D(0,0,cw,ch) mipmapLevel:0];
         [data[1] getBytes:dv.data() bytesPerRow:cw*16 fromRegion:MTLRegionMake2D(0,0,cw,ch) mipmapLevel:0];
+        size_t visible=0,solid=0,partial=0;double alpha=0;
+        for(size_t i=0;i<cv.size();i+=4){float a=cv[i+3];if(a>.1f){++visible;alpha+=a;if(a>.9f)++solid;else ++partial;}}
+        printf("Cloud opacity: visible %zu, solid %zu, partial %zu, mean %.3f\n",visible,solid,partial,alpha/std::max(size_t(1),visible));
         for(int y=55;y<85;++y){size_t i=(size_t(y)*cw+cw/2)*4;printf("cloud row %d: rgb %.3f %.3f %.3f a %.3f geom %.0f sample %.0f start %.0f\n",y,cv[i],cv[i+1],cv[i+2],cv[i+3],dv[i],dv[i+1],dv[i+2]);}
     }
     if(!shaderDirectory.length&&!pitchOverride&&!azimuthOverride&&!weatherOverride&&!NSProcessInfo.processInfo.environment[@"ORBITER_SUNSET_ALTITUDE"]&&!NSProcessInfo.processInfo.environment[@"ORBITER_SUNSET_LATER"]){
