@@ -12,6 +12,7 @@ int main(){try{
     auto root=std::filesystem::path(ORBITER_TEST_DATA);
     loadEphemerides(root/"Src/Celbody");
     check(loadEarthWeatherMap(root/"Native/Assets/earth-clouds.r8"),"Load the weather map");
+    check(loadTerrainMask(root/"Native/Assets/earth-terrain-mask.r8"),"Load the terrain mask");
     const Scenario cases[]={
         {"Atlantic Ocean flight.scn",20,-40,5000,4},
         {"Hawaii sunset.scn",20.5,-156.5,400,1},

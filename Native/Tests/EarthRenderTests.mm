@@ -1,6 +1,7 @@
 #import <Cocoa/Cocoa.h>
 #import <MetalKit/MetalKit.h>
 #include "VisualTypes.h"
+#include "Surface.h"
 #include <array>
 #include <cmath>
 #include <cstdio>
@@ -15,6 +16,7 @@ int main(){@autoreleasepool{
     [source appendString:@"\nkernel void checkSkyCoordinates(device float2 *out [[buffer(0)]], uint id [[thread_position_in_grid]]) {float3 v[3]={float3(1,0,0),float3(0,-.3977772,.9174821),float3(0,.9174821,.3977772)}; if(id<3)out[id]=skyCoordinates(v[id]);}\n"];
     [source appendString:@"\nkernel void copyWaterDepth(texture2d<float,access::read> src [[texture(0)]], texture2d<float,access::write> dst [[texture(1)]], uint2 id [[thread_position_in_grid]]) {if(id.x<dst.get_width()&&id.y<dst.get_height())dst.write(src.read(id),id);}\n"];
     [source appendString:@"\nkernel void probeCloudVolume(constant FrameUniforms &f [[buffer(0)]], device float4 *out [[buffer(1)]], texture3d<float> noise [[texture(0)]], texture2d<float> map [[texture(1)]]) {float3 p=f.position.xyz*f.body.x;float2 cloud=reflectedCloudRay(p,f.sun.xyz,1e9f,f,noise,map);float shadow=cloudShadowTransmission(p,f,noise,map);float3 reflected=reflectCloudVolume(float3(0),p,f.sun.xyz,1e9f,f,noise,map);float2 segment=cloudRaySegment(p,f.sun.xyz,f);float step=(segment.y-segment.x)/512.0f,optical=0;for(int i=0;i<512;++i)optical+=sampleCloudDensity(p+f.sun.xyz*(segment.x+(i+.5f)*step),f,noise,map)*step;out[0]=float4(cloud.x,shadow,reflected.r,exp(-optical));}\n"];
+    [source appendString:@"\nkernel void probeTerrain(device const float4 *p [[buffer(0)]],device float *out [[buffer(1)]],texture2d<float> mask [[texture(0)]],uint id [[thread_position_in_grid]]) {if(id<6)out[id]=terrainHeightAt(normalize(p[id].xyz),mask); }\n"];
     id<MTLLibrary> library=[device newLibraryWithSource:source options:nil error:&error];
     if(!library){fprintf(stderr,"Metal compilation: %s\n",error.localizedDescription.UTF8String);return 1;}
     auto pipeline=[&](NSString *fragment,MTLPixelFormat color,bool depth){
@@ -42,6 +44,15 @@ int main(){@autoreleasepool{
     MTLTextureDescriptor *dd=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatDepth32Float width:width height:height mipmapped:NO];dd.usage=MTLTextureUsageRenderTarget|MTLTextureUsageShaderRead;dd.storageMode=MTLStorageModePrivate;id<MTLTexture> depth=[device newTextureWithDescriptor:dd];
     id<MTLTexture> white=texture(MTLPixelFormatRGBA8Unorm,1,1,MTLTextureUsageShaderRead),zero=texture(MTLPixelFormatRGBA8Unorm,1,1,MTLTextureUsageShaderRead),data=texture(MTLPixelFormatRGBA32Float,1,1,MTLTextureUsageShaderRead);
     uint32_t w=0xffffffff,z=0;float far[4]={1e9f,0,0,0};[white replaceRegion:MTLRegionMake2D(0,0,1,1) mipmapLevel:0 withBytes:&w bytesPerRow:4];[zero replaceRegion:MTLRegionMake2D(0,0,1,1) mipmapLevel:0 withBytes:&z bytesPerRow:4];[data replaceRegion:MTLRegionMake2D(0,0,1,1) mipmapLevel:0 withBytes:far bytesPerRow:16];
+    require(native::loadTerrainMask(std::filesystem::path(ORBITER_TEST_DATA)/"Native/Assets/earth-terrain-mask.r8"),"CPU terrain mask loads");
+    NSData *terrainBytes=[NSData dataWithContentsOfFile:[root stringByAppendingPathComponent:@"Native/Assets/earth-terrain-mask.r8"]];
+    auto terrainMap=texture(MTLPixelFormatR8Unorm,2048,1024,MTLTextureUsageShaderRead);[terrainMap replaceRegion:MTLRegionMake2D(0,0,2048,1024) mipmapLevel:0 withBytes:terrainBytes.bytes bytesPerRow:2048];
+    std::array<simd_float4,6> terrainPoints{};double terrainLat[]={40,35,50,-25,28.58438,0},terrainLon[]={-110,-105,10,135,-80.65165,0};
+    for(int i=0;i<6;++i){double lat=terrainLat[i]*M_PI/180,lon=terrainLon[i]*M_PI/180;terrainPoints[i]={(float)(cos(lat)*cos(lon)),(float)sin(lat),(float)(cos(lat)*sin(lon)),0};}
+    auto terrainInput=[device newBufferWithBytes:terrainPoints.data() length:sizeof(terrainPoints) options:MTLResourceStorageModeShared];auto terrainOutput=[device newBufferWithLength:6*sizeof(float) options:MTLResourceStorageModeShared];
+    auto terrainProbe=[device newComputePipelineStateWithFunction:[library newFunctionWithName:@"probeTerrain"] error:&error];require(terrainProbe!=nil,"terrain probe pipeline");
+    auto terrainCommands=[device newCommandQueue];auto terrainCommand=[terrainCommands commandBuffer];auto terrainCompute=[terrainCommand computeCommandEncoder];[terrainCompute setComputePipelineState:terrainProbe];[terrainCompute setBuffer:terrainInput offset:0 atIndex:0];[terrainCompute setBuffer:terrainOutput offset:0 atIndex:1];[terrainCompute setTexture:terrainMap atIndex:0];[terrainCompute dispatchThreads:MTLSizeMake(6,1,1) threadsPerThreadgroup:MTLSizeMake(6,1,1)];[terrainCompute endEncoding];[terrainCommand commit];[terrainCommand waitUntilCompleted];require(terrainCommand.error==nil,"terrain probe executes");
+    for(int i=0;i<6;++i){auto p=native::earthSurface(Rad(terrainLat[i]),Rad(terrainLon[i]),51982.5).up*native::EarthRadius;double cpu=native::terrainElevation(native::BodyId::Earth,p,51982.5),gpu=((float *)terrainOutput.contents)[i];if(fabs(cpu-gpu)>1)fprintf(stderr,"terrain CPU/GPU %d: %.3f %.3f\n",i,cpu,gpu);require(fabs(cpu-gpu)<1,"rendering and physics terrain match");}
     id<MTLCommandQueue> queue=[device newCommandQueue];MTLDepthStencilDescriptor *ds=[MTLDepthStencilDescriptor new];ds.depthCompareFunction=MTLCompareFunctionAlways;ds.depthWriteEnabled=YES;id<MTLDepthStencilState> depthState=[device newDepthStencilStateWithDescriptor:ds];
     MTLTextureDescriptor *noiseDescriptor=[MTLTextureDescriptor new];noiseDescriptor.textureType=MTLTextureType3D;noiseDescriptor.width=noiseDescriptor.height=noiseDescriptor.depth=64;noiseDescriptor.pixelFormat=MTLPixelFormatRGBA8Unorm;noiseDescriptor.usage=MTLTextureUsageShaderRead|MTLTextureUsageShaderWrite;noiseDescriptor.storageMode=MTLStorageModePrivate;
     id<MTLTexture> cloudNoise=[device newTextureWithDescriptor:noiseDescriptor];
@@ -130,7 +141,7 @@ int main(){@autoreleasepool{
         id<MTLCommandBuffer> cb=[queue commandBuffer];MTLRenderPassDescriptor *pass=[MTLRenderPassDescriptor renderPassDescriptor];
         pass.colorAttachments[0].texture=output;pass.colorAttachments[0].loadAction=MTLLoadActionClear;pass.colorAttachments[0].storeAction=MTLStoreActionStore;
         pass.depthAttachment.texture=depth;pass.depthAttachment.loadAction=MTLLoadActionClear;pass.depthAttachment.clearDepth=0;pass.depthAttachment.storeAction=MTLStoreActionDontCare;
-        id<MTLRenderCommandEncoder> e=[cb renderCommandEncoderWithDescriptor:pass];[e setRenderPipelineState:terrainPipeline];[e setDepthStencilState:terrainDepth];[e setVertexBytes:&f length:sizeof(f) atIndex:0];[e setVertexTexture:mask atIndex:0];[e setVertexTexture:landMap atIndex:1];[e setFragmentBytes:&f length:sizeof(f) atIndex:0];[e setFragmentTexture:white atIndex:0];[e drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:24 instanceCount:96*96];[e endEncoding];[cb commit];[cb waitUntilCompleted];require(cb.error==nil,"Procedural terrain render");
+        id<MTLRenderCommandEncoder> e=[cb renderCommandEncoderWithDescriptor:pass];[e setRenderPipelineState:terrainPipeline];[e setDepthStencilState:terrainDepth];[e setVertexBytes:&f length:sizeof(f) atIndex:0];[e setVertexTexture:mask atIndex:0];[e setVertexTexture:landMap atIndex:1];[e setVertexTexture:white atIndex:2];[e setFragmentBytes:&f length:sizeof(f) atIndex:0];[e setFragmentTexture:white atIndex:0];[e drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:24 instanceCount:96*96];[e endEncoding];[cb commit];[cb waitUntilCompleted];require(cb.error==nil,"Procedural terrain render");
         std::vector<unsigned char> pixels(width*height*4);[output getBytes:pixels.data() bytesPerRow:width*4 fromRegion:MTLRegionMake2D(0,0,width,height) mipmapLevel:0];return pixels;
     };
     auto vegetation=renderTerrain(zero,white),waterTerrain=renderTerrain(white,white);size_t landPixels=0,waterPixels=0;
@@ -141,6 +152,19 @@ int main(){@autoreleasepool{
     f.position={france.x*(1+400.0f/6371010),france.y*(1+400.0f/6371010),france.z*(1+400.0f/6371010),0};f.forward={-france.x,-france.y,-france.z,0};f.right={franceEast.x,franceEast.y,franceEast.z,0};f.up={franceNorth.x,franceNorth.y,franceNorth.z,0};f.sun={france.x,france.y,france.z,1};
     auto franceTerrain=renderTerrain(ocean,earth);size_t francePixels=0;for(size_t i=0;i<franceTerrain.size();i+=4)if(franceTerrain[i+1]>5)++francePixels;
     require(francePixels>20,"The 400 m France scenario has procedural land scenery");
+    {
+    // Render the elevation mesh itself, not only its vegetation instances.
+    terrainDescriptor.vertexFunction=[library newFunctionWithName:@"groundVertex"];terrainDescriptor.fragmentFunction=[library newFunctionWithName:@"groundFragment"];
+    id<MTLRenderPipelineState> groundPipeline=[device newRenderPipelineStateWithDescriptor:terrainDescriptor error:&error];require(groundPipeline!=nil,"elevation mesh pipeline");
+    float testLat=40*M_PI/180,testLon=-110*M_PI/180;simd_float3 radial={cosf(testLat)*cosf(testLon),sinf(testLat),cosf(testLat)*sinf(testLon)};
+    simd_float3 east={-sinf(testLon),0,cosf(testLon)},north={-sinf(testLat)*cosf(testLon),cosf(testLat),-sinf(testLat)*sinf(testLon)};
+    f.position={radial.x*(1+400.0f/6371010),radial.y*(1+400.0f/6371010),radial.z*(1+400.0f/6371010),0};f.forward={-radial.x,-radial.y,-radial.z,0};f.right={east.x,east.y,east.z,0};f.up={north.x,north.y,north.z,0};f.sun={radial.x,radial.y,radial.z,1};
+    auto groundCommand=[queue commandBuffer];auto groundPass=[MTLRenderPassDescriptor renderPassDescriptor];groundPass.colorAttachments[0].texture=output;groundPass.colorAttachments[0].loadAction=MTLLoadActionClear;groundPass.colorAttachments[0].storeAction=MTLStoreActionStore;groundPass.depthAttachment.texture=depth;groundPass.depthAttachment.loadAction=MTLLoadActionClear;groundPass.depthAttachment.clearDepth=0;groundPass.depthAttachment.storeAction=MTLStoreActionDontCare;
+    auto groundEncoder=[groundCommand renderCommandEncoderWithDescriptor:groundPass];[groundEncoder setRenderPipelineState:groundPipeline];[groundEncoder setDepthStencilState:terrainDepth];[groundEncoder setVertexBytes:&f length:sizeof(f) atIndex:0];[groundEncoder setVertexTexture:terrainMap atIndex:0];[groundEncoder setFragmentBytes:&f length:sizeof(f) atIndex:0];[groundEncoder setFragmentTexture:earth atIndex:0];[groundEncoder setFragmentTexture:white atIndex:1];
+    for(uint32_t level=0;level<4;++level){[groundEncoder setVertexBytes:&level length:sizeof(level) atIndex:1];[groundEncoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6 instanceCount:48*48];}[groundEncoder endEncoding];[groundCommand commit];[groundCommand waitUntilCompleted];require(groundCommand.error==nil,"elevation mesh render");
+    std::vector<unsigned char> groundPixels(width*height*4);[output getBytes:groundPixels.data() bytesPerRow:width*4 fromRegion:MTLRegionMake2D(0,0,width,height) mipmapLevel:0];size_t groundCount=0;for(size_t i=0;i<groundPixels.size();i+=4)if(groundPixels[i]+groundPixels[i+1]+groundPixels[i+2]>10)++groundCount;require(groundCount>width*height/3,"elevated land mesh covers the nearby view");
+    NSString *groundPath=NSProcessInfo.processInfo.environment[@"ORBITER_TERRAIN_PREVIEW"];if(groundPath.length){NSBitmapImageRep *rep=[[NSBitmapImageRep alloc] initWithBitmapDataPlanes:nullptr pixelsWide:width pixelsHigh:height bitsPerSample:8 samplesPerPixel:4 hasAlpha:YES isPlanar:NO colorSpaceName:NSCalibratedRGBColorSpace bytesPerRow:width*4 bitsPerPixel:32];memcpy(rep.bitmapData,groundPixels.data(),groundPixels.size());[[rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:groundPath atomically:YES];}
+    }
     // The local horizontal direction is not an atmosphere boundary: sky
     // colours immediately above and below it must not form a rectangular band.
     f.position={0,0,1+5000.0f/6371010,0};f.environment={5000.0f/6371010,5000,0,1};

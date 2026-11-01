@@ -83,7 +83,7 @@ add_executable(EarthRenderTests Tests/EarthRenderTests.mm)
 target_include_directories(EarthRenderTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/macOS)
 target_compile_options(EarthRenderTests PRIVATE -fobjc-arc)
 target_compile_definitions(EarthRenderTests PRIVATE ORBITER_TEST_DATA="${PROJECT_SOURCE_DIR}")
-target_link_libraries(EarthRenderTests PRIVATE "-framework Cocoa" "-framework Metal" "-framework MetalKit")
+target_link_libraries(EarthRenderTests PRIVATE OrbiterFlightCore "-framework Cocoa" "-framework Metal" "-framework MetalKit")
 add_test(NAME Native.EarthMetal COMMAND EarthRenderTests)
 set_tests_properties(Native.EarthMetal PROPERTIES SKIP_RETURN_CODE 77)
 

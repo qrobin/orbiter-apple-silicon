@@ -51,7 +51,7 @@ Each body has its original configured mass/radius, rotating surface frame and bo
 
 The native ephemeris adapters use the bundled **VSOP87B** series for planets, **ELP82** for the Moon, **GALSAT/Lieske** for Jupiter's four large moons and **TASS17** for Saturn's eight moons. The remaining satellites and Vesta use the original configured mean Kepler elements. Positions/velocities are reconstructed through 60-second Hermite samples. Axial precession is frozen at the catalogue's mean J2000 orientation.
 
-The renderer shows the other bodies at their current positions and angular sizes, with sunlit phases and Saturn's rings. The Sun direction follows the spacecraft's heliocentric position. Sun, planets and the Moon have credited 2K maps (Earth retains its NASA 8K map). Other moons and Vesta have procedural surface materials; their generated markings are approximations. Surfaces remain mean spheres without local terrain relief. Very distant bodies can be below a pixel in size.
+The renderer shows the other bodies at their current positions and angular sizes, with sunlit phases and Saturn's rings. The Sun direction follows the spacecraft's heliocentric position. Sun, planets and the Moon have credited 2K maps (Earth retains its NASA 8K map). Other moons and Vesta have procedural surface materials; their generated markings are approximations. Earth has procedural local terrain relief; other bodies remain mean spheres. Very distant bodies can be below a pixel in size.
 
 Earth alone has the existing weather/cloud presets. Airless bodies have vacuum, and other atmospheres use a reduced hydrostatic isothermal model based on their configured pressure, density and gravity; they do not reuse Earth's atmospheric profile. From within Earth's atmosphere the Sun and Moon receive an artistic apparent-size increase, strongest near the horizon, which fades with altitude. The existing glider aerodynamics remain a reduced model. The spherical touchdown solver and hover controls use the active body's gravity and surface rotation. Cape scenery is drawn only at Earth.
 
@@ -109,7 +109,7 @@ The HUD and left cockpit display automatically show surface altitude, ground-rel
 
 The app starts with the Hawaii sunset flight at 400 m. Choose **Flight → Atmospheric Flight** for airborne starts over the Atlantic Ocean, Hawaii at sunset, the stormy Gulf of Mexico, the Mediterranean in clear weather, or inland France at 400 m. The flights begin at 250 m/s airspeed; the Hawaii glider points toward the setting Sun. Altitude, airspeed and bank stabilization begin engaged, and can be turned off in **M** or released by manual controls. The Gulf start uses the procedural storm preset with rain, wind and occasional lightning. These preset flights restore normal body rotation and their selected weather when restarted; saved native flights retain the current weather and any active atmospheric holds.
 
-Near Earth's surface, deterministic procedural field detail, trees and rocks supplement the global image. Vegetation and rocks use the land mask and approximate land colors; they are illustrative rather than a real-world vegetation map. Trees and rocks are rendered within a few kilometres of the camera below 2.5 km altitude and are suppressed near the Cape base. They have no collision geometry, and the flight physics still uses a spherical ground without terrain elevations.
+Near Earth's surface, deterministic procedural field detail, trees and rocks supplement the global image. Vegetation and rocks use the land mask and approximate land colors; they are illustrative rather than a real-world vegetation map. Trees and rocks are rendered within a few kilometres of the camera below 2.5 km altitude and are suppressed near the Cape base. They have no collision geometry. Earth uses deterministic procedural elevations for nearby terrain and ground contact; the generated landforms do not represent actual geography. The ocean stays at sea level, and the Cape and France low-flight start areas are flattened to preserve their scenarios. Terrain detail is limited near the poles and at long distances.
 
 Press **M** to open Delta-glider Systems from any view. At the top, set an altitude (metres), airspeed (m/s), bank or heading (degrees), then check **Hold**. **Use current** captures the current value. Heading hold uses bank control and the rudder; turn it off to use a separate bank target. Press Return after editing a target or enable its hold to apply it.
 
@@ -258,7 +258,7 @@ The original `Canaveral.cfg` supplies its geographic anchor, 10 landing-pad plac
 
 The supplied archive lacks local Earth terrain tiles. A native textured ground patch gives the Cape subset a visible surface; it is an approximation, not Florida coastline or elevation data. The Earth pass writes depth to hide geometry below the horizon, and the external camera stays above the ground. Forty unsupported base objects are omitted, including custom launch-complex meshes and hangars; base buildings currently provide visual scenery only, with no building collision response.
 
-The physics surface is a smooth sphere at the mean Earth radius. Ground handling remains experimental, without terrain elevations or full original takeoff/landing equivalence.
+Earth ground contact follows the procedural elevation surface; other solid bodies use a smooth mean-radius sphere. Ground handling remains experimental and does not provide full original takeoff/landing equivalence.
 
 ## Implementation boundary
 
@@ -268,7 +268,7 @@ Pressure uses a continuous solution to the original cabin/airlock volume and con
 
 Still incomplete:
 
-- Full native vessel/body engine, SPICE modules, simultaneous multi-body perturbations, terrain, complete bases and validated atmospheric flight-model equivalence. Ground contact currently uses an experimental spherical-surface model; hard impacts stop the flight.
+- Full native vessel/body engine, SPICE modules, simultaneous multi-body perturbations, terrain, complete bases and validated atmospheric flight-model equivalence. Ground contact uses experimental procedural Earth terrain and spherical surfaces on other bodies; hard impacts stop the flight.
 - Full DG damage/failure model, complete coolant circuit, atmospheric ascent/landing autopilots, original analog instruments, all cockpit buttons and complete MFD modes.
 - Docking/undocking mechanics, other ships and stations. The animated nose exposes the port, but docking requires the unported multi-vessel infrastructure.
 - DG-S scramjet systems (a separate variant), original sound, Lua scripting and Windows DLL plug-ins.

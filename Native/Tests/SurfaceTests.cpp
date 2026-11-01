@@ -16,6 +16,19 @@ Flight parked(double clearance=2.53) {
     f.placeOnEarth(Rad(28.52257),Rad(-80.675645),Rad(153.89),clearance);return f;
 }
 int main() {try {
+    check(loadTerrainMask(std::filesystem::path(ORBITER_TEST_DATA)/"Native/Assets/earth-terrain-mask.r8"),"terrain mask loads");
+    auto point=[](double lat,double lon,double time=51982.5){return earthSurface(Rad(lat),Rad(lon),time).up*EarthRadius;};
+    check(terrainElevation(BodyId::Earth,point(0,0),51982.5)==0,"open ocean stays at sea level");
+    check(terrainElevation(BodyId::Earth,point(28.58438,-80.65165),51982.5)==0,"Cape is flat");
+    double peak=0,peakLat=0,peakLon=0;
+    for(int lat=25;lat<=55;++lat)for(int lon=-125;lon<=-70;++lon){double h=terrainElevation(BodyId::Earth,point(lat,lon),51982.5);if(h>peak){peak=h;peakLat=lat;peakLon=lon;}}
+    check(peak>300,"inland terrain produces mountains");
+    Vector p=point(peakLat,peakLon);auto frame=earthSurface(Rad(peakLat),Rad(peakLon),51982.5);
+    check(fabs(terrainElevation(BodyId::Earth,earthSurface(Rad(peakLat),Rad(peakLon),51983.5).up*EarthRadius,51983.5)-peak)<1e-6,"terrain rotates with Earth");
+    check(dotp(terrainNormal(BodyId::Earth,p,51982.5),frame.up)>.8,"terrain normal is outward");
+    auto contact=groundForces(frame.up*(EarthRadius+peak+2.5),crossp(earthSpin(),frame.up*(EarthRadius+peak+2.5)),frame.east,frame.up,frame.north,{},10000,true,0,0,0,.01,BodyId::Earth,51982.5);
+    check(contact.contacts>0,"touchdown points contact elevated terrain");
+
     for(double lat:{-89.,-45.,0.,28.52257,80.,90.})for(double lng:{-180.,-80.675645,0.,125.}) {
         auto frame=earthSurface(Rad(lat),Rad(lng),51982.5,1234);
         double a,b;earthCoordinates(frame.up*EarthRadius,51982.5,1234,a,b);

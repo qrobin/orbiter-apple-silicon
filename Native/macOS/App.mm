@@ -266,7 +266,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         line(cx-22,cy,cx-7,cy,hudInk);line(cx+7,cy,cx+22,cy,hudInk);line(cx,cy-7,cx,cy+7,hudInk);
     }
     if(v->panelView&&hud.brightness>0) {
-        NSString *readout=hud.mode==1?[NSString stringWithFormat:@"ORBIT  ALT %.1f km  V %.0f m/s",f.altitude()/1000,f.velocity.length()]:hud.mode==2?[NSString stringWithFormat:@"SURFACE  ALT %.0f m  V/S %+.1f m/s  HDG %03.0f°",f.altitude(),f.surfaceVerticalSpeed(),Deg(f.heading())]:@"DOCKING  ·  NO TARGET";
+        NSString *readout=hud.mode==1?[NSString stringWithFormat:@"ORBIT  ALT %.1f km  V %.0f m/s",f.altitude()/1000,f.velocity.length()]:hud.mode==2?[NSString stringWithFormat:@"SURFACE  ALT %.0f m  AGL %.0f m  V/S %+.1f m/s  HDG %03.0f°",f.altitude(),f.groundAltitude(),f.surfaceVerticalSpeed(),Deg(f.heading())]:@"DOCKING  ·  NO TARGET";
         if(hud.mode==3&&f.reference==BodyId::Earth){auto t=issDockingTelemetry(f,issState(f.issOrbit,f.mjd+f.elapsed/86400.),f.issTargetPort);readout=[NSString stringWithFormat:@"ISS %d  %.1f m  CLOSE %+.2f m/s",f.issTargetPort+1,t.distance,t.closingSpeed];}
         NSDictionary *attributes=@{NSFontAttributeName:[NSFont monospacedDigitSystemFontOfSize:10 weight:NSFontWeightRegular],NSForegroundColorAttributeName:hudInk};
         NSSize size=[readout sizeWithAttributes:attributes];[readout drawAtPoint:NSMakePoint(cx-size.width*.5,cy-24) withAttributes:attributes];
@@ -287,7 +287,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     Elements orbit=surface?Elements():f.orbit();
     if(surface) {
         text([NSString stringWithFormat:@"SURFACE / %@",bodyName.uppercaseString],left+14,bottom+ph-27,11,ink);
-        NSArray *rows=@[[NSString stringWithFormat:@"Altitude       %9.1f m",f.altitude()],
+        NSArray *rows=@[[NSString stringWithFormat:@"ALT %.0f m   AGL %.0f m",f.altitude(),f.groundAltitude()],
             [NSString stringWithFormat:@"Ground speed   %9.2f m/s",f.groundSpeed],
             [NSString stringWithFormat:@"Vertical       %+9.2f m/s",f.surfaceVerticalSpeed()],
             [NSString stringWithFormat:@"Heading        %9.1f°",Deg(f.heading())],
@@ -364,6 +364,8 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     self=[super initWithFrame:frame device:device]; if(!self) return nil;
     if(!loadEarthWeatherMap(resource(@"earth-clouds.r8").fileSystemRepresentation))
         @throw [NSException exceptionWithName:@"Weather map unavailable" reason:@"The Earth weather data could not be loaded." userInfo:nil];
+    if(!loadTerrainMask(resource(@"earth-terrain-mask.r8").fileSystemRepresentation))
+        @throw [NSException exceptionWithName:@"Terrain map unavailable" reason:@"The Earth terrain mask could not be loaded." userInfo:nil];
     activeCockpitControl=-1;cockpitPitch=-.25;restartBody=-1;lastBody=BodyId::Earth;
     held.fill(false);lastMfdLabels.fill(false);transxMfd.fill(false);transxAlignDisplay=-1;transxAlignBody=flight.reference;transxRefresh=0; externalCamera.yaw=-.55; externalCamera.pitch=.32; externalCamera.distance=43; helpVisible=false; orbitVisible=true;
     NSNumber *savedFov=[NSUserDefaults.standardUserDefaults objectForKey:@"FieldOfViewDegrees"];
@@ -584,11 +586,8 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     [encoder setFragmentTexture:starTexture atIndex:7];[encoder setFragmentTexture:visuals.cloudNoise atIndex:8];
     [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
     [encoder setDepthStencilState:depthState];
-    if(flight.reference==BodyId::Earth&&surfaceBase.mesh.groups.size()>0){
-        auto base=earthSurface(surfaceBase.latitude,surfaceBase.longitude,flight.mjd,flight.elapsed);
-        if((base.up*EarthRadius-flight.position-offset).length()>10000)
-            [visuals encodeTerrain:encoder frame:uniforms earth:[solar textureForBody:flight.reference]];
-    }
+    if(flight.reference==BodyId::Earth)
+        [visuals encodeTerrain:encoder frame:uniforms earth:[solar textureForBody:flight.reference]];
     [solar encodeBodies:encoder frame:uniforms flight:flight offset:offset];
     [encoder setFragmentBytes:&uniforms length:sizeof(uniforms) atIndex:1];
     [encoder setFragmentTexture:visuals.cloudShadows atIndex:1];

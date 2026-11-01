@@ -112,7 +112,10 @@ CameraPose OrbitCamera::pose(const Flight &flight) const {
     Vector result,up;
     if(mode==ExternalCameraMode::OrbitalChase){
         result=pointInFrame(lateral,radial,tangent,yaw,pitch)*distance;up=radial;
-        if(flight.altitude()<1000)result+=radial*std::max(0.,1.5-flight.altitude()-dotp(result,radial));
+        if(flight.altitude()<2250&&flight.groundAltitude()<1000){
+            Vector eye=flight.position+result;double clearance=eye.length()-flight.centralBody().radius-terrainElevation(flight.reference,eye,flight.mjd,flight.elapsed);
+            result+=radial*std::max({0.,1.5-clearance,1.5-flight.altitude()-dotp(result,radial)});
+        }
     }else if(mode==ExternalCameraMode::TargetRelative){
         result=pointInFrame(flight.right,flight.up,flight.forward,yaw,pitch)*distance;
         up=upwardInFrame(flight.right,flight.up,flight.forward,yaw,pitch);
@@ -126,7 +129,7 @@ CameraPose OrbitCamera::pose(const Flight &flight) const {
     }else{
         auto surface=bodySurface(groundBody,groundLatitude,groundLongitude,flight.mjd,flight.elapsed);
         Vector center=groundBody==flight.reference?Vector{}:ephemeridesReady()?bodyState(groundBody,flight.mjd+flight.elapsed/86400).position-bodyState(flight.reference,flight.mjd+flight.elapsed/86400).position:Vector{};
-        result=center+surface.up*(body(groundBody).radius+groundHeight)-flight.position;up=surface.up;
+        result=center+surface.up*(body(groundBody).radius+groundHeight+terrainElevation(groundBody,surface.up*body(groundBody).radius,flight.mjd,flight.elapsed))-flight.position;up=surface.up;
         if(result.length2()<1e-12)result=surface.north;
         return {result,safeUp(result,up,surface.north)};
     }

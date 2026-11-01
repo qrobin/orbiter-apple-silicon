@@ -78,6 +78,7 @@ public:
     double heading() const;
     double surfaceVerticalSpeed() const;
     double altitude() const { return position.length()-centralBody().radius; }
+    double groundAltitude() const;
     double mass() const { return EmptyMass+fuel+rcs; }
     double radialSpeed() const { return dotp(position,velocity)/position.length(); }
     WeatherSample currentWeather() const {return reference==BodyId::Earth?earthWeather(position,mjd+elapsed/86400.,weatherPreset):WeatherSample{};}

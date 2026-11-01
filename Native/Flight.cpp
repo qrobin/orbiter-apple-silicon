@@ -37,13 +37,14 @@ void Flight::placeOnEarth(double latitude,double longitude,double headingAngle,d
 void Flight::placeOnBody(double latitude,double longitude,double headingAngle,double clearance) {
     if(!centralBody().solid)throw std::invalid_argument("This body has no solid surface");
     auto frame=bodySurface(reference,latitude,longitude,mjd,elapsed);
-    position=frame.up*(centralBody().radius+clearance);up=frame.up;
+    position=frame.up*(centralBody().radius+terrainElevation(reference,frame.up*centralBody().radius,mjd,elapsed)+clearance);up=frame.up;
     forward=(frame.north*cos(headingAngle)+frame.east*sin(headingAngle)).unit();right=crossp(up,forward).unit();
     velocity=crossp(centralBody().spin(),position);
     angularVelocity={dotp(centralBody().spin(),right),dotp(centralBody().spin(),up),dotp(centralBody().spin(),forward)};
     glider.part(Part::Gear).position=glider.part(Part::Gear).target=1;
     groundContact=true;wheelContacts=3;paused=false;impacted=false;clearAssist();
 }
+double Flight::groundAltitude() const { return altitude()-terrainElevation(reference,position,mjd,elapsed); }
 double Flight::pitch() const { return asin(std::clamp(dotp(forward,position.unit()),-1.,1.)); }
 double Flight::bank() const { auto n=position.unit();return atan2(-dotp(right,n),dotp(up,n)); }
 double Flight::heading() const {
@@ -268,7 +269,7 @@ void Flight::save(const std::filesystem::path &path) const {
      <<"\n  VROT "<<Deg(angularVelocity.x)<<' '<<Deg(angularVelocity.y)<<' '<<Deg(angularVelocity.z)
      <<"\n  PRPLEVEL 0:"<<fuel/MainCapacity<<" 1:"<<rcs/RcsCapacity
      <<"\n  HUDMode "<<hud.mode<<"\n  HUDBrightness "<<hud.brightness<<"\n  HUDColour "<<hud.colour<<'\n';
-    if(groundContact) {double lat,lng;bodyCoordinates(reference,position,mjd,elapsed,lat,lng);f<<"  POS "<<Deg(lng)<<' '<<Deg(lat)<<"\n  HEADING "<<Deg(heading())<<"\n  ALT "<<altitude()<<'\n';}
+    if(groundContact) {double lat,lng;bodyCoordinates(reference,position,mjd,elapsed,lat,lng);f<<"  POS "<<Deg(lng)<<' '<<Deg(lat)<<"\n  HEADING "<<Deg(heading())<<"\n  ALT "<<groundAltitude()<<'\n';}
     f<<"  DGMAIN "<<throttle<<'\n';
     if(issDocked)f<<"  DOCKINFO 0:"<<issTargetPort<<",ISS\n";
     if(atmospheric.engaged()){
@@ -494,9 +495,9 @@ void Flight::step(double dt,const Input &input) {
         torque-=Vector(angularVelocity.x*.10,angularVelocity.y*.13,angularVelocity.z*.04)*(dynamicPressure*100);
     }
     GroundResponse ground;
-    if(centralBody().solid&&altitude()<15) ground=groundForces(position,velocity,right,up,forward,angularVelocity,mass(),
+    if(centralBody().solid&&altitude()<1250&&groundAltitude()<15) ground=groundForces(position,velocity,right,up,forward,angularVelocity,mass(),
         glider.part(Part::Gear).open(),input.yaw,
-        glider.parkingBrake?1:std::clamp(input.leftBrake,0.,1.),glider.parkingBrake?1:std::clamp(input.rightBrake,0.,1.),dt,reference);
+        glider.parkingBrake?1:std::clamp(input.leftBrake,0.,1.),glider.parkingBrake?1:std::clamp(input.rightBrake,0.,1.),dt,reference,mjd,elapsed);
     groundContact=ground.contacts>0;wheelContacts=ground.wheels;contactLoad=ground.load;
     force+=Vector(dotp(ground.force,right),dotp(ground.force,up),dotp(ground.force,forward));
     torque+=ground.torque;
@@ -535,7 +536,7 @@ void Flight::advance(double realSeconds,const Input &input) {
     if(assist!=Assist::Free&&atmospheric.engaged())atmospheric.cancel();
     if(input.pitch)atmospheric.active[0]=false;
     if(input.roll||input.yaw){atmospheric.active[2]=false;atmospheric.active[3]=false;}
-    bool atmosphericFlight=(reference==BodyId::Earth?altitude()<120000:bodyAtmosphere(reference,altitude()).rho>1e-12)||(centralBody().solid&&altitude()<20);
+    bool atmosphericFlight=(reference==BodyId::Earth?altitude()<120000:bodyAtmosphere(reference,altitude()).rho>1e-12)||(centralBody().solid&&altitude()<1255&&groundAltitude()<20);
     bool maneuver=atmospheric.engaged()||assist==Assist::Maneuver||throttle>0||glider.hover>0||glider.hoverControl.holdActive||glider.retro>0||input.pitch||input.yaw||input.roll||input.translate||input.lateral||input.vertical||angularVelocity.length2()>1e-16;
     if(warp>1&&centralBody().solid&&orbit().PeDist()<centralBody().radius+20){atmosphericFlight=true;}
     // if(maneuver||atmosphericFlight) warp=1;
@@ -547,7 +548,7 @@ void Flight::advance(double realSeconds,const Input &input) {
         // At accelerated time the finite-torque nav programs are suspended;
         // do not teleport the vessel's attitude or bypass RCS fuel limits.
     } else {
-        int steps=std::max(1,(int)ceil(dt*(altitude()<20?480:120)));
+        int steps=std::max(1,(int)ceil(dt*(altitude()<1255&&groundAltitude()<20?480:120)));
         for(int i=0;i<steps&&!impacted;++i) step(dt/steps,input);
     }
     elapsed+=dt;
@@ -565,6 +566,6 @@ void Flight::advance(double realSeconds,const Input &input) {
     if(automaticReferenceChanges&&ephemeridesReady())updateReference();
     Vector relativeVelocity=velocity-crossp(centralBody().spin(),position);
     groundSpeed=(relativeVelocity-position.unit()*dotp(relativeVelocity,position.unit())).length();
-    if(altitude()<-10) { impacted=true; paused=true; cutEngines(); }
+    if(altitude()<1250&&groundAltitude()<-10) { impacted=true; paused=true; cutEngines(); }
 }
 }

@@ -48,17 +48,32 @@ float2 terrestrialUV(float3 p,constant FrameUniforms &f) {
     float3 e=normalize(terrestrial(p,f));
     return float2(atan2(e.z,e.x)/(2*M_PI_F)+.5,acos(clamp(e.y,-1.0f,1.0f))/M_PI_F);
 }
+// Procedural elevation is shared with Surface.cpp. The mask uses the same R8
+// texels and linear filtering on both sides so water and coasts agree.
+float terrainCorner(int3 p){return visualRandom(as_type<uint>(p.x)+as_type<uint>(p.y)*157u+as_type<uint>(p.z)*11317u);}
+float terrainNoise(float3 p){int3 i=int3(floor(p));float3 u=fract(p);u=u*u*(3-2*u);float a=mix(terrainCorner(i),terrainCorner(i+int3(1,0,0)),u.x);float b=mix(terrainCorner(i+int3(0,1,0)),terrainCorner(i+int3(1,1,0)),u.x);float c=mix(terrainCorner(i+int3(0,0,1)),terrainCorner(i+int3(1,0,1)),u.x);float d=mix(terrainCorner(i+int3(0,1,1)),terrainCorner(i+int3(1,1,1)),u.x);return mix(mix(a,b,u.y),mix(c,d,u.y),u.z);}
+float terrainHeightAt(float3 n,texture2d<float> mask) {
+    constexpr sampler smp(filter::linear,s_address::repeat,t_address::clamp_to_edge);
+    float2 uv=float2(atan2(n.z,n.x)/(2*M_PI_F)+.5,acos(clamp(n.y,-1.0f,1.0f))/M_PI_F);
+    float land=(1-smoothstep(.03f,.30f,mask.sample(smp,uv,level(0)).r))*(1-smoothstep(1.38f,1.43f,abs(asin(clamp(n.y,-1.0f,1.0f)))));
+    float3 cape=float3(cos((28.58438f*M_PI_F/180))*cos((-80.65165f*M_PI_F/180)),sin((28.58438f*M_PI_F/180)),cos((28.58438f*M_PI_F/180))*sin((-80.65165f*M_PI_F/180)));
+    float3 france=float3(cos(46.0f*M_PI_F/180)*cos(2.0f*M_PI_F/180),sin(46.0f*M_PI_F/180),cos(46.0f*M_PI_F/180)*sin(2.0f*M_PI_F/180));
+    float base=smoothstep(20000.0f,35000.0f,length(n-cape)*6371010.0f)*smoothstep(25000.0f,45000.0f,length(n-france)*6371010.0f);
+    float broad=terrainNoise(n*160),detail=terrainNoise(n*600),ridge=1-abs(2*terrainNoise(n*340)-1);
+    return land*base*(35+100*detail+1100*smoothstep(.43f,.72f,broad)*ridge*ridge);
+}
 // Stable cells are fixed to Earth's rotating coordinates, rather than to the
 // camera. Instances are generated only in the small neighbourhood being drawn.
 struct TerrainRaster { float4 position [[position]]; float3 normal; float3 color; };
 vertex TerrainRaster terrainVertex(uint vertexID [[vertex_id]],uint instanceID [[instance_id]],
                                    constant FrameUniforms &f [[buffer(0)]],
-                                   texture2d<float> ocean [[texture(0)]],texture2d<float> earth [[texture(1)]]) {
+                                   texture2d<float> ocean [[texture(0)]],texture2d<float> earth [[texture(1)]],texture2d<float> heightMask [[texture(2)]]) {
     TerrainRaster out;out.position=float4(2,2,2,1);out.normal=float3(0,1,0);out.color=0;
     constexpr float spacing=38.0f;constexpr int grid=96;
     float3 camera=normalize(f.position.xyz),fixed=normalize(terrestrial(camera,f));
     float lat=asin(clamp(fixed.y,-1.0f,1.0f)),lon=atan2(fixed.z,fixed.x);
-    if(abs(lat)>1.38f)return out;
+    float3 cape=float3(cos(28.58438f*M_PI_F/180)*cos(-80.65165f*M_PI_F/180),sin(28.58438f*M_PI_F/180),cos(28.58438f*M_PI_F/180)*sin(-80.65165f*M_PI_F/180));
+    if(abs(lat)>1.38f||length(fixed-cape)*f.body.x<10000)return out;
     int2 center=int2(floor(float2(lon,lat)*f.body.x/spacing));
     int2 cell=center+int2(int(instanceID%grid)-grid/2,int(instanceID/grid)-grid/2);
     uint seed=visualHash(as_type<uint>(cell.x)*0x9e3779b9u^as_type<uint>(cell.y)*0x85ebca6bu);
@@ -83,7 +98,7 @@ vertex TerrainRaster terrainVertex(uint vertexID [[vertex_id]],uint instanceID [
     float lower=tree?(layer==0?.18f:.52f):0.0f,upper=tree?(layer==0?.75f:1.0f):1.0f;
     float width=size*(layer==0?1.0f:.68f);
     float3 radial=corner==0?east*cos(phi)*width+north*sin(phi)*width:corner==1?east*cos(phiNext)*width+north*sin(phiNext)*width:float3(0);
-    float3 point=(n-camera)*f.body.x-camera*f.environment.y+radial+n*(corner==2?upper*height:lower*height);
+    float3 point=(n-camera)*f.body.x-camera*f.environment.y+radial+n*(terrainHeightAt(surfaceFixed,heightMask)+(corner==2?upper*height:lower*height));
     float3 view=float3(dot(point,f.right.xyz),dot(point,f.up.xyz),-dot(point,f.forward.xyz));
     out.position=f.projection*float4(view,1);
     float mid=phi+M_PI_F*.25f;out.normal=normalize((east*cos(mid)+north*sin(mid))*.8f+n*.6f);
@@ -97,6 +112,39 @@ fragment float4 terrainFragment(TerrainRaster in [[stage_in]],constant FrameUnif
     float shadow=shadows.sample(s,in.position.xy/f.screen.xy).r;
     float light=max(0.0f,dot(normalize(in.normal),f.sun.xyz))*f.sun.w*shadow*solarIntensity(f);
     return float4(in.color*(.008f+day*.12f+light*.85f),1);
+}
+struct GroundRaster {float4 position [[position]];float3 world;float3 normal;float2 uv;float height;};
+vertex GroundRaster groundVertex(uint vid [[vertex_id]],uint instance [[instance_id]],constant FrameUniforms &f [[buffer(0)]],constant uint &levelIndex [[buffer(1)]],texture2d<float> mask [[texture(0)]]) {
+    GroundRaster o;o.position=float4(2,2,2,1);o.world=0;o.normal=float3(0,1,0);o.uv=0;o.height=0;
+    constexpr int grid=48;float spacing=80.0f*float(1u<<levelIndex);
+    int2 cell=int2(int(instance%grid)-grid/2,int(instance/grid)-grid/2);
+    if(levelIndex>0&&abs(cell.x)<11&&abs(cell.y)<11)return o;
+    float3 camera=normalize(f.position.xyz),fixed=normalize(terrestrial(camera,f));
+    float lat=asin(clamp(fixed.y,-1.0f,1.0f)),lon=atan2(fixed.z,fixed.x);if(abs(lat)>1.45f)return o;
+    uint2 corners[6]={uint2(0,0),uint2(1,0),uint2(1,1),uint2(0,0),uint2(1,1),uint2(0,1)};
+    float2 center=floor(float2(lon,lat)*f.body.x/spacing);
+    float2 coord=(center+float2(cell)+float2(corners[vid]))*spacing/f.body.x;
+    float cl=cos(coord.y);float3 fixedPoint=float3(cl*cos(coord.x),sin(coord.y),cl*sin(coord.x));
+    float a=f.screen.w*(2*M_PI_F),c=cos(a),s=sin(a);
+    float3 n=normalize(f.equatorX.xyz*(c*fixedPoint.x+s*fixedPoint.z)+f.pole.xyz*fixedPoint.y+f.equatorZ.xyz*(-s*fixedPoint.x+c*fixedPoint.z));
+    float h=terrainHeightAt(fixedPoint,mask);
+    float3 p=(n-camera)*f.body.x-camera*f.environment.y+n*h;
+    float3 view=float3(dot(p,f.right.xyz),dot(p,f.up.xyz),-dot(p,f.forward.xyz));
+    o.position=f.projection*float4(view,1);o.world=p;o.normal=n;o.uv=float2(coord.x/(2*M_PI_F)+.5,.5-coord.y/M_PI_F);o.height=h;return o;
+}
+fragment float4 groundFragment(GroundRaster in [[stage_in]],constant FrameUniforms &f [[buffer(0)]],texture2d<float> earth [[texture(0)]],texture2d<float> shadows [[texture(1)]]) {
+    if(in.height<.5)discard_fragment();
+    constexpr sampler map(filter::linear,s_address::repeat,t_address::clamp_to_edge);constexpr sampler screen(filter::linear,address::clamp_to_edge);
+    float3 n=normalize(cross(dfdx(in.world),dfdy(in.world)));if(dot(n,in.normal)<0)n=-n;
+    float3 albedo=earth.sample(map,in.uv).rgb;float slope=1-saturate(dot(n,in.normal));
+    albedo=mix(albedo,float3(.30,.28,.25),smoothstep(.06f,.32f,slope)*.65);
+    albedo=mix(albedo,float3(.75,.76,.72),smoothstep(850.0f,1250.0f,in.height)*.55);
+    float day=smoothstep(-.08f,.12f,dot(in.normal,f.sun.xyz))*f.sun.w;
+    float shadow=shadows.sample(screen,in.position.xy/f.screen.xy).r;
+    float light=max(0.0f,dot(n,f.sun.xyz))*f.sun.w*shadow*solarIntensity(f);
+    float3 color=albedo*(.012+day*.15+light*.85);
+    float distance=length(in.world);AirLight air=earthAirLight(f,normalize(in.world),distance);
+    return float4(color*air.transmission+air.scattering,1);
 }
 // Regional coverage modulates the shared world-space cloud density.
 float regionalCloudCoverage(float observed,float weather) {
