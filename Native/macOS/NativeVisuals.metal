@@ -267,15 +267,19 @@ float cloudRegion(float3 p,constant FrameUniforms &f,texture2d<float> cloudMap) 
 float lowCloudTop(constant FrameUniforms &f) {
     return min(f.clouds.y,6500.0f+2500.0f*saturate(f.clouds.w));
 }
+float cloudBaseFloor(constant FrameUniforms &f){return max(0.0f,f.clouds.x-700.0f*saturate(f.clouds.w));}
 float cloudDensity(float3 p,constant FrameUniforms &f,texture3d<float> noise,float region) {
     if(f.clouds.z<=0||region<=0)return 0;
     float h=length(p)-f.body.x;
-    if(h<=f.clouds.x||h>=f.clouds.y)return 0;
+    if(h<=cloudBaseFloor(f)||h>=f.clouds.y)return 0;
     constexpr sampler s(filter::linear,address::repeat);
     float3 w=terrestrial(p,f)+float3(f.environment.w*14,0,f.environment.w*7);
     float density=0,highDensity=0,lowTop=lowCloudTop(f);
     if(h<lowTop){
-        float height=(h-f.clouds.x)/max(1.0f,lowTop-f.clouds.x);
+        // Weather systems have uneven bases, not a perfectly level shell.
+        float base=f.clouds.x-700.0f*saturate(f.clouds.w)*(.2f+.8f*noise.sample(s,w/28000.0f).b);
+        if(h<=base)return 0;
+        float height=(h-base)/max(1.0f,lowTop-base);
         float weather=noise.sample(s,w/320000.0f).b;
         float coverage=clamp(.30+region*.55+(weather-.5)*.2,.01f,.98f);
         float shape=noise.sample(s,w/22000.0f).r;
@@ -307,7 +311,7 @@ float cloudDensity(float3 p,constant FrameUniforms &f,texture3d<float> noise,flo
 // must query regional coverage at the sampled point in that same field.
 float sampleCloudDensity(float3 p,constant FrameUniforms &f,texture3d<float> noise,texture2d<float> cloudMap) {
     float h=length(p)-f.body.x;
-    if(f.clouds.z<=0||h<=f.clouds.x||h>=f.clouds.y||(h>=lowCloudTop(f)&&h<=8500.0f))return 0;
+    if(f.clouds.z<=0||h<=cloudBaseFloor(f)||h>=f.clouds.y||(h>=lowCloudTop(f)&&h<=8500.0f))return 0;
     return cloudDensity(p,f,noise,cloudRegion(p,f,cloudMap));
 }
 // Stable sphere intersections avoid subtracting two large, nearly equal squared radii.
@@ -348,9 +352,9 @@ float2 cloudRaySegment(float3 origin,float3 ray,constant FrameUniforms &f) {
     float height=length(origin)-f.body.x,mu=dot(normalize(origin),ray);
     float2 outer=cloudShellRoots(height,f.clouds.y,mu,f.body.x);
     float start=max(0.0f,outer.x),end=outer.y;
-    float2 inner=cloudShellRoots(height,f.clouds.x,mu,f.body.x);
+    float baseFloor=cloudBaseFloor(f);float2 inner=cloudShellRoots(height,baseFloor,mu,f.body.x);
     if(inner.y>inner.x){
-        if(height<f.clouds.x)start=max(start,inner.y);
+        if(height<baseFloor)start=max(start,inner.y);
         else if(inner.x>start)end=min(end,inner.x);
     }
     if(mu<0){
@@ -488,7 +492,7 @@ kernel void marchClouds(constant FrameUniforms &f [[buffer(0)]],constant uint &f
             if(abs(oldDepth-geometry)<max(3.0f,geometry*.04f)){
                 float4 history=previous.sample(linear,oldUV);
                 history=clamp(history,color-float4(.14,.14,.14,.2),color+float4(.14,.14,.14,.2));
-                color=mix(color,history,.82f);
+                color=mix(color,history,.90f);
             }
         }
     }
@@ -502,11 +506,13 @@ fragment float4 compositeClouds(SkyRaster in [[stage_in]],constant FrameUniforms
     float3 ray=viewRay(uv,f);uint2 pixel=min(uint2(uv*f.screen.xy),uint2(f.screen.xy)-1);
     float geometry=depthDistance(depth.read(pixel).r,ray,f);
     float2 cloudSize=float2(clouds.get_width(),clouds.get_height());
-    float2 p=uv*cloudSize-.5,base=floor(p),frac=fract(p);float4 cloud=0;float total=0,weightedDistance=0;
-    for(int y=0;y<2;++y)for(int x=0;x<2;++x){
-        float2 q=(base+float2(x,y)+.5)/cloudSize;
+    float4 cloud=0;float total=0,weightedDistance=0;
+    // A compact, bilinear spatial reconstruction reduces ray-march grain
+    // while retaining the full-resolution depth test at object edges.
+    for(int y=-1;y<=1;++y)for(int x=-1;x<=1;++x){
+        float2 delta=float2(x,y);float2 q=uv+delta*1.25f/cloudSize;
         float4 info=cloudData.sample(s,q),sample=clouds.sample(s,q);float d=info.r;
-        float w=(x?frac.x:1-frac.x)*(y?frac.y:1-frac.y);
+        float w=exp(-dot(delta,delta)*.75f);
         w*=min(d,geometry)>5000?1:step(abs(d-geometry),max(2.0f,geometry*.025f));
         cloud+=sample*w;total+=w;weightedDistance+=info.g*sample.a*w;
     }
@@ -516,6 +522,16 @@ fragment float4 compositeClouds(SkyRaster in [[stage_in]],constant FrameUniforms
     float cameraHeight=f.environment.x*f.body.x;
     if(cloud.a>.0001f){
         float distance=weightedDistance/max(.0001f,total*cloud.a);
+        if(f.clouds.w>.01f){
+            // Broad, body-fixed illumination variation makes a thick overcast
+            // read as a turbulent cloud volume instead of a uniform gray lid.
+            constexpr sampler volume(filter::linear,address::repeat);
+            float3 origin=normalize(f.position.xyz)*(f.body.x+cameraHeight);
+            float3 p=terrestrial(origin+ray*distance,f)+float3(f.environment.w*14,0,f.environment.w*7);
+            float structure=noise.sample(volume,p/9500.0f).r*.65f+noise.sample(volume,p/2600.0f).g*.35f;
+            float shade=mix(.55f,1.50f,smoothstep(.25f,.72f,structure));
+            cloud.rgb*=mix(1.0f,shade,saturate(f.clouds.w));
+        }
         // Air between the viewer and a cloud changes its colour, not its
         // opacity. Fading alpha here made distant cloud cores see-through.
         if(distance>10000.0f&&int(f.surfaceColor.w)==3){
@@ -585,23 +601,38 @@ fragment float4 compositeClouds(SkyRaster in [[stage_in]],constant FrameUniforms
         color+=warm*forwardGlow*(1-cloud.a)*f.clouds.z*day*.04f;
     }
     // Two sparse, short streak layers approximate nearby falling water. Fade
+    // Distant rain and suspended mist veil the storm cloud base, softening
+    // the artificial-looking hard separation from the horizon.
+    if(f.weather.x>2.5f&&f.weather.x<3.5f&&cameraHeight<lowCloudTop(f)){
+        float elevation=dot(ray,normalize(f.position.xyz));
+        float horizon=1-smoothstep(.015f,.18f,abs(elevation));
+        float mist=horizon*saturate(f.weather.y)*.32f;
+        float sunHeight=dot(normalize(f.position.xyz),f.sun.xyz);
+        float3 haze=mix(float3(.035,.045,.07),float3(.22,.23,.26),smoothstep(-.10f,.18f,sunHeight))*f.sun.w;
+        color=mix(color,haze,mist);
+    }
     // against close geometry so rain does not paint over the cockpit panel.
     if(f.weather.z>.01f && cameraHeight<lowCloudTop(f)+1500){
         float3 falling=-f.weatherWind.xyz-normalize(f.position.xyz)*12.0f;
         float2 direction=float2(dot(falling,f.right.xyz),-dot(falling,f.up.xyz));
         direction=length(direction)>1?normalize(direction):float2(.12,1);
         float2 across=float2(direction.y,-direction.x);
-        float speed=clamp(length(falling)*.012f,.5f,4.0f),rain=0;
+        float speed=length(falling),rain=0;
         for(int layer=0;layer<2;++layer){
             float scale=layer==0?1.0f:1.45f;
             float2 coord=float2(dot(in.position.xy,across)/55.0f,dot(in.position.xy,direction)/75.0f)*scale;
-            coord.y-=f.environment.w*speed*(layer==0?1.5f:2.2f);
+            // Project integrated world-space motion at the representative depth
+            // of each layer. The apparent speed scales directly with m/s.
+            float distance=layer==0?65.0f:160.0f;
+            float pixelsPerMetre=f.screen.y/(2*max(.01f,f.screen.z)*distance);
+            float2 motion=float2(dot(f.rainMotion.xyz,f.right.xyz),-dot(f.rainMotion.xyz,f.up.xyz));
+            coord-=float2(dot(motion,across)/55.0f,dot(motion,direction)/75.0f)*pixelsPerMetre*scale;
             float2 cell=floor(coord),local=fract(coord)-.5f;
             uint seed=uint(int(cell.x)*1973+int(cell.y)*9277+layer*26699);
             float random=visualRandom(seed);
             float enabled=step(random,f.weather.z*.23f);
             local-=float2(visualRandom(seed+73)-.5f,visualRandom(seed+181)-.5f)*.55f;
-            float halfLength=mix(.045f,.17f,visualRandom(seed+239))*mix(.7f,1.3f,saturate(speed/4));
+            float halfLength=mix(.045f,.17f,visualRandom(seed+239))*mix(.7f,1.3f,saturate(speed/250));
             float streak=(1-smoothstep(.012f,.035f,abs(local.x)))*(1-smoothstep(halfLength*.65f,halfLength,abs(local.y)));
             rain=max(rain,enabled*streak*mix(.035f,.085f,visualRandom(seed+359)));
         }
@@ -667,11 +698,20 @@ float4 rainBead(float2 uv,float probability,uint salt,float stretch){
 }
 fragment float4 rainGlassFragment(RainRaster in [[stage_in]],constant FrameUniforms &f [[buffer(1)]],
                                    constant float4x4 &model [[buffer(2)]],constant float4 &runoff [[buffer(3)]],texture2d<float> scene [[texture(0)]]){
-    if(f.weather.z<=.01f)discard_fragment();
     float3 localNormal=normalize(in.normal);float side=smoothstep(.38f,.76f,abs(localNormal.x));
     float sideSign=in.local.x<0?-1.0f:1.0f;
     float2 surface=float2(mix(in.local.x,in.local.z*sideSign,side),in.local.y+in.local.z*.35f);
     float airspeed=length(f.weatherWind.xyz),airflow=smoothstep(5.0f,200.0f,airspeed);
+    float2 scratchUV=surface*18.0f;float2 scratchCell=floor(scratchUV),scratchLocal=fract(scratchUV)-.5f;
+    uint scratchSeed=uint(int(scratchCell.x)*1973+int(scratchCell.y)*9277)+761u;
+    float angle=(visualRandom(scratchSeed+3)-.5f)*1.0f;
+    float2 along=float2(cos(angle),sin(angle)),perp=float2(-along.y,along.x);
+    float2 offset=float2(visualRandom(scratchSeed+13)-.5f,visualRandom(scratchSeed+29)-.5f)*.65f;
+    float2 q=scratchLocal-offset;float lengthwise=abs(dot(q,along)),width=abs(dot(q,perp));
+    float scratch=step(visualRandom(scratchSeed+47),.45f)*(1-smoothstep(.006f,.025f,width))*(1-smoothstep(.20f,.43f,lengthwise));
+    float3 worldNormal=normalize((model*float4(localNormal,0)).xyz),viewDirection=normalize(-in.world);
+    float sunGlint=pow(max(0.0f,dot(reflect(-f.sun.xyz,worldNormal),viewDirection)),3.0f)*f.sun.w;
+    float scratchLight=scratch*sunGlint*.55f*solarIntensity(f);
     float4 beads=rainBead(surface*78.0f,f.weather.z*mix(.58f,.22f,airflow),101u,1.0f);
     // Integrate motion on the CPU: multiplying absolute time by the current
     // speed makes droplets jump backwards whenever the aircraft slows down.
@@ -680,7 +720,7 @@ fragment float4 rainGlassFragment(RainRaster in [[stage_in]],constant FrameUnifo
     float2 moving=(surface-drift)*60.0f;
     float4 running=rainBead(moving,f.weather.z*mix(.10f,.35f,airflow),809u,mix(1.0f,.68f,airflow));
     float body=max(beads.x,running.x),rim=max(beads.w,running.w);
-    if(body<.004f&&rim<.004f)discard_fragment();
+    if(body<.004f&&rim<.004f&&scratchLight<.0001f)discard_fragment();
     float2 gradient=beads.yz+running.yz;
     float3 axisX=mix(model[0].xyz,model[2].xyz*sideSign,side);
     float3 axisY=model[1].xyz+model[2].xyz*.35f;
@@ -693,7 +733,7 @@ fragment float4 rainGlassFragment(RainRaster in [[stage_in]],constant FrameUnifo
     float3 normal=normalize((model*float4(localNormal,0)).xyz);
     float3 view=normalize(-in.world),halfVector=normalize(f.sun.xyz+view);
     float spec=pow(max(0.0f,abs(dot(normal,halfVector))),36.0f)*daylight;
-    float highlight=rim*(.018f+.075f*daylight)+body*spec*.12f;
+    float highlight=rim*(.018f+.075f*daylight)+body*spec*.12f+scratchLight;
     return float4(refracted*(1-body*.035f-rim*.04f)+float3(.80,.89,1.0)*highlight,1);
 }
 float3 exhaustBasis(float3 d){return normalize(cross(d,abs(d.y)<.9?float3(0,1,0):float3(1,0,0)));}

@@ -13,8 +13,9 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
     NSUInteger samples,width,height,trailWidth,trailHeight,historyIndex,frameIndex;
     BOOL historyValid,haveFlight;
     FrameUniforms lastFrame;
-    double lastElapsed,glassWetness,lastExposureTime;
-    Vector glassRunoff;
+    double lastElapsed,glassWetness,lastExposureTime,lastRainTime;
+    Vector glassRunoff,rainMotion;
+    BOOL haveRainTime;
     NSInteger lastWeather;
     id<MTLTexture> hdr,lit,depth,trailLayer,msaaColor,msaaDepth,earthCloudMap,earthOceanMask,earthTerrainMask,marsRegolith,venusSurface,earthOceanWaves,earthOceanWaveDetail,exposure;
     std::array<id<MTLTexture>,2> cloudHistory,cloudData,bloom;
@@ -110,6 +111,11 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
             bloom[i]=[self texture:MTLPixelFormatRGBA16Float width:std::max(1ul,w/4) height:std::max(1ul,h/4) usage:MTLTextureUsageShaderRead|MTLTextureUsageShaderWrite];
         }
     }
+    double rainTime=f->environment.w;
+    double rainDt=haveRainTime?rainTime-lastRainTime:0;
+    if(rainDt<0)rainDt+=86400;
+    if(rainDt>0&&rainDt<1){Vector wind(f->weatherWind.x,f->weatherWind.y,f->weatherWind.z),radial(f->position.x,f->position.y,f->position.z);rainMotion+=rainRelativeVelocity(wind,radial)*rainDt;}
+    lastRainTime=rainTime;haveRainTime=YES;f->rainMotion=visualVector(rainMotion);
     _weather=std::clamp((int)_weather,0,4);
     if(_weather!=lastWeather){historyValid=NO;lastWeather=_weather;}
     const simd_float4 presets[]={{1800,12000,0,0},{1800,12000,.48,0},{1400,12000,.78,.10},{1000,12500,.91,1},{1400,12000,.48,.65}};
@@ -230,7 +236,7 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
     }
 }
 - (void)encodeCockpitRain:(id<MTLCommandBuffer>)cb frame:(const FrameUniforms &)f model:(simd_float4x4)model vertices:(id<MTLBuffer>)vertices indices:(id<MTLBuffer>)indices count:(NSUInteger)count {
-    if(glassWetness<=.01||!vertices||!indices||!count)return;
+    if(!vertices||!indices||!count)return;
     FrameUniforms wetFrame=f;wetFrame.weather.z=(float)glassWetness;
     simd_float4 runoff=visualVector(glassRunoff);
     // Copy once, then refract from the previous scene while writing the wet
@@ -261,6 +267,6 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
 - (id<MTLTexture>)oceanWaveDetail {return earthOceanWaveDetail;}
 - (NSUInteger)liveTrailPuffCount {return exhaustTrail.puffs().size();}
 - (NSString *)weatherName{return @[@"Clear",@"Scattered",@"Overcast",@"Storm",@"Regional"][_weather];}
-- (void)reset {historyValid=NO;haveFlight=NO;glassWetness=0;glassRunoff={};exhaustTrail.reset();}
-- (void)resetForReferenceChange {historyValid=NO;haveFlight=NO;}
+- (void)reset {historyValid=NO;haveFlight=NO;glassWetness=0;glassRunoff={};rainMotion={};haveRainTime=NO;exhaustTrail.reset();}
+- (void)resetForReferenceChange {historyValid=NO;haveFlight=NO;rainMotion={};haveRainTime=NO;}
 @end

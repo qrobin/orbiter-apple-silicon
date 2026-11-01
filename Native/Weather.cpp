@@ -35,6 +35,7 @@ double updateGlassWetness(double wetness,double rain,double airspeed,double dt){
     double rate=target>wetness?.5:.035+airspeed*.0002;
     return target+(wetness-target)*exp(-rate*dt);
 }
+Vector rainRelativeVelocity(const Vector &airRelative,const Vector &radial){return -airRelative-radial.unit()*12.;}
 Vector glassRunoffVelocity(const Vector &airRelative,const Vector &radial,const Vector &right,const Vector &up,const Vector &forward){
     // Liquid advances in the direction of the air and gravity, slowly
     // compared with the air itself. Return metres/second in the ship frame.

@@ -36,9 +36,9 @@ int main(){@autoreleasepool{try{
     [scene replaceRegion:MTLRegionMake2D(0,0,width,height) mipmapLevel:0 withBytes:background.data() bytesPerRow:width*4];
     td=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatDepth32Float width:width height:height mipmapped:NO];td.usage=MTLTextureUsageRenderTarget;td.storageMode=MTLStorageModePrivate;id<MTLTexture> depth=[gpu newTextureWithDescriptor:td];
     id<MTLCommandQueue> queue=[gpu newCommandQueue];simd_float4x4 model={};model.columns[0]={1,0,0,0};model.columns[1]={0,1,0,0};model.columns[2]={0,0,1,0};model.columns[3]={0,-1.467f,-6.782f,1};
-    auto render=[&](float rain,float time,bool occluded,float yaw,float speed=80){
+    auto render=[&](float rain,float time,bool occluded,float yaw,float speed=80,int sunMode=0){
         FrameUniforms f{};f.right={cosf(yaw),0,-sinf(yaw),0};f.up={0,1,0,0};f.forward={sinf(yaw),0,cosf(yaw),0};
-        f.position={0,1,0,0};f.sun={0,1,0,1};f.weather={3,.9f,rain,0};f.weatherWind={0,0,speed,0};f.environment.w=time;f.screen={width,height,.466f,0};
+        f.position={0,1,0,0};f.sun=sunMode==1?simd_float4{0,0,1,1}:sunMode==2?simd_float4{0,0,-1,1}:sunMode==3?simd_float4{1,0,0,1}:simd_float4{0,1,0,1};f.weather={3,.9f,rain,0};f.weatherWind={0,0,speed,0};f.environment.w=time;f.screen={width,height,.466f,0};
         Vector flow=glassRunoffVelocity({0,0,speed},{0,1,0},{1,0,0},{0,1,0},{0,0,1})*time;simd_float4 runoff={(float)flow.x,(float)flow.y,(float)flow.z,0};
         f.projection.columns[0]={1/.466f,0,0,0};f.projection.columns[1]={0,1/.466f,0,0};f.projection.columns[2]={0,0,0,-1};f.projection.columns[3]={0,0,.2f,0};
         id<MTLCommandBuffer> cb=[queue commandBuffer];id<MTLBlitCommandEncoder> blit=[cb blitCommandEncoder];
@@ -59,6 +59,9 @@ int main(){@autoreleasepool{try{
     check(visible>100&&visible<width*height/4,"Droplets appear on a bounded part of the original glass");
     check(differences(wet,later)>100,"Rainwater moves across the glass over time");
     check(differences(wet,turned)>100,"Wet glass follows the cockpit view");
+    size_t scratches=0;for(int sun=1;sun<=3;++sun)scratches=std::max(scratches,differences(background,render(0,1,false,0,80,sun)));
+    std::cout<<"Sunlit scratch pixels: "<<scratches<<'\n';
+    check(scratches>10&&scratches<width*height/8,"Dry glass shows restrained sunlight-dependent scratches");
     auto slow=render(1,1,false,0,0),slowLater=render(1,1.1f,false,0,0),fast=render(1,1,false,0,250),fastLater=render(1,1.1f,false,0,250);
     auto slowMotion=differences(slow,slowLater),fastMotion=differences(fast,fastLater);
     std::cout<<"Drop motion: stationary "<<slowMotion<<", fast "<<fastMotion<<'\n';

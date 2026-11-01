@@ -23,6 +23,9 @@ int main(){try{
     check(wet>.5&&drying>0&&drying<wet,"Cockpit glass gets wet in rain and dries gradually afterwards");
     check(updateGlassWetness(wet,0,100,0)==wet&&updateGlassWetness(wet,0,250,5)<drying,"Paused wetness is stable and faster airflow clears water sooner");
     check(updateGlassWetness(0,1,250,30)<updateGlassWetness(0,1,0,30)*.5,"Fast flight reduces water accumulation even in continuing rain");
+    Vector rainSlow=rainRelativeVelocity({0,0,50},{0,1,0}),rainFast=rainRelativeVelocity({0,0,250},{0,1,0});
+    check(fabs(rainSlow.z+50)<1e-12&&fabs(rainFast.z+250)<1e-12&&fabs(rainFast.y+12)<1e-12,"Airborne rain uses the full relative airspeed plus falling velocity");
+    Vector rainTravel=rainFast*2+rainSlow;check(fabs(rainTravel.z+550)<1e-12,"Rain displacement integrates speed changes continuously");
     Vector fastFlow=glassRunoffVelocity({0,0,250},{0,1,0},{1,0,0},{0,1,0},{0,0,1});
     Vector slowFlow=glassRunoffVelocity({0,0,50},{0,1,0},{1,0,0},{0,1,0},{0,0,1});
     Vector displacement=fastFlow*10,afterSlowdown=displacement+slowFlow;
