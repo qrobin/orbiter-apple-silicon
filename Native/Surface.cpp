@@ -43,10 +43,18 @@ bool loadTerrainMask(const std::filesystem::path &path) {
     terrainMask=std::move(bytes);return true;
 }
 double terrainElevation(BodyId id,const Vector &position,double mjd,double elapsed) {
-    if(id!=BodyId::Earth||terrainMask.empty()||position.length2()<1)return 0;
+    if(!body(id).solid||position.length2()<1||(id==BodyId::Earth&&terrainMask.empty()))return 0;
     double lat,lon;bodyCoordinates(id,position,mjd,elapsed,lat,lon);
     Vector n(cos(lat)*cos(lon),sin(lat),cos(lat)*sin(lon));
-    double land=(1-smoothTerrain(.03,.30,waterAt(lat,lon)))*(1-smoothTerrain(1.38,1.43,fabs(lat)));
+    double polar=1-smoothTerrain(1.38,1.43,fabs(lat));
+    if(id!=BodyId::Earth){
+        double radius=body(id).radius,frequency=std::clamp(radius/40000.,2.,160.);
+        double seed=(int)id;Vector offset(seed*3.1,seed*1.7,seed*5.3);
+        double broad=terrainNoise(n*frequency+offset),detail=terrainNoise(n*(frequency*3)+offset);
+        double ridge=1-fabs(2*terrainNoise(n*(frequency*1.8)+offset)-1);
+        return polar*std::min(1000.,radius*.004)*(.12+.20*detail+.68*smoothTerrain(.35,.75,broad)*ridge*ridge);
+    }
+    double land=(1-smoothTerrain(.03,.30,waterAt(lat,lon)))*polar;
     Vector cape(cos(Rad(28.58438))*cos(Rad(-80.65165)),sin(Rad(28.58438)),cos(Rad(28.58438))*sin(Rad(-80.65165)));
     Vector france(cos(Rad(46.))*cos(Rad(2.)),sin(Rad(46.)),cos(Rad(46.))*sin(Rad(2.)));
     double base=smoothTerrain(20000,35000,(n-cape).length()*body(id).radius)*smoothTerrain(25000,45000,(n-france).length()*body(id).radius);
@@ -55,7 +63,7 @@ double terrainElevation(BodyId id,const Vector &position,double mjd,double elaps
     return land*base*(35+100*detail+1100*mountains*ridge*ridge);
 }
 Vector terrainNormal(BodyId id,const Vector &position,double mjd,double elapsed){
-    Vector n=position.unit();if(id!=BodyId::Earth||terrainMask.empty())return n;
+    Vector n=position.unit();if(!body(id).solid||(id==BodyId::Earth&&terrainMask.empty()))return n;
     double lat,lon;bodyCoordinates(id,position,mjd,elapsed,lat,lon);auto frame=bodySurface(id,lat,lon,mjd,elapsed);double d=10;
     double east=(terrainElevation(id,position+frame.east*d,mjd,elapsed)-terrainElevation(id,position-frame.east*d,mjd,elapsed))/(2*d);
     double north=(terrainElevation(id,position+frame.north*d,mjd,elapsed)-terrainElevation(id,position-frame.north*d,mjd,elapsed))/(2*d);

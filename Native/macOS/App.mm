@@ -586,7 +586,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     [encoder setFragmentTexture:starTexture atIndex:7];[encoder setFragmentTexture:visuals.cloudNoise atIndex:8];
     [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
     [encoder setDepthStencilState:depthState];
-    if(flight.reference==BodyId::Earth)
+    if(flight.centralBody().solid)
         [visuals encodeTerrain:encoder frame:uniforms earth:[solar textureForBody:flight.reference]];
     [solar encodeBodies:encoder frame:uniforms flight:flight offset:offset];
     [encoder setFragmentBytes:&uniforms length:sizeof(uniforms) atIndex:1];

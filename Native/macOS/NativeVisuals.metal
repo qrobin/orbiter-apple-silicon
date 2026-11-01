@@ -3,6 +3,7 @@ float earthSunHaze(constant FrameUniforms &f);
 float solarIntensity(constant FrameUniforms &f);
 struct AirLight {float3 transmission,scattering;};
 AirLight earthAirLight(constant FrameUniforms &f,float3 ray,float maximumDistance);
+float3 planetMaterial(float3 n,float2 uv,float3 color,int id,bool mapped,texture2d<float> map);
 // An artistic apparent-size boost: strongest through dense air near the
 // horizon, and smoothly absent above the atmosphere.
 float atmosphericDiscScale(constant FrameUniforms &f,float3 direction){
@@ -62,6 +63,16 @@ float terrainHeightAt(float3 n,texture2d<float> mask) {
     float broad=terrainNoise(n*160),detail=terrainNoise(n*600),ridge=1-abs(2*terrainNoise(n*340)-1);
     return land*base*(35+100*detail+1100*smoothstep(.43f,.72f,broad)*ridge*ridge);
 }
+// Other solid bodies use a distinct, body-fixed noise seed and scale; the
+// constants match terrainElevation on the CPU. Gas giants never submit a mesh.
+float bodyTerrainHeight(float3 n,int id,float radius){
+    float polar=1-smoothstep(1.38f,1.43f,abs(asin(clamp(n.y,-1.0f,1.0f))));
+    float frequency=clamp(radius/40000.0f,2.0f,160.0f),seed=float(id);
+    float3 offset=float3(seed*3.1f,seed*1.7f,seed*5.3f);
+    float broad=terrainNoise(n*frequency+offset),detail=terrainNoise(n*(frequency*3)+offset);
+    float ridge=1-abs(2*terrainNoise(n*(frequency*1.8f)+offset)-1);
+    return polar*min(1000.0f,radius*.004f)*(.12f+.20f*detail+.68f*smoothstep(.35f,.75f,broad)*ridge*ridge);
+}
 // Stable cells are fixed to Earth's rotating coordinates, rather than to the
 // camera. Instances are generated only in the small neighbourhood being drawn.
 struct TerrainRaster { float4 position [[position]]; float3 normal; float3 color; };
@@ -118,7 +129,8 @@ vertex GroundRaster groundVertex(uint vid [[vertex_id]],uint instance [[instance
     GroundRaster o;o.position=float4(2,2,2,1);o.world=0;o.normal=float3(0,1,0);o.uv=0;o.height=0;
     constexpr int grid=48;float spacing=80.0f*float(1u<<levelIndex);
     int2 cell=int2(int(instance%grid)-grid/2,int(instance/grid)-grid/2);
-    if(levelIndex>0&&abs(cell.x)<11&&abs(cell.y)<11)return o;
+    if(levelIndex>0&&(abs(cell.x)<11&&abs(cell.y)<11))return o;
+    if(levelIndex>0&&spacing*24>f.body.x*.3f)return o;
     float3 camera=normalize(f.position.xyz),fixed=normalize(terrestrial(camera,f));
     float lat=asin(clamp(fixed.y,-1.0f,1.0f)),lon=atan2(fixed.z,fixed.x);if(abs(lat)>1.45f)return o;
     uint2 corners[6]={uint2(0,0),uint2(1,0),uint2(1,1),uint2(0,0),uint2(1,1),uint2(0,1)};
@@ -127,7 +139,7 @@ vertex GroundRaster groundVertex(uint vid [[vertex_id]],uint instance [[instance
     float cl=cos(coord.y);float3 fixedPoint=float3(cl*cos(coord.x),sin(coord.y),cl*sin(coord.x));
     float a=f.screen.w*(2*M_PI_F),c=cos(a),s=sin(a);
     float3 n=normalize(f.equatorX.xyz*(c*fixedPoint.x+s*fixedPoint.z)+f.pole.xyz*fixedPoint.y+f.equatorZ.xyz*(-s*fixedPoint.x+c*fixedPoint.z));
-    float h=terrainHeightAt(fixedPoint,mask);
+    float h=int(f.surfaceColor.w)==3?terrainHeightAt(fixedPoint,mask):bodyTerrainHeight(fixedPoint,int(f.surfaceColor.w),f.body.x);
     float3 p=(n-camera)*f.body.x-camera*f.environment.y+n*h;
     float3 view=float3(dot(p,f.right.xyz),dot(p,f.up.xyz),-dot(p,f.forward.xyz));
     o.position=f.projection*float4(view,1);o.world=p;o.normal=n;o.uv=float2(coord.x/(2*M_PI_F)+.5,.5-coord.y/M_PI_F);o.height=h;return o;
@@ -136,15 +148,26 @@ fragment float4 groundFragment(GroundRaster in [[stage_in]],constant FrameUnifor
     if(in.height<.5)discard_fragment();
     constexpr sampler map(filter::linear,s_address::repeat,t_address::clamp_to_edge);constexpr sampler screen(filter::linear,address::clamp_to_edge);
     float3 n=normalize(cross(dfdx(in.world),dfdy(in.world)));if(dot(n,in.normal)<0)n=-n;
-    float3 albedo=earth.sample(map,in.uv).rgb;float slope=1-saturate(dot(n,in.normal));
-    albedo=mix(albedo,float3(.30,.28,.25),smoothstep(.06f,.32f,slope)*.65);
-    albedo=mix(albedo,float3(.75,.76,.72),smoothstep(850.0f,1250.0f,in.height)*.55);
+    bool earthBody=int(f.surfaceColor.w)==3;
+    float3 albedo=earthBody?earth.sample(map,in.uv).rgb:planetMaterial(in.normal,in.uv,f.surfaceColor.rgb,int(f.surfaceColor.w),f.equatorX.w>.5,earth);
+    float slope=1-saturate(dot(n,in.normal));
+    albedo=mix(albedo,earthBody?float3(.30,.28,.25):f.surfaceColor.rgb*.75,smoothstep(.06f,.32f,slope)*.65);
+    if(earthBody)albedo=mix(albedo,float3(.75,.76,.72),smoothstep(850.0f,1250.0f,in.height)*.55);
     float day=smoothstep(-.08f,.12f,dot(in.normal,f.sun.xyz))*f.sun.w;
-    float shadow=shadows.sample(screen,in.position.xy/f.screen.xy).r;
+    float shadow=earthBody?shadows.sample(screen,in.position.xy/f.screen.xy).r:1.0f;
     float light=max(0.0f,dot(n,f.sun.xyz))*f.sun.w*shadow*solarIntensity(f);
     float3 color=albedo*(.012+day*.15+light*.85);
-    float distance=length(in.world);AirLight air=earthAirLight(f,normalize(in.world),distance);
-    return float4(color*air.transmission+air.scattering,1);
+    if(earthBody){float distance=length(in.world);AirLight air=earthAirLight(f,normalize(in.world),distance);color=color*air.transmission+air.scattering;}
+    else if(f.body.y>0){
+        float3 ray=normalize(in.world),camera=normalize(f.position.xyz);
+        float cameraDay=smoothstep(-.08f,.12f,dot(camera,f.sun.xyz))*f.sun.w;
+        float air=saturate(exp(-max(0.0f,f.environment.y)/max(1.0f,f.body.z))*cameraDay*f.body.y);
+        float3 airColor=mix(f.haze.rgb*1.6f,f.haze.rgb*.55f,pow(max(0.0f,dot(ray,camera)),.35f));
+        float fresnel=pow(1-max(0.0f,dot(n,-ray)),4.0f);
+        color=mix(color,f.haze.rgb*(.3f+.7f*day),fresnel*.55f*min(1.0f,f.body.y));
+        color=mix(color,airColor,air*(1-exp(-length(in.world)/35000.0f))*.8f);
+    }
+    return float4(color,1);
 }
 // Regional coverage modulates the shared world-space cloud density.
 float regionalCloudCoverage(float observed,float weather) {

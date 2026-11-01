@@ -145,12 +145,12 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
     ++historyIndex;lastFrame=f;historyValid=YES;
 }
 - (void)encodeTerrain:(id<MTLRenderCommandEncoder>)encoder frame:(const FrameUniforms &)f earth:(id<MTLTexture>)earth {
-    if((int)f.surfaceColor.w!=(int)BodyId::Earth||f.environment.y>100000||f.environment.y<0)return;
+    if(f.body.w!=0||f.environment.y>100000||f.environment.y<0)return;
     [encoder setRenderPipelineState:groundPipeline];[encoder setCullMode:MTLCullModeNone];
     [encoder setVertexBytes:&f length:sizeof(f) atIndex:0];[encoder setVertexTexture:earthTerrainMask atIndex:0];
     [encoder setFragmentBytes:&f length:sizeof(f) atIndex:0];[encoder setFragmentTexture:earth atIndex:0];[encoder setFragmentTexture:_cloudShadows atIndex:1];
     for(uint32_t level=0;level<7;++level){[encoder setVertexBytes:&level length:sizeof(level) atIndex:1];[encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6 instanceCount:48*48];}
-    if(f.environment.y>2500)return;
+    if((int)f.surfaceColor.w!=(int)BodyId::Earth||f.environment.y>2500)return;
     [encoder setRenderPipelineState:terrainPipeline];[encoder setCullMode:MTLCullModeNone];
     [encoder setVertexBytes:&f length:sizeof(f) atIndex:0];[encoder setVertexTexture:earthOceanMask atIndex:0];[encoder setVertexTexture:earth atIndex:1];[encoder setVertexTexture:earthTerrainMask atIndex:2];
     [encoder setFragmentBytes:&f length:sizeof(f) atIndex:0];[encoder setFragmentTexture:_cloudShadows atIndex:0];

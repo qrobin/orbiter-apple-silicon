@@ -27,6 +27,15 @@ int main(){try{
         double lat=.38,lon=-1.25,lat2,lon2;auto frame=bodySurface(b.id,lat,lon,date,123);
         bodyCoordinates(b.id,frame.up*b.radius,date,123,lat2,lon2);
         check(fabs(lat2-lat)<1e-12&&fabs(remainder(lon2-lon,Pi2))<1e-12,label+" rotating surface coordinate roundtrip");
+        if(b.solid&&b.id!=BodyId::Earth){
+            double h=terrainElevation(b.id,frame.up*b.radius,date,123),h2=terrainElevation(b.id,bodySurface(b.id,lat,lon,date+2).up*b.radius,date+2);
+            check(h>0&&h<=std::min(1000.,b.radius*.004),label+" bounded nonzero procedural terrain");
+            check(fabs(h-h2)<1e-6,label+" terrain rotates with body");
+            check(dotp(terrainNormal(b.id,frame.up*b.radius,date,123),frame.up)>.6,label+" terrain normal points outward");
+            Vector p=frame.up*(b.radius+h+2.5);
+            auto ground=groundForces(p,crossp(b.spin(),p),frame.east,frame.up,frame.north,{},10000,true,0,0,0,.01,b.id,date,123);
+            check(ground.contacts>0,label+" elevated surface supports contacts");
+        }else if(!b.solid)check(terrainElevation(b.id,frame.up*b.radius,date,123)==0,label+" has no ground");
         auto state=bodyState(b.id,date);check(std::isfinite(state.position.length2()+state.velocity.length2()),label+" ephemeris finite");
         if(b.id!=BodyId::Sun){auto a=bodyState(b.id,date-1./86400),c=bodyState(b.id,date+1./86400);double error=((c.position-a.position)*.5-state.velocity).length();check(error<1,label+" ephemeris derivative: "+std::to_string(error));}
         Flight f;f.startOrbit(b.id);check(f.reference==b.id&&f.altitude()>0,label+" orbit start");
@@ -50,6 +59,6 @@ int main(){try{
     f.reference=BodyId::Moon;f.placeOnBody(.2,-.4,0);f.save(tmp);Flight landed;landed.load(tmp);check(landed.reference==BodyId::Moon&&landed.groundContact,"Landed Moon save/load");
     bool rejected=false;try{f.reference=BodyId::Jupiter;f.placeOnBody(0,0,0);}catch(...){rejected=true;}check(rejected,"Gas giants have no solid landing surface");
     f.startOrbit(BodyId::Moon);auto lunarPlume=plumeShape(f,ExhaustKind::Main);auto vacuumPlume=plumeShape(1000000,ExhaustKind::Main);check(fabs(lunarPlume.spread-vacuumPlume.spread)<1e-12,"Lunar plume uses vacuum pressure");
-    for(BodyId id:{BodyId::Moon,BodyId::Mars}){Flight ground;ground.reference=id;ground.placeOnBody(.1,.2,0);ground.glider.parkingBrake=true;for(int i=0;i<500;++i)ground.advance(.01);check(!ground.impacted&&ground.altitude()>2.3&&ground.altitude()<2.7,std::string(body(id).name)+" body-specific resting ground contact");}
+    for(BodyId id:{BodyId::Moon,BodyId::Mars}){Flight ground;ground.reference=id;ground.placeOnBody(.1,.2,0);ground.glider.parkingBrake=true;for(int i=0;i<500;++i)ground.advance(.01);check(!ground.impacted&&ground.groundAltitude()>2.3&&ground.groundAltitude()<2.7,std::string(body(id).name)+" body-specific resting ground contact");}
     std::filesystem::remove(tmp);std::cout<<checks<<" Solar System checks passed\n";
 }catch(const std::exception &e){std::cerr<<"After "<<checks<<" checks: "<<e.what()<<'\n';return 1;}}
