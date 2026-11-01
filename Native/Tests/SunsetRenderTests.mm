@@ -117,6 +117,10 @@ int main(){@autoreleasepool{
         printf("Cloud opacity: visible %zu, solid %zu, partial %zu, mean %.3f\n",visible,solid,partial,alpha/std::max(size_t(1),visible));
         for(int y=55;y<85;++y){size_t i=(size_t(y)*cw+cw/2)*4;printf("cloud row %d: rgb %.3f %.3f %.3f a %.3f geom %.0f sample %.0f start %.0f\n",y,cv[i],cv[i+1],cv[i+2],cv[i+3],dv[i],dv[i+1],dv[i+2]);}
     }
+    if(NSProcessInfo.processInfo.environment[@"ORBITER_STORM_HORIZON_CHECK"]){
+        double maxJump=0;for(int y=(int)height/5;y<(int)height/2;++y)for(int c=0;c<3;++c){double delta=0;for(int x=0;x<(int)width;++x)delta+=int(cloudy[(size_t(y+1)*width+x)*4+c])-int(cloudy[(size_t(y)*width+x)*4+c]);maxJump=std::max(maxJump,fabs(delta/width));}
+        printf("Storm horizon largest row jump: %.2f\n",maxJump);require(maxJump<6,"Storm cloud base should not create a hard horizontal band");
+    }
     if(!shaderDirectory.length&&!pitchOverride&&!azimuthOverride&&!weatherOverride&&!NSProcessInfo.processInfo.environment[@"ORBITER_SUNSET_ALTITUDE"]&&!NSProcessInfo.processInfo.environment[@"ORBITER_SUNSET_LATER"]){
         auto channel=[&](const auto &p,int x,int y,int c){return int(p[(size_t(y)*width+x)*4+c]);};
         double maxJump=0;for(int y=100;y<190;++y)for(int c=0;c<3;++c){double delta=0;for(int x=0;x<(int)width;++x)delta+=channel(cloudy,x,y+1,c)-channel(cloudy,x,y,c);maxJump=std::max(maxJump,fabs(delta/width));}

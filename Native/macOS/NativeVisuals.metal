@@ -522,16 +522,6 @@ fragment float4 compositeClouds(SkyRaster in [[stage_in]],constant FrameUniforms
     float cameraHeight=f.environment.x*f.body.x;
     if(cloud.a>.0001f){
         float distance=weightedDistance/max(.0001f,total*cloud.a);
-        if(f.clouds.w>.01f){
-            // Broad, body-fixed illumination variation makes a thick overcast
-            // read as a turbulent cloud volume instead of a uniform gray lid.
-            constexpr sampler volume(filter::linear,address::repeat);
-            float3 origin=normalize(f.position.xyz)*(f.body.x+cameraHeight);
-            float3 p=terrestrial(origin+ray*distance,f)+float3(f.environment.w*14,0,f.environment.w*7);
-            float structure=noise.sample(volume,p/9500.0f).r*.65f+noise.sample(volume,p/2600.0f).g*.35f;
-            float shade=mix(.55f,1.50f,smoothstep(.25f,.72f,structure));
-            cloud.rgb*=mix(1.0f,shade,saturate(f.clouds.w));
-        }
         // Air between the viewer and a cloud changes its colour, not its
         // opacity. Fading alpha here made distant cloud cores see-through.
         if(distance>10000.0f&&int(f.surfaceColor.w)==3){

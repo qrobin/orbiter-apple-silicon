@@ -103,7 +103,7 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
             d.textureType=MTLTextureType2DMultisample;d.sampleCount=samples;d.storageMode=MTLStorageModePrivate;d.usage=MTLTextureUsageRenderTarget;
             msaaColor=[gpu newTextureWithDescriptor:d];d.pixelFormat=MTLPixelFormatDepth32Float;msaaDepth=[gpu newTextureWithDescriptor:d];visualCheck(msaaColor,nil);visualCheck(msaaDepth,nil);
         }
-        float scale=std::min(.5f,760.f/std::max(1.f,(float)w));_cloudWidth=std::max(1ul,(NSUInteger)ceil(w*scale));_cloudHeight=std::max(1ul,(NSUInteger)ceil(h*scale));
+        float scale=std::min(.5f,960.f/std::max(1.f,(float)w));_cloudWidth=std::max(1ul,(NSUInteger)ceil(w*scale));_cloudHeight=std::max(1ul,(NSUInteger)ceil(h*scale));
         _cloudShadows=[self texture:MTLPixelFormatR8Unorm width:_cloudWidth height:_cloudHeight usage:MTLTextureUsageShaderRead|MTLTextureUsageShaderWrite];
         for(int i=0;i<2;++i){
             cloudHistory[i]=[self texture:MTLPixelFormatRGBA16Float width:_cloudWidth height:_cloudHeight usage:MTLTextureUsageShaderRead|MTLTextureUsageShaderWrite];
