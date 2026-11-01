@@ -73,56 +73,139 @@ float bodyTerrainHeight(float3 n,int id,float radius){
     float ridge=1-abs(2*terrainNoise(n*(frequency*1.8f)+offset)-1);
     return polar*min(1000.0f,radius*.004f)*(.12f+.20f*detail+.68f*smoothstep(.35f,.75f,broad)*ridge*ridge);
 }
-// Stable cells are fixed to Earth's rotating coordinates, rather than to the
-// camera. Instances are generated only in the small neighbourhood being drawn.
-struct TerrainRaster { float4 position [[position]]; float3 normal; float3 color; };
-vertex TerrainRaster terrainVertex(uint vertexID [[vertex_id]],uint instanceID [[instance_id]],
-                                   constant FrameUniforms &f [[buffer(0)]],
-                                   texture2d<float> ocean [[texture(0)]],texture2d<float> earth [[texture(1)]],texture2d<float> heightMask [[texture(2)]]) {
-    TerrainRaster out;out.position=float4(2,2,2,1);out.normal=float3(0,1,0);out.color=0;
-    constexpr float spacing=38.0f;constexpr int grid=96;
+// Authored, instanced botanical meshes: tapered trunks/branches, five
+// irregular crown lobes (or layered evergreen whorls), and rounded boulders.
+// Cell positions, species and wind phase stay fixed to the rotating Earth.
+struct TerrainRaster { float4 position [[position]]; float3 normal,color,world,local; float2 leafUV; float material; };
+struct EarthScenery {float3 n,east,north,point;float green;uint seed;bool visible;};
+EarthScenery sceneryCell(uint instance,int grid,float spacing,constant FrameUniforms &f,
+    texture2d<float> ocean,texture2d<float> earth,texture2d<float> heights){
+    EarthScenery o;o.visible=false;o.n=float3(0,1,0);o.east=float3(1,0,0);o.north=float3(0,0,1);o.point=0;o.green=0;o.seed=0;
     float3 camera=normalize(f.position.xyz),fixed=normalize(terrestrial(camera,f));
     float lat=asin(clamp(fixed.y,-1.0f,1.0f)),lon=atan2(fixed.z,fixed.x);
-    float3 cape=float3(cos(28.58438f*M_PI_F/180)*cos(-80.65165f*M_PI_F/180),sin(28.58438f*M_PI_F/180),cos(28.58438f*M_PI_F/180)*sin(-80.65165f*M_PI_F/180));
-    if(abs(lat)>1.38f||length(fixed-cape)*f.body.x<10000)return out;
-    int2 center=int2(floor(float2(lon,lat)*f.body.x/spacing));
-    int2 cell=center+int2(int(instanceID%grid)-grid/2,int(instanceID/grid)-grid/2);
-    uint seed=visualHash(as_type<uint>(cell.x)*0x9e3779b9u^as_type<uint>(cell.y)*0x85ebca6bu);
-    if(visualRandom(seed+29)<smoothstep(1700.0f,2500.0f,f.environment.y))return out;
-    float2 jitter=float2(visualRandom(seed),visualRandom(seed+7));
-    float2 coords=(float2(cell)+jitter)*spacing/f.body.x;
-    float cl=cos(coords.y);float3 surfaceFixed=float3(cl*cos(coords.x),sin(coords.y),cl*sin(coords.x));
-    float2 uv=float2(coords.x/(2*M_PI_F)+.5f,.5f-coords.y/M_PI_F);
+    if(abs(lat)>1.38f)return o;
+    int2 cell=int2(floor(float2(lon,lat)*f.body.x/spacing))+int2(int(instance%grid)-grid/2,int(instance/grid)-grid/2);
+    o.seed=visualHash(as_type<uint>(cell.x)*0x9e3779b9u^as_type<uint>(cell.y)*0x85ebca6bu);
+    float2 coord=(float2(cell)+float2(visualRandom(o.seed),visualRandom(o.seed+7)))*spacing/f.body.x;
+    float cl=cos(coord.y);float3 sf=float3(cl*cos(coord.x),sin(coord.y),cl*sin(coord.x));
+    float3 cape=float3(.142856f,.478453f,-.866414f);
+    // Preserve the base's runway/pad clearances rather than planting through it.
+    if(length(sf-cape)*f.body.x<10000)return o;
     constexpr sampler s(filter::linear,mip_filter::linear,s_address::repeat,t_address::clamp_to_edge);
-    float water=ocean.sample(s,uv,level(0)).r;float3 land=earth.sample(s,uv,level(0)).rgb;
-    if(water>.25f)return out;
-    // Keep deserts and snow mostly bare; rocks can still appear in dry areas.
-    float green=saturate((land.g-land.r*.65f)*4.0f);bool tree=visualRandom(seed+11)<green*.80f;
-    if(!tree&&visualRandom(seed+13)>.28f)return out;
-    float angle=f.screen.w*(2*M_PI_F),c=cos(angle),sine=sin(angle);
-    float3 n=normalize(f.equatorX.xyz*(c*surfaceFixed.x+sine*surfaceFixed.z)+f.pole.xyz*surfaceFixed.y+f.equatorZ.xyz*(-sine*surfaceFixed.x+c*surfaceFixed.z));
-    float3 east=normalize(cross(f.pole.xyz,n)),north=normalize(cross(n,east));
-    uint face=vertexID/3,corner=vertexID%3,side=face%4,layer=face/4;
-    float phi=float(side)*M_PI_F*.5f,phiNext=phi+M_PI_F*.5f;
-    float size=tree?mix(2.4f,4.5f,visualRandom(seed+17)):mix(.6f,2.2f,visualRandom(seed+17));
-    float height=tree?mix(6.0f,14.0f,visualRandom(seed+19)):size*.8f;
-    float lower=tree?(layer==0?.18f:.52f):0.0f,upper=tree?(layer==0?.75f:1.0f):1.0f;
-    float width=size*(layer==0?1.0f:.68f);
-    float3 radial=corner==0?east*cos(phi)*width+north*sin(phi)*width:corner==1?east*cos(phiNext)*width+north*sin(phiNext)*width:float3(0);
-    float3 point=(n-camera)*f.body.x-camera*f.environment.y+radial+n*(terrainHeightAt(surfaceFixed,heightMask)+(corner==2?upper*height:lower*height));
-    float3 view=float3(dot(point,f.right.xyz),dot(point,f.up.xyz),-dot(point,f.forward.xyz));
-    out.position=f.projection*float4(view,1);
-    float mid=phi+M_PI_F*.25f;out.normal=normalize((east*cos(mid)+north*sin(mid))*.8f+n*.6f);
-    out.color=tree?mix(float3(.035,.085,.025),float3(.12,.21,.055),visualRandom(seed+23)):mix(float3(.16,.14,.11),float3(.36,.34,.30),visualRandom(seed+23));
-    if(!tree&&layer>0)out.position=float4(2,2,2,1);
-    return out;
+    float2 uv=float2(coord.x/(2*M_PI_F)+.5f,.5f-coord.y/M_PI_F);
+    float3 land=earth.sample(s,uv,level(0)).rgb;if(ocean.sample(s,uv,level(0)).r>.25f)return o;
+    o.green=saturate((land.g-land.r*.65f)*5.0f)*(1-smoothstep(.4f,.7f,min(land.r,min(land.g,land.b))));
+    float a=f.screen.w*(2*M_PI_F),c=cos(a),sn=sin(a);
+    o.n=normalize(f.equatorX.xyz*(c*sf.x+sn*sf.z)+f.pole.xyz*sf.y+f.equatorZ.xyz*(-sn*sf.x+c*sf.z));
+    o.east=normalize(cross(f.pole.xyz,o.n));o.north=normalize(cross(o.n,o.east));
+    o.point=(o.n-camera)*f.body.x-camera*f.environment.y+o.n*terrainHeightAt(sf,heights);
+    o.visible=true;return o;
+}
+TerrainRaster sceneryRaster(float3 local,float3 normal,float3 color,float material,EarthScenery cell,constant FrameUniforms &f){
+    TerrainRaster o;o.world=cell.point+cell.east*local.x+cell.n*local.y+cell.north*local.z;
+    float3 view=float3(dot(o.world,f.right.xyz),dot(o.world,f.up.xyz),-dot(o.world,f.forward.xyz));
+    o.position=f.projection*float4(view,1);o.normal=normalize(cell.east*normal.x+cell.n*normal.y+cell.north*normal.z);
+    o.local=local;o.leafUV=0;o.color=color;o.material=material;return o;
+}
+TerrainRaster hiddenScenery(){TerrainRaster o;o.position=float4(2,2,2,1);o.normal=float3(0,1,0);o.color=o.world=o.local=0;o.leafUV=0;o.material=0;return o;}
+vertex TerrainRaster terrainVertex(uint vid [[vertex_id]],uint instance [[instance_id]],constant FrameUniforms &f [[buffer(0)]],
+    texture2d<float> ocean [[texture(0)]],texture2d<float> earth [[texture(1)]],texture2d<float> heights [[texture(2)]]){
+    EarthScenery cell=sceneryCell(instance,64,32,f,ocean,earth,heights);uint seed=cell.seed;
+    if(!cell.visible||visualRandom(seed+29)<smoothstep(1800.0f,3000.0f,f.environment.y)||
+       visualRandom(seed+31)<smoothstep(850.0f,1350.0f,length(cell.point)))return hiddenScenery();
+    float forest=terrainNoise(normalize(terrestrial(cell.n,f))*f.body.x/1250+float3(13,41,7));
+    bool tree=visualRandom(seed+11)<cell.green*mix(.32f,.95f,smoothstep(.32f,.64f,forest));
+    if(!tree&&visualRandom(seed+13)>.26f)return hiddenScenery();
+    uint2 tri[6]={uint2(0,0),uint2(1,0),uint2(1,1),uint2(0,0),uint2(1,1),uint2(0,1)};
+    float3 p,normal,color;float material;float2 leafUV=0;
+    float orientation=visualRandom(seed+53)*(2*M_PI_F);
+    if(tree){
+        bool conifer=visualRandom(seed+37)<.24f;
+        float height=mix(7.0f,18.0f,visualRandom(seed+19)),width=height*mix(.20f,.34f,visualRandom(seed+17));
+        if(vid<108){
+            bool trunk=vid<36;uint part=trunk?0:(vid-36)/24;
+            uint corner=vid%6,side=trunk?vid/6:(vid-36)%24/6;
+            float a=orientation+(float(side)+tri[corner].x)*(2*M_PI_F)/(trunk?6.0f:4.0f);
+            float t=float(tri[corner].y);float3 begin,end;
+            if(trunk){begin=float3(0,-.12f,0);end=float3(width*.07f,height*.70f,width*.04f);}
+            else{float phi=orientation+float(part)*(2*M_PI_F/3);begin=float3(0,height*.40f,0);end=float3(cos(phi)*width*.75f,height*.68f,sin(phi)*width*.75f);}
+            float3 axis=normalize(end-begin),sideAxis=normalize(cross(axis,float3(0,0,1))),other=cross(axis,sideAxis);
+            normal=sideAxis*cos(a)+other*sin(a);p=mix(begin,end,t)+normal*width*(trunk?mix(.13f,.055f,t):mix(.055f,.018f,t));
+            color=mix(float3(.12,.075,.040),float3(.23,.17,.095),visualRandom(seed+61));material=0;
+        }else{
+            // Leaf sprays fill an irregular crown with real gaps and detailed
+            // silhouettes. Each crossed spray contains several paired leaves.
+            uint index=vid-108,lobe=index/144,card=(index%144)/6,corner=index%6;
+            uint h=visualHash(seed+lobe*173+card*37);
+            float phi=visualRandom(h)*2*M_PI_F,y=visualRandom(h+7)*2-1;
+            float radius=sqrt(max(0.0f,1-y*y))*pow(visualRandom(h+13),.33f);
+            float3 offset;float3 scale;
+            if(conifer){float t=float(lobe)/4;offset=float3(0,height*(.32f+.125f*float(lobe)),0);scale=float3(width*(1-.68f*t),height*.22f,width*(1-.68f*t));}
+            else{float a=orientation+float(lobe)*(2*M_PI_F/4);offset=lobe==4?float3(0,height*.80f,0):float3(cos(a)*width*.52f,height*mix(.56f,.69f,visualRandom(seed+80+lobe)),sin(a)*width*.52f);scale=float3(width*.72f,height*.24f,width*.66f);}
+            float3 center=offset+float3(cos(phi)*radius,y,sin(phi)*radius)*scale;
+            float az=visualRandom(h+29)*2*M_PI_F,tilt=mix(-.5f,.5f,visualRandom(h+31));
+            float3 horizontal=float3(cos(az),0,sin(az)),vertical=normalize(float3(-sin(az)*tilt,1,cos(az)*tilt));
+            leafUV=float2(tri[corner])*2-1;
+            float spray=width*mix(.30f,.50f,visualRandom(h+17));
+            p=center+horizontal*leafUV.x*spray+vertical*leafUV.y*spray*.85f;
+            normal=normalize(cross(horizontal,vertical));
+            float top=saturate(center.y/height);
+            color=conifer?mix(float3(.024,.055,.027),float3(.075,.13,.050),top):mix(float3(.033,.068,.018),float3(.11,.17,.037),top);
+            color*=mix(.75f,1.14f,visualRandom(h+23));material=1;
+        }
+        // Gentle coherent canopy motion; roots and trunk bases remain planted.
+        float wind=sin(f.environment.w*.8f+orientation+p.y*.35f);
+        p.x+=wind*.12f*pow(saturate(p.y/height),2.0f);
+    }else{
+        if(vid>=192)return hiddenScenery();
+        uint band=vid/48,side=(vid/6)%8,corner=vid%6,index=(side+tri[corner].x)%8,ring=band+tri[corner].y;
+        float heights[5]={0,.25,.64,.91,1},radii[5]={.78,1,.83,.48,0};
+        float size=mix(.35f,2.5f,pow(visualRandom(seed+17),2.0f)),a=orientation+float(index)*M_PI_F/4;
+        float radius=size*radii[ring]*mix(.68f,1.22f,visualRandom(seed+100+index));
+        p=float3(cos(a)*radius,size*.75f*heights[ring]-.08f,sin(a)*radius*.8f);
+        normal=float3(cos(a),ring==0?.1f:ring==1?.45f:ring==2?1.0f:2.6f,sin(a)/.8f);
+        color=mix(float3(.13,.12,.10),float3(.32,.31,.27),visualRandom(seed+23));material=2;
+    }
+    TerrainRaster out=sceneryRaster(p,normal,color,material,cell,f);out.leafUV=leafUV;return out;
+}
+vertex TerrainRaster grassVertex(uint vid [[vertex_id]],uint instance [[instance_id]],constant FrameUniforms &f [[buffer(0)]],
+    texture2d<float> ocean [[texture(0)]],texture2d<float> earth [[texture(1)]],texture2d<float> heights [[texture(2)]]){
+    EarthScenery cell=sceneryCell(instance,64,3,f,ocean,earth,heights);uint seed=cell.seed;
+    if(!cell.visible||visualRandom(seed+9)>cell.green*.85f||length(cell.point)>100||f.environment.y>1400)return hiddenScenery();
+    uint blade=vid/3,corner=vid%3;float a=visualRandom(seed+blade*19)*(2*M_PI_F);
+    float height=mix(.18f,.70f,visualRandom(seed+blade*29)),width=mix(.025f,.065f,visualRandom(seed+blade*23));
+    float3 root=float3(visualRandom(seed+blade*31)*2.5f-1.25f,0,visualRandom(seed+blade*43)*2.5f-1.25f);
+    float side=corner==0?-width:corner==1?width:0;
+    float bend=.13f+.10f*sin(f.environment.w*1.5f+root.x+a);
+    float3 p=root+float3(cos(a)*side,corner==2?height:0,sin(a)*side);
+    if(corner==2)p+=float3(bend,0,bend*.4f);
+    float3 color=mix(float3(.085,.13,.025),float3(.27,.31,.075),visualRandom(seed+blade*13));
+    color*=corner==2?1.2f:.65f;
+    return sceneryRaster(p,float3(-sin(a),.35f,cos(a)),color,3,cell,f);
 }
 fragment float4 terrainFragment(TerrainRaster in [[stage_in]],constant FrameUniforms &f [[buffer(0)]],texture2d<float> shadows [[texture(0)]]) {
+    if(in.material>.5f&&in.material<1.5f){
+        // A branch spray: five pairs of lance-shaped leaves and a thin stem.
+        // Analytic coverage avoids downloaded model/texture dependencies.
+        float2 uv=in.leafUV;float mask=1-abs(uv.x)*45;
+        for(int j=0;j<5;++j){
+            float y=-.70f+float(j)*.34f,width=.70f-abs(y)*.28f;
+            float2 q=float2((abs(uv.x)-width*.5f)/(.48f*width),(uv.y-y-abs(uv.x)*.28f)/.17f);
+            mask=max(mask,1-dot(q,q));
+        }
+        if(mask<0)discard_fragment();
+    }
     constexpr sampler s(filter::linear,address::clamp_to_edge);
     float day=smoothstep(-.08f,.12f,dot(normalize(f.position.xyz),f.sun.xyz))*f.sun.w;
     float shadow=shadows.sample(s,in.position.xy/f.screen.xy).r;
-    float light=max(0.0f,dot(normalize(in.normal),f.sun.xyz))*f.sun.w*shadow*solarIntensity(f);
-    return float4(in.color*(.008f+day*.12f+light*.85f),1);
+    float3 normal=normalize(in.normal);float diffuse=dot(normal,f.sun.xyz);if(in.material>.5f&&in.material<1.5f)diffuse=abs(diffuse)*.65f+.15f;
+    float light=max(0.0f,diffuse)*f.sun.w*shadow*solarIntensity(f);
+    float footprint=max(length(dfdx(in.local)),length(dfdy(in.local)));
+    float grain=mix(.5f,terrainNoise(in.local*(in.material<.5f?float3(18,1.8,18):float3(9))),1-smoothstep(.15f,.7f,footprint));
+    float3 color=in.color*(.78f+grain*.44f)*(.01f+day*(in.material<1.5f?.23f:.16f)+light*.8f);
+    if(in.material>2.5f)color+=in.color*day*.1f; // Thin blades transmit skylight.
+    AirLight air=earthAirLight(f,normalize(in.world),length(in.world));
+    return float4(color*air.transmission+air.scattering,1);
 }
 // Irregular boulders are anchored in the planet's rotating frame.
 // They are visual scenery; terrainElevation remains the collision surface.
@@ -186,6 +269,40 @@ float3 marsGroundMaterial(float3 albedo,float3 worldFixed,float distance,float f
     float3 local=mix(rocky,dusty,dust)*(0.84f+.32f*grain);
     return mix(albedo,local,fade*.28f);
 }
+// Aerial land use and close material share one body-fixed field. The global
+// NASA map supplies regional color; these illustrative fields are not GIS data.
+float3 earthGroundMaterial(float3 albedo,float3 fixed,float distance,float footprint){
+    float fade=1-smoothstep(18000.0f,65000.0f,distance);if(fade<=0)return albedo;
+    float green=saturate((albedo.g-albedo.r*.65f)*5);
+    float snow=smoothstep(.38f,.7f,min(albedo.r,min(albedo.g,albedo.b)));
+    float3 n=normalize(fixed);float2 metres=float2(atan2(n.z,n.x)*6371010.0f,asin(clamp(n.y,-1.0f,1.0f))*6371010.0f);
+    float forest=terrainNoise(fixed/1250+float3(13,41,7));
+    float2 q=float2(metres.x*.91f+metres.y*.414f,-metres.x*.414f+metres.y*.91f)/240;
+    // Irregular rows of narrow parcels resemble cultivated land from the air.
+    // Broad woodland interrupts the parcels; most borders remain unmarked.
+    q+=float2(terrainNoise(fixed/1800),terrainNoise(fixed/2500+19))*.18f;
+    int row=int(floor(q.y));uint rowSeed=visualHash(as_type<uint>(row));
+    q.x=q.x*mix(.65f,1.7f,visualRandom(rowSeed))+visualRandom(rowSeed+13)*5;
+    int col=int(floor(q.x));uint seed=visualHash(as_type<uint>(col)*157u^as_type<uint>(row)*11317u);
+    float2 edge=min(fract(q),1-fract(q));
+    float line=1-smoothstep(.002f+footprint/240,.012f+footprint/240,min(edge.x,edge.y));
+    float crop=visualRandom(seed+23),woodland=smoothstep(.47f,.65f,forest);
+    float3 cultivated=mix(float3(.135,.19,.046),float3(.26,.20,.088),crop);
+    cultivated=mix(cultivated,float3(.08,.135,.035),visualRandom(seed+29)*.55f);
+    float3 vegetation=mix(cultivated,float3(.045,.085,.025),woodland);
+    float hedge=line*(1-woodland)*(visualRandom(seed+31)>.65f?1.0f:0.0f);
+    vegetation*=1-hedge*.25f;
+    float fertility=green*(1-snow);
+    float3 regional=mix(albedo,vegetation,fertility*.72f);
+    float patch=terrainNoise(fixed/47),grain=terrainNoise(fixed/1.3f);
+    float grainFade=1-smoothstep(.3f,2.0f,footprint);
+    float detail=(patch-.5f)*.25f+(grain-.5f)*.22f*grainFade;
+    regional*=1+detail;
+    // Fine crop rows disappear before they can shimmer from the air.
+    float rows=sin((metres.x*.7f+metres.y*.3f)*2.2f+crop*20);
+    regional*=1+rows*.035f*(1-smoothstep(.3f,1.5f,footprint))*(1-woodland)*fertility;
+    return mix(albedo,regional,fade);
+}
 struct GroundRaster {float4 position [[position]];float3 world;float3 normal;float2 uv;float height;};
 vertex GroundRaster groundVertex(uint vid [[vertex_id]],uint instance [[instance_id]],constant FrameUniforms &f [[buffer(0)]],constant uint &levelIndex [[buffer(1)]],texture2d<float> mask [[texture(0)]]) {
     GroundRaster o;o.position=float4(2,2,2,1);o.world=0;o.normal=float3(0,1,0);o.uv=0;o.height=0;
@@ -212,6 +329,11 @@ fragment float4 groundFragment(GroundRaster in [[stage_in]],constant FrameUnifor
     float3 n=normalize(cross(dfdx(in.world),dfdy(in.world)));if(dot(n,in.normal)<0)n=-n;
     bool earthBody=int(f.surfaceColor.w)==3;
     float3 albedo=earthBody?earth.sample(map,in.uv).rgb:planetMaterial(in.normal,in.uv,f.surfaceColor.rgb,int(f.surfaceColor.w),f.equatorX.w>.5,earth);
+    if(earthBody){
+        float3 fixedPoint=terrestrial(f.position.xyz*f.body.x+in.world,f);
+        float footprint=max(length(dfdx(fixedPoint)),length(dfdy(fixedPoint)));
+        albedo=earthGroundMaterial(albedo,fixedPoint,length(in.world),footprint);
+    }
     if(!earthBody){
         float3 fixedPoint=terrestrial(f.position.xyz*f.body.x+in.world,f);
         float footprint=max(length(dfdx(fixedPoint)),length(dfdy(fixedPoint)));

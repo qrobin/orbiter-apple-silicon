@@ -36,6 +36,8 @@ Use **Solar System** in the menu bar to start an orbit around any of the origina
 
 Earth uses the credited 8K NASA Blue Marble map. Metal renders spherical volumetric cloud layers, sun attenuation and cloud shadows with temporal reconstruction. **Weather** in the menu bar or **F3** selects regional, clear, scattered, overcast or storm conditions. Regional cloud coverage uses historical satellite imagery; wind, rain and lightning are procedural and affect atmospheric flight, not live meteorological data. Animated ocean shading follows the geographic water mask and intensifies in storms.
 
+**Flight → Landing Practice** offers gentle land and water descents using the existing hover controller. Wheel and hull contacts can settle safely; gentle water landings use experimental buoyancy and drag and show **AFLOAT**. Time acceleration returns to 1× near touchdown. Earth scenery includes branched trees with leaf sprays, individual grass blades, rounded rocks, and aerial fields/woodland detail. The scenery is procedural and does not represent mapped local geography; see the [native guide](Native/README.md) for controls and limits.
+
 Main, retro, hover and RCS engines have nozzle-aligned 3D flame cores and GPU particles driven by applied thrust. The renderer uses an FP16 scene, bloom, tone mapping and depth-aware compositing, while retaining the native cockpit, instruments and camera controls. See the [native guide](Native/README.md#native-graphics-in-06) for rendering details and limits.
 
 ## Native Metal implementation

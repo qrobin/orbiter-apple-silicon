@@ -132,6 +132,7 @@ struct GpuGroup { id<MTLBuffer> vertices,indices; NSUInteger count; size_t mater
 - (void)undockISS:(id)sender;
 - (void)selectISSPort:(NSMenuItem *)sender;
 - (void)startHoverPractice:(id)sender;
+- (void)startLandingPractice:(NSMenuItem *)sender;
 - (void)toggleHoverHold:(id)sender;
 - (void)toggleHoverAttitude:(id)sender;
 - (void)holdCurrentAltitude:(id)sender;
@@ -207,9 +208,9 @@ static NSString *burnCountdown(FlightView *view) {
     NSString *clock=burnCountdown(v)?:@"No planned burn";
     NSString *date=simulationDate(f.mjd+f.elapsed/86400.);
     if(f.altitude()<std::min(120000.,f.centralBody().radius*.02)) return [NSString stringWithFormat:@"%@, altitude %.1f metres, ground speed %.2f metres per second, vertical speed %+.1f, heading %.1f degrees, main throttle %.0f percent, hover %.0f percent, parking brake %@, fuel %.1f kg, hold %@, controls %@, %@ UTC, %@",
-        f.paused?@"Paused":f.groundContact?@"On the ground":@"Flying",f.altitude(),f.groundSpeed,f.surfaceVerticalSpeed(),Deg(f.heading()),f.throttle*100,f.glider.hover*100,f.glider.parkingBrake?@"set":@"released",f.fuel,holdState,v->helpVisible?@"visible":@"hidden",date,clock];
+        f.paused?@"Paused":f.waterContact?@"Afloat":f.groundContact?@"On the ground":@"Flying",f.altitude(),f.groundSpeed,f.surfaceVerticalSpeed(),Deg(f.heading()),f.throttle*100,f.glider.hover*100,f.glider.parkingBrake?@"set":@"released",f.fuel,holdState,v->helpVisible?@"visible":@"hidden",date,clock];
     return [NSString stringWithFormat:@"%@, altitude %.2f km, speed %.2f m/s, throttle %.0f percent, fuel %.1f kg, time acceleration %.0f, controls %@, %@ UTC, %@",
-        v->flight.paused?@"Paused":v->flight.groundContact?@"On the ground":@"Flying",v->flight.altitude()/1000,v->flight.altitude()<std::min(120000.,v->flight.centralBody().radius*.02)?v->flight.groundSpeed:v->flight.velocity.length(),v->flight.throttle*100,v->flight.fuel,v->flight.warp,v->helpVisible?@"visible":@"hidden",date,clock];
+        v->flight.paused?@"Paused":v->flight.waterContact?@"Afloat":v->flight.groundContact?@"On the ground":@"Flying",v->flight.altitude()/1000,v->flight.altitude()<std::min(120000.,v->flight.centralBody().radius*.02)?v->flight.groundSpeed:v->flight.velocity.length(),v->flight.throttle*100,v->flight.fuel,v->flight.warp,v->helpVisible?@"visible":@"hidden",date,clock];
 }
 - (NSView *)hitTest:(NSPoint)p { return nil; }
 - (void)drawRect:(NSRect)rect { [self paint:self.bounds]; }
@@ -315,7 +316,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     text([NSString stringWithFormat:@"Load             %6.2f g",f.acceleration/9.80665],rx+14,bottom+ph-138,12,muted,YES);
     auto &hover=f.glider.hoverControl;
     NSString *holdStatus=hover.holdActive?[NSString stringWithFormat:@"%@ %+.1f %@",hover.holdMode==1?@"ALT HOLD":@"VS HOLD",hover.holdMode==1?hover.altitudeTarget:hover.verticalSpeedTarget,hover.holdMode==1?@"m":@"m/s"]:nil;
-    text(holdStatus?holdStatus:f.groundContact?[NSString stringWithFormat:@"%d WHEELS · %@",f.wheelContacts,f.glider.parkingBrake?@"PARK BRAKE":@"BRAKES RELEASED"]:mode,rx+14,bottom+15,12,ink);
+    text(f.waterContact?@"AFLOAT · WATER CONTACT":f.groundContact&&f.wheelContacts==0?@"LANDED · HULL CONTACT":f.groundContact?[NSString stringWithFormat:@"%d WHEELS · %@",f.wheelContacts,f.glider.parkingBrake?@"PARK BRAKE":@"BRAKES RELEASED"]:holdStatus?:mode,rx+14,bottom+15,12,ink);
     if(v->orbitVisible&&w>950&&surface) {
         CGFloat ox=w*.5,oy=bottom+87,r=64;
         [panel setFill];NSRectFill(NSMakeRect(ox-120,bottom,240,ph));
@@ -482,7 +483,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         else if([args[i] isEqual:@"--transx-target"]&&i+1<args.count)navigationTarget=(NSInteger)findBody(args[++i].UTF8String);
         else if([args[i] isEqual:@"--weather"]&&i+1<args.count)visuals.weather=[args[++i] integerValue];
         else if([args[i] isEqual:@"--throttle"]&&i+1<args.count)flight.throttle=std::clamp([args[++i] doubleValue],0.,1.);
-        else if([args[i] isEqual:@"--altitude"]&&i+1<args.count){double lat,lon;bodyCoordinates(flight.reference,flight.position,flight.mjd,flight.elapsed,lat,lon);flight.placeOnBody(lat,lon,flight.heading(),std::clamp([args[++i] doubleValue],2.53,1000000.));flight.groundContact=false;flight.wheelContacts=0;}
+        else if([args[i] isEqual:@"--altitude"]&&i+1<args.count){double lat,lon;bodyCoordinates(flight.reference,flight.position,flight.mjd,flight.elapsed,lat,lon);flight.placeOnBody(lat,lon,flight.heading(),std::clamp([args[++i] doubleValue],2.53,1000000.));flight.groundContact=false;flight.waterContact=false;flight.wheelContacts=0;}
         else if([args[i] isEqual:@"--paused"])flight.paused=true;
         else if([args[i] isEqual:@"--rcs-demo"])rcsDemo=true;
         else if([args[i] isEqual:@"--camera-yaw"]&&i+1<args.count)externalCamera.yaw=[args[++i] doubleValue]*RAD;
@@ -822,7 +823,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         @"exhaustEmitters":@(visuals.emitterCount),@"exhaustTrailPuffs":@([visuals liveTrailPuffCount]),@"cameraDistance":@(externalCamera.distance),@"forwardLength":@(flight.forward.length()),@"rightLength":@(flight.right.length()),@"meanFrameMs":@(mean),@"p95FrameMs":@(p95),@"meanFPS":@(mean?1000/mean:0),
         @"meanCPUEncodeMs":@(cpuSum/frameCount),@"meanGPUFrameMs":@(gpuSamples?gpuSum/gpuSamples:0),@"lastGPUFrameMs":@(gpuMs),@"scenarioElapsed":@(flight.elapsed),
         @"altitudeMeters":@(flight.altitude()),@"meshGroups":@(groups.size()),
-        @"groundSpeed":@(flight.groundSpeed),@"wheelContacts":@(flight.wheelContacts),@"parkingBrake":@(flight.glider.parkingBrake),@"impacted":@(flight.impacted),
+        @"groundSpeed":@(flight.groundSpeed),@"wheelContacts":@(flight.wheelContacts),@"waterContact":@(flight.waterContact),@"parkingBrake":@(flight.glider.parkingBrake),@"impacted":@(flight.impacted),
         @"hoverHoldActive":@(flight.glider.hoverControl.holdActive),@"hoverHoldMode":@(flight.glider.hoverControl.holdMode),
         @"hoverAltitudeTarget":@(flight.glider.hoverControl.altitudeTarget),@"verticalSpeed":@(flight.surfaceVerticalSpeed()),@"pitchDegrees":@(Deg(flight.pitch())),@"bankDegrees":@(Deg(flight.bank())),
         @"hoverFront":@(flight.glider.hoverControl.levels[0]),@"hoverLeft":@(flight.glider.hoverControl.levels[1]),@"hoverRight":@(flight.glider.hoverControl.levels[2]),
@@ -946,6 +947,14 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     if(sender.tag<0||sender.tag>=(NSInteger)files.count)return;
     restartBody=-1;restartScenario=resource([@"Scenarios/" stringByAppendingString:files[sender.tag]]);
     [self resetFlight:nil];[self setViewMode:1];status=[sender.title stringByAppendingString:@" · Press M for flight stabilization"];
+    self.hud.needsDisplay=YES;[self.window makeFirstResponder:self];
+}
+- (void)startLandingPractice:(NSMenuItem *)sender {
+    restartBody=-1;restartScenario=resource(sender.tag==1?@"Scenarios/Water landing practice.scn":@"Scenarios/Land landing practice.scn");
+    [self resetFlight:nil];flight.groundContact=false;flight.waterContact=false;flight.wheelContacts=0;
+    externalCamera.setMode(ExternalCameraMode::OrbitalChase,flight,flight.reference);
+    externalCamera.yaw=-.55;externalCamera.pitch=.22;externalCamera.distance=43;[self setViewMode:0];
+    status=@"Landing practice · hover descent engaged · M to adjust · X for manual thrust";
     self.hud.needsDisplay=YES;[self.window makeFirstResponder:self];
 }
 - (void)startOrbit:(id)sender {restartBody=-1;restartScenario=resource(@"Scenarios/DG Mk4 in orbit.scn");[self resetFlight:nil];}
@@ -1279,6 +1288,8 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         NSMenuItem *undock=[fm addItemWithTitle:@"Undock from ISS (Control-D)" action:@selector(undockISS:) keyEquivalent:@""];undock.target=self.view;
         NSMenuItem *surface=[fm addItemWithTitle:@"Cape Canaveral — Surface Flight" action:@selector(startSurface:) keyEquivalent:@""];surface.target=self.view;
         NSMenuItem *practice=[fm addItemWithTitle:@"Cape Canaveral — Hover Practice" action:@selector(startHoverPractice:) keyEquivalent:@""];practice.target=self.view;
+        NSMenuItem *landing=[fm addItemWithTitle:@"Landing Practice" action:nil keyEquivalent:@""];NSMenu *landingMenu=[NSMenu new];landing.submenu=landingMenu;
+        for(NSString *title in @[@"Land — Gentle Hover Descent",@"Water — Gentle Ditching"]){NSMenuItem *item=[landingMenu addItemWithTitle:title action:@selector(startLandingPractice:) keyEquivalent:@""];item.target=self.view;item.tag=landingMenu.numberOfItems-1;}
         NSMenuItem *demo=[fm addItemWithTitle:@"Mechanism Demonstration" action:@selector(demonstrateGlider:) keyEquivalent:@""];demo.target=self.view;
         [fm addItem:NSMenuItem.separatorItem];
         NSMenuItem *hoverItem=[fm addItemWithTitle:@"Hover Controls" action:nil keyEquivalent:@""];NSMenu *hover=[NSMenu new];hoverItem.submenu=hover;

@@ -13,6 +13,7 @@ void bodyCoordinates(BodyId body,const Vector &position,double mjd,double elapse
 SurfaceFrame earthSurface(double latitude,double longitude,double mjd,double elapsed=0);
 void earthCoordinates(const Vector &position,double mjd,double elapsed,double &latitude,double &longitude);
 bool loadTerrainMask(const std::filesystem::path &path);
+bool surfaceWater(BodyId body,const Vector &position,double mjd,double elapsed=0);
 double terrainElevation(BodyId body,const Vector &position,double mjd,double elapsed=0);
 Vector terrainNormal(BodyId body,const Vector &position,double mjd,double elapsed=0);
 struct ContactPoint { Vector position; double stiffness,damping,lateralFriction; bool wheel; int wheelIndex; };
@@ -21,4 +22,7 @@ struct GroundResponse { Vector force,torque; int contacts=0,wheels=0; double max
 GroundResponse groundForces(const Vector &position,const Vector &velocity,
     const Vector &right,const Vector &up,const Vector &forward,const Vector &angularVelocity,
     double mass,bool gearDown,double steering,double leftBrake,double rightBrake,double dt,BodyId body=BodyId::Earth,double mjd=0,double elapsed=0);
+GroundResponse waterForces(const Vector &position,const Vector &velocity,
+    const Vector &right,const Vector &up,const Vector &forward,const Vector &angularVelocity,
+    double mass,double dt);
 }

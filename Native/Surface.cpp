@@ -42,6 +42,11 @@ bool loadTerrainMask(const std::filesystem::path &path) {
     if(!f.read((char*)bytes.data(),bytes.size())||f.peek()!=std::char_traits<char>::eof())return false;
     terrainMask=std::move(bytes);return true;
 }
+bool surfaceWater(BodyId id,const Vector &position,double mjd,double elapsed) {
+    if(id!=BodyId::Earth||terrainMask.empty())return false;
+    double lat,lon;bodyCoordinates(id,position,mjd,elapsed,lat,lon);
+    return waterAt(lat,lon)>.5;
+}
 double terrainElevation(BodyId id,const Vector &position,double mjd,double elapsed) {
     if(!body(id).solid||position.length2()<1||(id==BodyId::Earth&&terrainMask.empty()))return 0;
     double lat,lon;bodyCoordinates(id,position,mjd,elapsed,lat,lon);
@@ -97,7 +102,13 @@ GroundResponse groundForces(const Vector &position,const Vector &velocity,
         Vector v=velocity+crossp(omega,lever)-crossp(native::body(id).spin(),point);
         double normalSpeed=dotp(v,normal);
         result.maximumClosingSpeed=std::max(result.maximumClosingSpeed,-normalSpeed);
-        double load=std::clamp(contact.stiffness*depth-contact.damping*normalSpeed,0.,mass*9.81*100);
+        // Implicit spring damping accounts for the contact's effective mass.
+        // Hull contacts are much stiffer than tires: explicit forces can kick
+        // a gentle belly landing into a later false hard impact at coarse dt.
+        Vector arm=body(crossp(lever,normal));
+        double inverseEffectiveMass=1/mass+dotp(arm,arm/inertia);
+        double load=std::clamp((contact.stiffness*depth-contact.damping*normalSpeed)/
+            (1+dt*(contact.damping+dt*contact.stiffness)*inverseEffectiveMass),0.,mass*9.81*100);
         if(load<=0) continue;
         ++result.contacts;if(contact.wheel) ++result.wheels;result.load+=load;
         Vector force=normal*load;
@@ -128,6 +139,28 @@ GroundResponse groundForces(const Vector &position,const Vector &velocity,
             if(slip.length2()>1e-10) force+=friction(slip.unit(),contact.lateralFriction*load);
         }
         result.force+=force;result.torque+=body(crossp(lever,force));
+    }
+    return result;
+}
+GroundResponse waterForces(const Vector &position,const Vector &velocity,
+    const Vector &right,const Vector &up,const Vector &forward,const Vector &angularVelocity,double mass,double dt) {
+    // Reduced buoyancy/drag model. The four hull patches support a level
+    // ditching, independent of gear; water is not a runway with wheel brakes.
+    GroundResponse result;
+    Vector omega=right*angularVelocity.x+up*angularVelocity.y+forward*angularVelocity.z;
+    auto local=[&](Vector v){return Vector(dotp(v,right),dotp(v,up),dotp(v,forward));};
+    for(double x:{-3.,3.})for(double z:{-4.,4.}) {
+        Vector lever=right*x-up*1.2+forward*z,point=position+lever,normal=point.unit();
+        double depth=body(BodyId::Earth).radius-point.length();if(depth<=0)continue;
+        Vector v=velocity+crossp(omega,lever)-crossp(earthSpin(),point);
+        double speed=dotp(v,normal),k=mass*9.81*.6,damping=mass*1.4;
+        result.maximumClosingSpeed=std::max(result.maximumClosingSpeed,-speed);
+        double load=std::clamp((k*depth-damping*speed)/(1+dt*damping/mass),0.,mass*9.81*8);
+        Vector tangent=v-normal*speed;
+        double drag=std::min(mass/(4*std::max(dt,1e-5)),mass*(.10+.008*tangent.length())*std::min(1.,depth));
+        Vector force=normal*load-tangent*drag;
+        result.force+=force;result.torque+=local(crossp(lever,force));
+        ++result.contacts;result.load+=load;
     }
     return result;
 }

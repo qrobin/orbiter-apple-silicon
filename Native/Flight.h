@@ -49,7 +49,7 @@ public:
     Vector position, velocity, right{1,0,0}, up{0,1,0}, forward{0,0,1}, angularVelocity;
     double mjd=51982.5292925579, elapsed=0, fuel=MainCapacity*.553, rcs=RcsCapacity*.9;
     double throttle=0, warp=1, acceleration=0, dynamicPressure=0, mach=0, angleOfAttack=0;
-    bool paused=false, impacted=false,groundContact=false;
+    bool paused=false, impacted=false,groundContact=false,waterContact=false;
     int wheelContacts=0;
     double groundSpeed=0,contactLoad=0;
     Assist assist=Assist::Free;

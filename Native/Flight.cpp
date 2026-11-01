@@ -42,7 +42,7 @@ void Flight::placeOnBody(double latitude,double longitude,double headingAngle,do
     velocity=crossp(centralBody().spin(),position);
     angularVelocity={dotp(centralBody().spin(),right),dotp(centralBody().spin(),up),dotp(centralBody().spin(),forward)};
     glider.part(Part::Gear).position=glider.part(Part::Gear).target=1;
-    groundContact=true;wheelContacts=3;paused=false;impacted=false;clearAssist();
+    groundContact=true;waterContact=surfaceWater(reference,position,mjd,elapsed);wheelContacts=waterContact?0:3;paused=false;impacted=false;clearAssist();
 }
 double Flight::groundAltitude() const { return altitude()-terrainElevation(reference,position,mjd,elapsed); }
 double Flight::pitch() const { return asin(std::clamp(dotp(forward,position.unit()),-1.,1.)); }
@@ -242,6 +242,13 @@ void Flight::load(const std::filesystem::path &path) {
     }
     if((!landed||nativeCartesian||gotVrot)&&!candidate.issDocked) candidate.angularVelocity=vrot*RAD;
     candidate.groundContact=landed;
+    if(landed){
+        bool water=surfaceWater(candidate.reference,candidate.position,candidate.mjd);
+        auto contact=water?waterForces(candidate.position,candidate.velocity,candidate.right,candidate.up,candidate.forward,candidate.angularVelocity,candidate.mass(),1./480):
+            groundForces(candidate.position,candidate.velocity,candidate.right,candidate.up,candidate.forward,candidate.angularVelocity,candidate.mass(),
+                candidate.glider.part(Part::Gear).open(),0,0,0,1./480,candidate.reference,candidate.mjd);
+        candidate.waterContact=water&&contact.contacts>0;candidate.wheelContacts=contact.wheels;candidate.contactLoad=contact.load;
+    }
     if(hasAtmosphericHolds){
         for(int i=0;i<4;++i){
             candidate.captureAtmosphericTarget(i);
@@ -495,13 +502,18 @@ void Flight::step(double dt,const Input &input) {
         torque-=Vector(angularVelocity.x*.10,angularVelocity.y*.13,angularVelocity.z*.04)*(dynamicPressure*100);
     }
     GroundResponse ground;
-    if(centralBody().solid&&altitude()<1250&&groundAltitude()<15) ground=groundForces(position,velocity,right,up,forward,angularVelocity,mass(),
-        glider.part(Part::Gear).open(),input.yaw,
-        glider.parkingBrake?1:std::clamp(input.leftBrake,0.,1.),glider.parkingBrake?1:std::clamp(input.rightBrake,0.,1.),dt,reference,mjd,elapsed);
-    groundContact=ground.contacts>0;wheelContacts=ground.wheels;contactLoad=ground.load;
+    bool water=false;
+    if(centralBody().solid&&groundAltitude()<20){
+        water=surfaceWater(reference,position,mjd,elapsed);
+        ground=water?waterForces(position,velocity,right,up,forward,angularVelocity,mass(),dt):
+            groundForces(position,velocity,right,up,forward,angularVelocity,mass(),
+                glider.part(Part::Gear).open(),input.yaw,
+                glider.parkingBrake?1:std::clamp(input.leftBrake,0.,1.),glider.parkingBrake?1:std::clamp(input.rightBrake,0.,1.),dt,reference,mjd,elapsed);
+    }
+    groundContact=ground.contacts>0;waterContact=water&&groundContact;wheelContacts=ground.wheels;contactLoad=ground.load;
     force+=Vector(dotp(ground.force,right),dotp(ground.force,up),dotp(ground.force,forward));
     torque+=ground.torque;
-    if(ground.maximumClosingSpeed>12&&ground.contacts>0) {
+    if(ground.maximumClosingSpeed>(water?8:12)&&ground.contacts>0) {
         impacted=true;paused=true;cutEngines();return;
     }
     Vector inertia=Vector(15.5,22.1,7.7)*mass();
@@ -536,10 +548,14 @@ void Flight::advance(double realSeconds,const Input &input) {
     if(assist!=Assist::Free&&atmospheric.engaged())atmospheric.cancel();
     if(input.pitch)atmospheric.active[0]=false;
     if(input.roll||input.yaw){atmospheric.active[2]=false;atmospheric.active[3]=false;}
-    bool atmosphericFlight=(reference==BodyId::Earth?altitude()<120000:bodyAtmosphere(reference,altitude()).rho>1e-12)||(centralBody().solid&&altitude()<1255&&groundAltitude()<20);
+    bool nearGround=centralBody().solid&&groundAltitude()<100;
+    bool atmosphericFlight=(reference==BodyId::Earth?altitude()<120000:bodyAtmosphere(reference,altitude()).rho>1e-12)||nearGround;
     bool maneuver=atmospheric.engaged()||assist==Assist::Maneuver||throttle>0||glider.hover>0||glider.hoverControl.holdActive||glider.retro>0||input.pitch||input.yaw||input.roll||input.translate||input.lateral||input.vertical||angularVelocity.length2()>1e-16;
     if(warp>1&&centralBody().solid&&orbit().PeDist()<centralBody().radius+20){atmosphericFlight=true;}
     // if(maneuver||atmosphericFlight) warp=1;
+    // Return to real time before touchdown: long accelerated frames should
+    // not turn a controlled approach into a deep penetration and spring kick.
+    if(nearGround)warp=1;
     double dt=std::min(realSeconds,.1)*std::clamp(warp,1.0,MaximumTimeAcceleration);
     glider.elevator=-input.pitch;glider.rudder=input.yaw;glider.aileron=input.roll;
     glider.advance(dt,throttle,bodyAtmosphere(reference,altitude()).p);
@@ -548,7 +564,7 @@ void Flight::advance(double realSeconds,const Input &input) {
         // At accelerated time the finite-torque nav programs are suspended;
         // do not teleport the vessel's attitude or bypass RCS fuel limits.
     } else {
-        int steps=std::max(1,(int)ceil(dt*(altitude()<1255&&groundAltitude()<20?480:120)));
+        int steps=std::max(1,(int)ceil(dt*(nearGround?480:120)));
         for(int i=0;i<steps&&!impacted;++i) step(dt/steps,input);
     }
     elapsed+=dt;
@@ -566,6 +582,6 @@ void Flight::advance(double realSeconds,const Input &input) {
     if(automaticReferenceChanges&&ephemeridesReady())updateReference();
     Vector relativeVelocity=velocity-crossp(centralBody().spin(),position);
     groundSpeed=(relativeVelocity-position.unit()*dotp(relativeVelocity,position.unit())).length();
-    if(altitude()<1250&&groundAltitude()<-10) { impacted=true; paused=true; cutEngines(); }
+    if(centralBody().solid&&groundAltitude()<-10) { impacted=true; paused=true; cutEngines(); }
 }
 }

@@ -23,7 +23,7 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
     ExhaustTrail exhaustTrail;
     std::vector<SmokeDraw> visibleSmoke;
     id<MTLComputePipelineState> noiseKernel,shadowKernel,vesselShadowKernel,cloudKernel,extractKernel,blurKernel,exposureKernel;
-    id<MTLRenderPipelineState> compositePipeline,flamePipeline,smokePipeline,trailCompositePipeline,presentPipeline,rainGlassPipeline,terrainPipeline,groundPipeline,marsRockPipeline;
+    id<MTLRenderPipelineState> compositePipeline,flamePipeline,smokePipeline,trailCompositePipeline,presentPipeline,rainGlassPipeline,terrainPipeline,grassPipeline,groundPipeline,marsRockPipeline;
     id<MTLDepthStencilState> flameDepth,rainDepth;
 }
 @end
@@ -70,6 +70,7 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
     rainGlassPipeline=pipeline(@"rainGlassVertex",@"rainGlassFragment",MTLPixelFormatRGBA16Float,YES,NO);
     MTLRenderPipelineDescriptor *terrain=[MTLRenderPipelineDescriptor new];terrain.vertexFunction=[library newFunctionWithName:@"terrainVertex"];terrain.fragmentFunction=[library newFunctionWithName:@"terrainFragment"];terrain.colorAttachments[0].pixelFormat=MTLPixelFormatRGBA16Float;terrain.depthAttachmentPixelFormat=MTLPixelFormatDepth32Float;terrain.rasterSampleCount=samples;
     terrainPipeline=[gpu newRenderPipelineStateWithDescriptor:terrain error:&error];visualCheck(terrainPipeline,error);
+    terrain.vertexFunction=[library newFunctionWithName:@"grassVertex"];grassPipeline=[gpu newRenderPipelineStateWithDescriptor:terrain error:&error];visualCheck(grassPipeline,error);
     terrain.vertexFunction=[library newFunctionWithName:@"groundVertex"];terrain.fragmentFunction=[library newFunctionWithName:@"groundFragment"];groundPipeline=[gpu newRenderPipelineStateWithDescriptor:terrain error:&error];visualCheck(groundPipeline,error);
     terrain.vertexFunction=[library newFunctionWithName:@"marsRockVertex"];terrain.fragmentFunction=[library newFunctionWithName:@"marsRockFragment"];marsRockPipeline=[gpu newRenderPipelineStateWithDescriptor:terrain error:&error];visualCheck(marsRockPipeline,error);
     MTLDepthStencilDescriptor *ds=[MTLDepthStencilDescriptor new];ds.depthCompareFunction=MTLCompareFunctionAlways;ds.depthWriteEnabled=NO;flameDepth=[gpu newDepthStencilStateWithDescriptor:ds];
@@ -165,11 +166,13 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
         [encoder setRenderPipelineState:marsRockPipeline];[encoder setVertexBytes:&f length:sizeof(f) atIndex:0];[encoder setFragmentBytes:&f length:sizeof(f) atIndex:0];[encoder setFragmentTexture:marsRegolith atIndex:0];
         [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:192 instanceCount:40*40];
     }
-    if((int)f.surfaceColor.w!=(int)BodyId::Earth||f.environment.y>2500)return;
+    if((int)f.surfaceColor.w!=(int)BodyId::Earth||f.environment.y>3000)return;
     [encoder setRenderPipelineState:terrainPipeline];[encoder setCullMode:MTLCullModeNone];
     [encoder setVertexBytes:&f length:sizeof(f) atIndex:0];[encoder setVertexTexture:earthOceanMask atIndex:0];[encoder setVertexTexture:earth atIndex:1];[encoder setVertexTexture:earthTerrainMask atIndex:2];
     [encoder setFragmentBytes:&f length:sizeof(f) atIndex:0];[encoder setFragmentTexture:_cloudShadows atIndex:0];
-    [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:24 instanceCount:96*96];
+    [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:828 instanceCount:64*64];
+    [encoder setRenderPipelineState:grassPipeline];
+    [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:36 instanceCount:64*64];
 }
 - (void)encodeExhaust:(id<MTLCommandBuffer>)cb frame:(const FrameUniforms &)f flight:(const Flight &)flight offset:(Vector)offset {
     std::array<EmitterUniforms,32> jets{};NSUInteger count=0;
