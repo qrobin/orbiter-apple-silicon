@@ -766,9 +766,14 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     }
 }
 - (void)captureTexture:(id<MTLTexture>)texture to:(NSString *)path {
-    NSUInteger w=texture.width,h=texture.height; std::vector<uint8_t> pixels(w*h*4);
-    [texture getBytes:pixels.data() bytesPerRow:w*4 fromRegion:MTLRegionMake2D(0,0,w,h) mipmapLevel:0];
-    for(size_t i=0;i<w*h;++i) std::swap(pixels[4*i],pixels[4*i+2]);
+    NSUInteger w=texture.width,h=texture.height;std::vector<_Float16> linear(w*h*4);std::vector<uint8_t> pixels(w*h*4);
+    [texture getBytes:linear.data() bytesPerRow:w*4*sizeof(_Float16) fromRegion:MTLRegionMake2D(0,0,w,h) mipmapLevel:0];
+    // The HDR drawable is RGBA16Float in extended linear sRGB. Convert to
+    // ordinary 8-bit sRGB for PNG output, clipping highlights above white.
+    for(size_t i=0;i<w*h;++i){
+        for(int c=0;c<3;++c){float v=std::clamp(float(linear[4*i+c]),0.0f,1.0f);v=v<=.0031308f?12.92f*v:1.055f*powf(v,1.0f/2.4f)-.055f;pixels[4*i+c]=uint8_t(std::lround(v*255));}
+        pixels[4*i+3]=uint8_t(std::lround(std::clamp(float(linear[4*i+3]),0.0f,1.0f)*255));
+    }
     NSBitmapImageRep *rep=[[NSBitmapImageRep alloc] initWithBitmapDataPlanes:nullptr pixelsWide:w pixelsHigh:h bitsPerSample:8 samplesPerPixel:4 hasAlpha:YES isPlanar:NO colorSpaceName:NSCalibratedRGBColorSpace bytesPerRow:w*4 bitsPerPixel:32];
     memcpy(rep.bitmapData,pixels.data(),pixels.size());
     // Composite the exact same HUD used by the live view over the rendered frame.
