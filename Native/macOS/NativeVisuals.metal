@@ -124,6 +124,68 @@ fragment float4 terrainFragment(TerrainRaster in [[stage_in]],constant FrameUnif
     float light=max(0.0f,dot(normalize(in.normal),f.sun.xyz))*f.sun.w*shadow*solarIntensity(f);
     return float4(in.color*(.008f+day*.12f+light*.85f),1);
 }
+// Irregular boulders are anchored in the planet's rotating frame.
+// They are visual scenery; terrainElevation remains the collision surface.
+struct MarsRockRaster {float4 position [[position]];float3 normal;float3 color;float3 local;};
+vertex MarsRockRaster marsRockVertex(uint vertexID [[vertex_id]],uint instanceID [[instance_id]],constant FrameUniforms &f [[buffer(0)]]) {
+    MarsRockRaster out;out.position=float4(2,2,2,1);out.normal=float3(0,1,0);out.color=0;out.local=0;
+    constexpr float spacing=22.0f;constexpr int grid=40;
+    float3 camera=normalize(f.position.xyz),fixed=normalize(terrestrial(camera,f));
+    float lat=asin(clamp(fixed.y,-1.0f,1.0f)),lon=atan2(fixed.z,fixed.x);if(abs(lat)>1.38f)return out;
+    int2 center=int2(floor(float2(lon,lat)*f.body.x/spacing));
+    int2 cell=center+int2(int(instanceID%grid)-grid/2,int(instanceID/grid)-grid/2);
+    uint seed=visualHash(as_type<uint>(cell.x)*0x9e3779b9u^as_type<uint>(cell.y)*0x85ebca6bu^0x34c271du);
+    float2 coords=(float2(cell)+float2(visualRandom(seed),visualRandom(seed+7)))*spacing/f.body.x;
+    float cl=cos(coords.y);float3 sf=float3(cl*cos(coords.x),sin(coords.y),cl*sin(coords.x));
+    // Rocky patches alternate with open dusty ground, as seen in rover panoramas.
+    float coverage=terrainNoise(sf*6000+float3(13,41,7));
+    if(visualRandom(seed+43)>mix(.28f,.78f,smoothstep(.25f,.75f,coverage)))return out;
+    float height=bodyTerrainHeight(sf,5,f.body.x);
+    if(visualRandom(seed+47)<smoothstep(450.0f,1100.0f,max(0.0f,f.environment.y-height)))return out;
+    float a=f.screen.w*(2*M_PI_F),c=cos(a),s=sin(a);
+    float3 n=normalize(f.equatorX.xyz*(c*sf.x+s*sf.z)+f.pole.xyz*sf.y+f.equatorZ.xyz*(-s*sf.x+c*sf.z));
+    float3 east=normalize(cross(f.pole.xyz,n)),north=normalize(cross(n,east));
+    float3 centerPoint=(n-camera)*f.body.x-camera*f.environment.y+n*(height-.16f);
+    if(visualRandom(seed+51)<smoothstep(350.0f,650.0f,length(centerPoint)))return out;
+    float size=mix(.4f,2.8f,pow(visualRandom(seed+17),3.0f));
+    float shape=mix(.25f,.53f,visualRandom(seed+19)),orientation=visualRandom(seed+13)*(2*M_PI_F);
+    uint band=vertexID/48,side=(vertexID/6)%8,corner=vertexID%6;
+    uint2 tri[6]={uint2(0,0),uint2(1,0),uint2(1,1),uint2(0,0),uint2(1,1),uint2(0,1)};
+    uint index=(side+tri[corner].x)%8,ring=band+tri[corner].y;
+    float heights[5]={0,.25,.64,.91,1.0};float radii[5]={.78,1.0,.83,.48,0};
+    float angle=orientation+float(index)*M_PI_F*.25f;
+    float irregular=mix(.68f,1.22f,visualRandom(seed+100+index));
+    float elongate=mix(.65f,1.15f,visualRandom(seed+29));
+    float radius=size*radii[ring]*irregular;
+    float x=cos(angle)*radius,y=sin(angle)*radius*elongate;
+    float h=size*shape*heights[ring]*(.85f+.3f*visualRandom(seed+150+index));
+    float3 local=east*x+north*y+n*h;float3 point=centerPoint+local;
+    float3 view=float3(dot(point,f.right.xyz),dot(point,f.up.xyz),-dot(point,f.forward.xyz));out.position=f.projection*float4(view,1);
+    float vertical=ring==0?.28f:ring==1?.65f:ring==2?1.15f:2.6f;
+    out.normal=normalize(east*cos(angle)+north*sin(angle)/elongate+n*vertical);
+    float variation=visualRandom(seed+23);out.color=mix(float3(.16,.032,.017),float3(.30,.085,.038),variation);
+    out.local=float3(x,y,h)/max(.1f,size)+float3(visualRandom(seed+61)*13,visualRandom(seed+67)*13,0);
+    return out;
+}
+fragment float4 marsRockFragment(MarsRockRaster in [[stage_in]],constant FrameUniforms &f [[buffer(0)]],texture2d<float> regolith [[texture(0)]]) {
+    constexpr sampler stone(filter::linear,mip_filter::linear,address::repeat);
+    float3 speckle=regolith.sample(stone,in.local.xy*.16f).rgb;
+    float textureFactor=clamp(dot(speckle,float3(.2126,.7152,.0722))/.14f,.6f,1.4f);
+    float day=smoothstep(-.08f,.12f,dot(normalize(f.position.xyz),f.sun.xyz))*f.sun.w;
+    float light=max(0.0f,dot(normalize(in.normal),f.sun.xyz))*f.sun.w*solarIntensity(f);
+    return float4(in.color*textureFactor*(.012f+day*.15f+light*.85f),1);
+}
+// Blend several world-anchored scales into the regional orbital image so nearby
+// dust and exposed bedrock remain detailed without changing distant Mars.
+float3 marsGroundMaterial(float3 albedo,float3 worldFixed,float distance,float footprint){
+    float fade=1-smoothstep(1200.0f,6000.0f,distance);if(fade<=0)return albedo;
+    float patch=mix(.5f,terrainNoise(worldFixed/28.0f),1-smoothstep(8.0f,28.0f,footprint));
+    float grain=mix(.5f,terrainNoise(worldFixed/1.6f),1-smoothstep(.35f,1.5f,footprint));
+    float dust=smoothstep(.32f,.70f,patch*.7f+grain*.3f);
+    float3 dusty=albedo*float3(1.13,1.03,.91),rocky=albedo*float3(.62,.63,.65);
+    float3 local=mix(rocky,dusty,dust)*(0.84f+.32f*grain);
+    return mix(albedo,local,fade*.28f);
+}
 struct GroundRaster {float4 position [[position]];float3 world;float3 normal;float2 uv;float height;};
 vertex GroundRaster groundVertex(uint vid [[vertex_id]],uint instance [[instance_id]],constant FrameUniforms &f [[buffer(0)]],constant uint &levelIndex [[buffer(1)]],texture2d<float> mask [[texture(0)]]) {
     GroundRaster o;o.position=float4(2,2,2,1);o.world=0;o.normal=float3(0,1,0);o.uv=0;o.height=0;
@@ -144,12 +206,24 @@ vertex GroundRaster groundVertex(uint vid [[vertex_id]],uint instance [[instance
     float3 view=float3(dot(p,f.right.xyz),dot(p,f.up.xyz),-dot(p,f.forward.xyz));
     o.position=f.projection*float4(view,1);o.world=p;o.normal=n;o.uv=float2(coord.x/(2*M_PI_F)+.5,.5-coord.y/M_PI_F);o.height=h;return o;
 }
-fragment float4 groundFragment(GroundRaster in [[stage_in]],constant FrameUniforms &f [[buffer(0)]],texture2d<float> earth [[texture(0)]],texture2d<float> shadows [[texture(1)]]) {
+fragment float4 groundFragment(GroundRaster in [[stage_in]],constant FrameUniforms &f [[buffer(0)]],texture2d<float> earth [[texture(0)]],texture2d<float> shadows [[texture(1)]],texture2d<float> marsDetail [[texture(2)]]) {
     if(in.height<.5)discard_fragment();
     constexpr sampler map(filter::linear,s_address::repeat,t_address::clamp_to_edge);constexpr sampler screen(filter::linear,address::clamp_to_edge);
     float3 n=normalize(cross(dfdx(in.world),dfdy(in.world)));if(dot(n,in.normal)<0)n=-n;
     bool earthBody=int(f.surfaceColor.w)==3;
     float3 albedo=earthBody?earth.sample(map,in.uv).rgb:planetMaterial(in.normal,in.uv,f.surfaceColor.rgb,int(f.surfaceColor.w),f.equatorX.w>.5,earth);
+    if(int(f.surfaceColor.w)==5){
+        float3 fixedPoint=terrestrial(f.position.xyz*f.body.x+in.world,f);
+        float footprint=max(length(dfdx(fixedPoint)),length(dfdy(fixedPoint)));
+        albedo=marsGroundMaterial(albedo,fixedPoint,length(in.world),footprint);
+        constexpr sampler detailSampler(filter::linear,mip_filter::linear,s_address::repeat,t_address::repeat,max_anisotropy(8));
+        float2 metres=float2((in.uv.x-.5f)*(2*M_PI_F),(.5f-in.uv.y)*M_PI_F)*f.body.x;
+        float2 uv1=metres/85.0f,uv2=float2(metres.x*.8f-metres.y*.6f,metres.x*.6f+metres.y*.8f)/107.0f;
+        float3 detail=mix(marsDetail.sample(detailSampler,uv1).rgb,marsDetail.sample(detailSampler,uv2+.37f).rgb,.5f);
+        float luminance=dot(detail,float3(.2126,.7152,.0722));
+        float detailFade=1-smoothstep(1000.0f,7000.0f,length(in.world));
+        albedo*=mix(1.0f,clamp(luminance/.14f,.55f,1.45f),detailFade*.72f);
+    }
     float slope=1-saturate(dot(n,in.normal));
     albedo=mix(albedo,earthBody?float3(.30,.28,.25):f.surfaceColor.rgb*.75,smoothstep(.06f,.32f,slope)*.65);
     if(earthBody)albedo=mix(albedo,float3(.75,.76,.72),smoothstep(850.0f,1250.0f,in.height)*.55);

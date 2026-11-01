@@ -932,9 +932,9 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     flight.weatherPreset=(int)visuals.weather;
     if(restartBody==-2){flight=Flight();flight.startISSApproach();flight.weatherPreset=(int)visuals.weather;}
     else if(restartBody>=0){flight.startOrbit((BodyId)restartBody);flight.weatherPreset=(int)visuals.weather;}
-    else {if(!restartScenario)restartScenario=resource(@"Scenarios/Hawaii sunset.scn");flight.load(restartScenario.fileSystemRepresentation);visuals.weather=flight.weatherPreset;}
+    else {if(!restartScenario)restartScenario=resource(@"Scenarios/Mars low flight.scn");flight.load(restartScenario.fileSystemRepresentation);visuals.weather=flight.weatherPreset;}
     flight.automaticReferenceChanges=true;[self resetNavigation];if(restartBody==-1&&restartScenario)[self loadTransXScenario:restartScenario];
-    status=[NSString stringWithFormat:@"%s %@ · Press F1 for controls",flight.centralBody().name,flight.groundContact?@"surface flight":flight.reference==BodyId::Earth&&flight.altitude()<120000?@"atmospheric flight":@"orbit"];
+    status=[NSString stringWithFormat:@"%s %@ · Press F1 for controls",flight.centralBody().name,flight.groundContact?@"surface flight":bodyAtmosphere(flight.reference,flight.altitude()).rho>1e-12?@"atmospheric flight":@"orbit"];
 
 }
 - (void)startSurface:(id)sender {
@@ -942,7 +942,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     externalCamera.setMode(ExternalCameraMode::OrbitalChase,flight,flight.reference);externalCamera.yaw=-.55;externalCamera.pitch=.22;externalCamera.distance=43;[self setViewMode:0];
 }
 - (void)startAtmosphericFlight:(NSMenuItem *)sender {
-    NSArray<NSString *> *files=@[@"Atlantic Ocean flight.scn",@"Hawaii sunset.scn",@"Gulf of Mexico storm.scn",@"Mediterranean clear flight.scn",@"France low flight.scn"];
+    NSArray<NSString *> *files=@[@"Atlantic Ocean flight.scn",@"Hawaii sunset.scn",@"Gulf of Mexico storm.scn",@"Mediterranean clear flight.scn",@"France low flight.scn",@"Mars low flight.scn"];
     if(sender.tag<0||sender.tag>=(NSInteger)files.count)return;
     restartBody=-1;restartScenario=resource([@"Scenarios/" stringByAppendingString:files[sender.tag]]);
     [self resetFlight:nil];[self setViewMode:1];status=[sender.title stringByAppendingString:@" · Press M for flight stabilization"];
@@ -1272,7 +1272,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         NSMenuItem *systems=[fm addItemWithTitle:@"Glider Systems… (M)" action:@selector(showSystems:) keyEquivalent:@""];systems.target=self.view;
         [fm addItem:NSMenuItem.separatorItem];
         NSMenuItem *atmospheric=[fm addItemWithTitle:@"Atmospheric Flight" action:nil keyEquivalent:@""];NSMenu *flights=[NSMenu new];atmospheric.submenu=flights;
-        NSArray<NSString *> *flightNames=@[@"Atlantic Ocean — Regional Weather",@"Hawaii — Sunset",@"Gulf of Mexico — Storm",@"Mediterranean — Clear Day",@"France — Low Flight (400 m)"];
+        NSArray<NSString *> *flightNames=@[@"Atlantic Ocean — Regional Weather",@"Hawaii — Sunset",@"Gulf of Mexico — Storm",@"Mediterranean — Clear Day",@"France — Low Flight (400 m)",@"Mars — Low Flight (400 m)"];
         for(int i=0;i<(int)flightNames.count;++i){NSMenuItem *item=[flights addItemWithTitle:flightNames[i] action:@selector(startAtmosphericFlight:) keyEquivalent:@""];item.target=self.view;item.tag=i;}
         NSMenuItem *orbit=[fm addItemWithTitle:@"Earth Orbit" action:@selector(startOrbit:) keyEquivalent:@""];orbit.target=self.view;
         NSMenuItem *issApproach=[fm addItemWithTitle:@"ISS — 50 m Approach" action:@selector(startISSApproach:) keyEquivalent:@""];issApproach.target=self.view;

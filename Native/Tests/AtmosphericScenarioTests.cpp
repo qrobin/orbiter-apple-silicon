@@ -43,6 +43,16 @@ int main(){try{
         std::cout<<scenario.file<<": after 60s altitude="<<f.altitude()<<" speed="<<f.airRelativeVelocity().length()<<'\n';
         check(!f.impacted&&fabs(f.altitude()-scenario.height)<100&&fabs(f.airRelativeVelocity().length()-250)<10,"Each cruise start remains stable for a minute");
     }
+    {
+        Flight mars;mars.load(root/"Native/Assets/Scenarios/Mars low flight.scn");
+        double lat,lon;bodyCoordinates(mars.reference,mars.position,mars.mjd,mars.elapsed,lat,lon);
+        check(mars.reference==BodyId::Mars&&!mars.groundContact,"Mars start is airborne on Mars");
+        check(fabs(Deg(lat)-10)<.001&&fabs(Deg(lon))<.001,"Mars start uses its intended location");
+        check(fabs(mars.groundAltitude()-400)<.1&&fabs(mars.airRelativeVelocity().length()-400)<.1,"Mars starts at 400 metres above terrain and 400 m/s");
+        check(mars.weatherPreset==0&&mars.atmospheric.active[0]&&mars.atmospheric.active[1]&&mars.atmospheric.active[2],"Mars flight stabilization starts enabled");
+        double minimum=mars.groundAltitude();for(int i=0;i<2400&&!mars.impacted;++i){mars.advance(.05);minimum=std::min(minimum,mars.groundAltitude());}
+        check(!mars.impacted&&minimum>100&&fabs(mars.airRelativeVelocity().length()-400)<10&&mars.atmospheric.engaged(),"Mars cruise stays safely airborne and controlled for two minutes");
+    }
     Flight storm;storm.load(root/"Native/Assets/Scenarios/Gulf of Mexico storm.scn");
     auto save=std::filesystem::temp_directory_path()/"orbiter-atmospheric-weather-test.scn";storm.save(save);
     Flight restored;restored.load(save);check(restored.weatherPreset==3,"Saved weather survives reopening");
