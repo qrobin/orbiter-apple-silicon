@@ -575,7 +575,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     [encoder setFragmentTexture:solar.rings atIndex:2];
     [encoder setFragmentTexture:visuals.cloudShadows atIndex:1];
     [encoder setFragmentTexture:[visuals oceanMask] atIndex:3];[encoder setFragmentTexture:[visuals satelliteClouds] atIndex:4];[encoder setFragmentTexture:[visuals oceanWaves] atIndex:5];[encoder setFragmentTexture:[visuals oceanWaveDetail] atIndex:6];
-    [encoder setFragmentTexture:starTexture atIndex:7];
+    [encoder setFragmentTexture:starTexture atIndex:7];[encoder setFragmentTexture:visuals.cloudNoise atIndex:8];
     [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
     [encoder setDepthStencilState:depthState];
     if(flight.reference==BodyId::Earth&&surfaceBase.mesh.groups.size()>0){
@@ -587,7 +587,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     [encoder setFragmentBytes:&uniforms length:sizeof(uniforms) atIndex:1];
     [encoder setFragmentTexture:visuals.cloudShadows atIndex:1];
     [encoder setFragmentTexture:[solar textureForBody:flight.reference] atIndex:2];
-    [encoder setFragmentTexture:[visuals satelliteClouds] atIndex:3];[encoder setFragmentTexture:starTexture atIndex:4];
+    [encoder setFragmentTexture:[visuals satelliteClouds] atIndex:3];[encoder setFragmentTexture:starTexture atIndex:4];[encoder setFragmentTexture:visuals.cloudNoise atIndex:5];
     {
         [encoder setRenderPipelineState:meshPipeline]; [encoder setDepthStencilState:depthState]; [encoder setCullMode:MTLCullModeNone];
         [encoder setVertexBytes:&uniforms length:sizeof(uniforms) atIndex:1];

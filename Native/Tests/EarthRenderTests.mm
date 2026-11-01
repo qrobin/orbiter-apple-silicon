@@ -4,6 +4,7 @@
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <utility>
 #include <vector>
 static void require(bool ok,const char *message){if(!ok){fprintf(stderr,"%s\n",message);exit(1);}}
 int main(){@autoreleasepool{
@@ -13,6 +14,7 @@ int main(){@autoreleasepool{
         NSString *part=[NSString stringWithContentsOfFile:[root stringByAppendingPathComponent:name] encoding:NSUTF8StringEncoding error:&error];require(part!=nil,"Missing Metal source");[source appendFormat:@"%@\n",part];}
     [source appendString:@"\nkernel void checkSkyCoordinates(device float2 *out [[buffer(0)]], uint id [[thread_position_in_grid]]) {float3 v[3]={float3(1,0,0),float3(0,-.3977772,.9174821),float3(0,.9174821,.3977772)}; if(id<3)out[id]=skyCoordinates(v[id]);}\n"];
     [source appendString:@"\nkernel void copyWaterDepth(texture2d<float,access::read> src [[texture(0)]], texture2d<float,access::write> dst [[texture(1)]], uint2 id [[thread_position_in_grid]]) {if(id.x<dst.get_width()&&id.y<dst.get_height())dst.write(src.read(id),id);}\n"];
+    [source appendString:@"\nkernel void probeCloudVolume(constant FrameUniforms &f [[buffer(0)]], device float4 *out [[buffer(1)]], texture3d<float> noise [[texture(0)]], texture2d<float> map [[texture(1)]]) {float3 p=f.position.xyz*f.body.x;float2 cloud=reflectedCloudRay(p,f.sun.xyz,1e9f,f,noise,map);float shadow=cloudShadowTransmission(p,f,noise,map);float3 reflected=reflectCloudVolume(float3(0),p,f.sun.xyz,1e9f,f,noise,map);float2 segment=cloudRaySegment(p,f.sun.xyz,f);float step=(segment.y-segment.x)/512.0f,optical=0;for(int i=0;i<512;++i)optical+=sampleCloudDensity(p+f.sun.xyz*(segment.x+(i+.5f)*step),f,noise,map)*step;out[0]=float4(cloud.x,shadow,reflected.r,exp(-optical));}\n"];
     id<MTLLibrary> library=[device newLibraryWithSource:source options:nil error:&error];
     if(!library){fprintf(stderr,"Metal compilation: %s\n",error.localizedDescription.UTF8String);return 1;}
     auto pipeline=[&](NSString *fragment,MTLPixelFormat color,bool depth){
@@ -45,13 +47,14 @@ int main(){@autoreleasepool{
     id<MTLTexture> cloudNoise=[device newTextureWithDescriptor:noiseDescriptor];
     id<MTLComputePipelineState> noisePipeline=[device newComputePipelineStateWithFunction:[library newFunctionWithName:@"makeCloudNoise"] error:&error];require(noisePipeline!=nil,"Cloud noise pipeline failed");
     id<MTLCommandBuffer> noiseCommand=[queue commandBuffer];id<MTLComputeCommandEncoder> noiseEncoder=[noiseCommand computeCommandEncoder];[noiseEncoder setComputePipelineState:noisePipeline];[noiseEncoder setTexture:cloudNoise atIndex:0];[noiseEncoder dispatchThreads:MTLSizeMake(64,64,64) threadsPerThreadgroup:MTLSizeMake(4,4,4)];[noiseEncoder endEncoding];[noiseCommand commit];[noiseCommand waitUntilCompleted];require(noiseCommand.error==nil,"Cloud noise generation failed");
+    MTLTextureDescriptor *emptyDescriptor=[MTLTextureDescriptor new];emptyDescriptor.textureType=MTLTextureType3D;emptyDescriptor.width=emptyDescriptor.height=emptyDescriptor.depth=1;emptyDescriptor.pixelFormat=MTLPixelFormatRGBA8Unorm;emptyDescriptor.usage=MTLTextureUsageShaderRead;emptyDescriptor.storageMode=MTLStorageModeShared;id<MTLTexture> emptyCloudNoise=[device newTextureWithDescriptor:emptyDescriptor];[emptyCloudNoise replaceRegion:MTLRegionMake3D(0,0,0,1,1,1) mipmapLevel:0 slice:0 withBytes:&z bytesPerRow:4 bytesPerImage:4];
     FrameUniforms f{};f.right={1,0,0,0};f.up={0,1,0,0};f.forward={0,0,-1,0};f.position={0,0,3,0};f.sun={0,0,1,1};
     f.screen={(float)width,(float)height,.39f,0};f.environment={2,12742020,0,0};f.body={6371010,1,13000,0};f.haze={.1,.33,.75,78000};
     f.equatorX={1,0,0,1};f.pole={0,1,0,0};f.equatorZ={0,0,1,0};f.surfaceColor={.48,.46,.43,3};
-    id<MTLTexture> surfaceMask=ocean,activeCloudMap=cloudMap,activeShadow=white,activeEarth=earth;
+    id<MTLTexture> surfaceMask=ocean,activeCloudMap=cloudMap,activeShadow=white,activeEarth=earth,activeVolumeNoise=cloudNoise;
     auto render=[&](float coverage){f.clouds={1800,6500,coverage,0};id<MTLCommandBuffer> cb=[queue commandBuffer];
         MTLRenderPassDescriptor *pass=[MTLRenderPassDescriptor renderPassDescriptor];pass.colorAttachments[0].texture=scene;pass.colorAttachments[0].loadAction=MTLLoadActionClear;pass.colorAttachments[0].storeAction=MTLStoreActionStore;pass.depthAttachment.texture=depth;pass.depthAttachment.loadAction=MTLLoadActionClear;pass.depthAttachment.clearDepth=0;pass.depthAttachment.storeAction=MTLStoreActionStore;
-        id<MTLRenderCommandEncoder> e=[cb renderCommandEncoderWithDescriptor:pass];[e setDepthStencilState:depthState];[e setRenderPipelineState:sky];[e setFragmentBytes:&f length:sizeof(f) atIndex:1];[e setFragmentTexture:activeEarth atIndex:0];[e setFragmentTexture:activeShadow atIndex:1];[e setFragmentTexture:white atIndex:2];[e setFragmentTexture:surfaceMask atIndex:3];[e setFragmentTexture:activeCloudMap atIndex:4];[e setFragmentTexture:oceanWaves atIndex:5];[e setFragmentTexture:oceanDetail atIndex:6];[e setFragmentTexture:starMap atIndex:7];[e drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];[e endEncoding];
+        id<MTLRenderCommandEncoder> e=[cb renderCommandEncoderWithDescriptor:pass];[e setDepthStencilState:depthState];[e setRenderPipelineState:sky];[e setFragmentBytes:&f length:sizeof(f) atIndex:1];[e setFragmentTexture:activeEarth atIndex:0];[e setFragmentTexture:activeShadow atIndex:1];[e setFragmentTexture:white atIndex:2];[e setFragmentTexture:surfaceMask atIndex:3];[e setFragmentTexture:activeCloudMap atIndex:4];[e setFragmentTexture:oceanWaves atIndex:5];[e setFragmentTexture:oceanDetail atIndex:6];[e setFragmentTexture:starMap atIndex:7];[e setFragmentTexture:activeVolumeNoise atIndex:8];[e drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];[e endEncoding];
         pass=[MTLRenderPassDescriptor renderPassDescriptor];pass.colorAttachments[0].texture=output;pass.colorAttachments[0].loadAction=MTLLoadActionClear;pass.colorAttachments[0].storeAction=MTLStoreActionStore;
         e=[cb renderCommandEncoderWithDescriptor:pass];[e setRenderPipelineState:composite];[e setFragmentBytes:&f length:sizeof(f) atIndex:0];[e setFragmentTexture:scene atIndex:0];[e setFragmentTexture:zero atIndex:1];[e setFragmentTexture:data atIndex:2];[e setFragmentTexture:depth atIndex:3];[e setFragmentTexture:activeCloudMap atIndex:4];[e setFragmentTexture:cloudNoise atIndex:5];[e drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];[e endEncoding];[cb commit];[cb waitUntilCompleted];
         if(cb.error)fprintf(stderr,"Render error: %s\n",cb.error.localizedDescription.UTF8String);require(cb.error==nil,"Earth render failed");std::vector<unsigned char> pixels(width*height*4);[output getBytes:pixels.data() bytesPerRow:width*4 fromRegion:MTLRegionMake2D(0,0,width,height) mipmapLevel:0];return pixels;};
@@ -224,9 +227,12 @@ int main(){@autoreleasepool{
     f.environment.w=1;f.weather.x=0;auto calmWater=render(0);f.weather.x=3;auto stormWater=render(0);
     size_t rough=0;for(size_t i=0;i<calmWater.size();i+=4)if(abs(int(calmWater[i])-int(stormWater[i]))>2)++rough;
     require(rough>1000,"Storm conditions visibly change ocean roughness");
-    f.weather.x=0;activeCloudMap=zero;auto clearReflection=render(.48);activeCloudMap=white;auto cloudReflection=render(.48);activeCloudMap=cloudMap;
+    f.weather.x=0;activeCloudMap=zero;auto clearReflection=render(.48);activeCloudMap=white;auto cloudReflection=render(.48);
     size_t reflected=0;for(size_t i=0;i<clearReflection.size();i+=4)if(abs(int(clearReflection[i])-int(cloudReflection[i]))>2)++reflected;
     require(reflected>1000,"Cloud coverage affects reflected light on water");
+    activeVolumeNoise=emptyCloudNoise;auto emptyVolumeWater=render(.48);activeVolumeNoise=cloudNoise;activeCloudMap=cloudMap;
+    size_t volumeReflected=0;for(size_t i=0;i<cloudReflection.size();i+=4)if(abs(int(emptyVolumeWater[i])-int(cloudReflection[i]))>2)++volumeReflected;
+    require(volumeReflected>1000,"Water reflections follow the 3D cloud volume, not only the coverage map");
     float lat=15*M_PI/180,lon=20*M_PI/180;simd_float3 normal={cosf(lat)*cosf(lon),sinf(lat),cosf(lat)*sinf(lon)};
     f.position={normal.x*(1+5000.0f/6371010),normal.y*(1+5000.0f/6371010),normal.z*(1+5000.0f/6371010),0};
     f.forward={-normal.x,-normal.y,-normal.z,0};f.right={-sinf(lon),0,cosf(lon),0};f.up={-sinf(lat)*cosf(lon),cosf(lat),-sinf(lat)*sinf(lon),0};f.sun={normal.x,normal.y,normal.z,1};
@@ -290,9 +296,45 @@ int main(){@autoreleasepool{
     f.sun={-.8f,0,.6f,1};float westShadow=shadowOnGround();
     printf("Directional cloud shadow: east %.3f, west %.3f, vessel %.3f\n",eastShadow,westShadow,eastShip);
     require(eastShadow<.05f&&westShadow>.98f&&fabsf(eastShadow-eastShip)<.02f,"Opaque clouds must block sunlight in the Sun's direction for both ground and vessel");
+    // Looking from the vessel toward the Sun, a cloud must be visible on the
+    // same ray that blocks sunlight and appears in a reflection.
+    id<MTLComputePipelineState> probe=[device newComputePipelineStateWithFunction:[library newFunctionWithName:@"probeCloudVolume"] error:&error];require(probe!=nil,"Cloud volume probe pipeline failed");
+    id<MTLBuffer> probeResult=[device newBufferWithLength:sizeof(simd_float4) options:MTLResourceStorageModeShared];
+    id<MTLTexture> oneVolume=texture(MTLPixelFormatRGBA32Float,1,1,MTLTextureUsageShaderRead|MTLTextureUsageShaderWrite),oneData=texture(MTLPixelFormatRGBA32Float,1,1,MTLTextureUsageShaderRead|MTLTextureUsageShaderWrite);
+    auto checkVolumeRay=[&](float sunX,float sunZ){
+        f.sun={sunX,0,sunZ,1};f.forward=f.sun;f.forward.w=0;f.right={0,1,0,0};f.up={-sunZ,0,sunX,0};
+        uint32_t index=7;id<MTLCommandBuffer> cb=[queue commandBuffer];id<MTLComputeCommandEncoder> e=[cb computeCommandEncoder];
+        [e setComputePipelineState:marcher];[e setBytes:&f length:sizeof(f) atIndex:0];[e setBytes:&index length:sizeof(index) atIndex:1];
+        [e setTexture:activeNoise atIndex:0];[e setTexture:zero atIndex:1];[e setTexture:zero atIndex:2];[e setTexture:data atIndex:3];[e setTexture:oneVolume atIndex:4];[e setTexture:oneData atIndex:5];[e setTexture:white atIndex:6];
+        [e dispatchThreads:MTLSizeMake(1,1,1) threadsPerThreadgroup:MTLSizeMake(1,1,1)];
+        [e setComputePipelineState:probe];[e setBytes:&f length:sizeof(f) atIndex:0];[e setBuffer:probeResult offset:0 atIndex:1];[e setTexture:activeNoise atIndex:0];[e setTexture:white atIndex:1];
+        [e dispatchThreads:MTLSizeMake(1,1,1) threadsPerThreadgroup:MTLSizeMake(1,1,1)];[e endEncoding];[cb commit];[cb waitUntilCompleted];require(cb.error==nil,"Cloud volume ray probe failed");
+        std::array<float,4> visible{};[oneVolume getBytes:visible.data() bytesPerRow:sizeof(visible) fromRegion:MTLRegionMake2D(0,0,1,1) mipmapLevel:0];
+        return std::pair<float,simd_float4>{visible[3],*(simd_float4 *)probeResult.contents};
+    };
+    auto throughCloud=checkVolumeRay(.8f,.6f),throughGap=checkVolumeRay(-.8f,.6f);
+    printf("Cloud volume: visible %.3f / %.3f, reflected alpha %.3f / %.3f, sunlight %.3f / %.3f\n",throughCloud.first,throughGap.first,throughCloud.second.x,throughGap.second.x,throughCloud.second.y,throughGap.second.y);
+    require(throughCloud.first>.9f&&throughCloud.second.x>.9f&&throughCloud.second.y<.05f&&throughCloud.second.z>.01f,"The same cloud must be visible, reflected and block sunlight");
+    require(throughGap.first<.02f&&throughGap.second.x<.02f&&throughGap.second.y>.98f,"A clear ray must stay clear in the view, reflection and shadow");
+    f.environment.w=1000;auto movedCloud=checkVolumeRay(.8f,.6f);f.environment.w=0;
+    require(movedCloud.first<.02f&&movedCloud.second.x<.02f&&movedCloud.second.y>.98f,"Cloud drift must move its appearance, reflection and shadow together");
+    activeNoise=cloudNoise;f.weather.x=1;double viewError=0,shadowError=0,reflectionError=0;int rays=0;
+    for(float sunZ:{.6f,.2f,.07f}){
+        double sunViewError=0,sunShadowError=0,sunReflectionError=0;
+        for(int i=0;i<24;++i){
+            float x=(float(i)-12)*3000.0f/6371010.0f,rad=1+1000.0f/6371010;
+            f.position={x,0,sqrtf(rad*rad-x*x),0};auto result=checkVolumeRay(sqrtf(1-sunZ*sunZ),sunZ);
+            sunViewError+=fabsf((1-result.first)-result.second.w);sunShadowError+=fabsf(result.second.y-result.second.w);sunReflectionError+=fabsf((1-result.second.x)-result.second.w);++rays;
+        }
+        printf("  Sun elevation %.2f: view %.3f, shadow %.3f, reflection %.3f mean error\n",sunZ,sunViewError/24,sunShadowError/24,sunReflectionError/24);
+        require(sunViewError/24<.15&&sunShadowError/24<.08&&sunReflectionError/24<.10,"Cloud rays must remain consistent at every tested Sun angle");
+        viewError+=sunViewError;shadowError+=sunShadowError;reflectionError+=sunReflectionError;
+    }
+    printf("Shared cloud ray mean error: view %.3f, shadow %.3f, reflection %.3f\n",viewError/rays,shadowError/rays,reflectionError/rays);
+    require(viewError/rays<.06&&shadowError/rays<.05&&reflectionError/rays<.05,"Views, shadows and reflections must follow the same procedural clouds");
     // At a very low Sun angle, curvature places the cloud crossing more than
     // 100 km away. Both ground and vessel shadows must still see it.
-    activeNoise=noise;f.sun={.99995f,0,.01f,1};float lowSun=shadowOnGround(),lowShip=shadowAt(groundPosition);
+    activeNoise=noise;f.weather.x=4;f.position={0,0,1+1000.0f/6371010,0};f.forward={0,0,-1,0};f.right={1,0,0,0};f.up={0,1,0,0};f.sun={.99995f,0,.01f,1};float lowSun=shadowOnGround(),lowShip=shadowAt(groundPosition);
     printf("Low-Sun cloud shadow: ground %.3f, vessel %.3f\n",lowSun,lowShip);
     require(lowSun<.05f&&fabsf(lowSun-lowShip)<.02f,"Low-Sun shadows must follow the curved cloud layer without a distance cutoff");
     f.sun={0,0,1,1};simd_float4 ship={0,0,1+1000.0f/6371010,0};float sheltered=shadowAt(ship);

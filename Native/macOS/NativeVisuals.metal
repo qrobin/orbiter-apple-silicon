@@ -150,6 +150,13 @@ float cloudDensity(float3 p,constant FrameUniforms &f,texture3d<float> noise,flo
     // on the surface so opaque billows also block direct light consistently.
     return density*4.2f+highDensity*1.32f;
 }
+// A cloud is a world-space density field. Every view, shadow and reflection
+// must query regional coverage at the sampled point in that same field.
+float sampleCloudDensity(float3 p,constant FrameUniforms &f,texture3d<float> noise,texture2d<float> cloudMap) {
+    float h=length(p)-f.body.x;
+    if(f.clouds.z<=0||h<=f.clouds.x||h>=f.clouds.y||(h>=lowCloudTop(f)&&h<=8500.0f))return 0;
+    return cloudDensity(p,f,noise,cloudRegion(p,f,cloudMap));
+}
 // Stable sphere intersections avoid subtracting two large, nearly equal squared radii.
 float2 cloudShellRoots(float cameraHeight,float shellHeight,float mu,float radius) {
     float b=(radius+cameraHeight)*mu;
@@ -165,7 +172,7 @@ float3 viewRay(float2 uv,constant FrameUniforms &f) {
 float depthDistance(float depth,float3 ray,constant FrameUniforms &f) {
     return depth>0?.2/max(1e-12f,depth*dot(ray,f.forward.xyz)):1e9;
 }
-float cloudSunTransmittance(float3 p,constant FrameUniforms &f,texture3d<float> noise,float region) {
+float cloudSunTransmittance(float3 p,constant FrameUniforms &f,texture3d<float> noise,texture2d<float> cloudMap) {
     float height=length(p)-f.body.x,mu=dot(normalize(p),f.sun.xyz);
     float2 top=cloudShellRoots(height,f.clouds.y,mu,f.body.x);
     float distance=clamp(top.y,0.0f,70000.0f);
@@ -179,14 +186,13 @@ float cloudSunTransmittance(float3 p,constant FrameUniforms &f,texture3d<float> 
     for(int i=0;i<4;++i){
         float a=float(i)/4.0f,b=float(i+1)/4.0f;
         float near=distance*a*a,far=distance*b*b;
-        optical+=cloudDensity(p+f.sun.xyz*((near+far)*.5f),f,noise,region)*(far-near);
+        optical+=sampleCloudDensity(p+f.sun.xyz*((near+far)*.5f),f,noise,cloudMap)*(far-near);
     }
     return exp(-optical);
 }
-// Follow sunlight through the first connected part of the spherical cloud
-// layer. The flat height / sun elevation shortcut breaks near the horizon.
-float2 cloudSunSegment(float3 origin,constant FrameUniforms &f) {
-    float height=length(origin)-f.body.x,mu=dot(normalize(origin),f.sun.xyz);
+// Intersect a world-space ray with the first visible part of the cloud layer.
+float2 cloudRaySegment(float3 origin,float3 ray,constant FrameUniforms &f) {
+    float height=length(origin)-f.body.x,mu=dot(normalize(origin),ray);
     float2 outer=cloudShellRoots(height,f.clouds.y,mu,f.body.x);
     float start=max(0.0f,outer.x),end=outer.y;
     float2 inner=cloudShellRoots(height,f.clouds.x,mu,f.body.x);
@@ -195,20 +201,57 @@ float2 cloudSunSegment(float3 origin,constant FrameUniforms &f) {
         else if(inner.x>start)end=min(end,inner.x);
     }
     if(mu<0){
+        if(height<=.5f)return float2(0);
         float2 ground=cloudShellRoots(height,0,mu,f.body.x);
         if(ground.y>ground.x&&ground.x>0)end=min(end,ground.x);
     }
     return float2(start,max(start,end));
 }
 float cloudShadowTransmission(float3 origin,constant FrameUniforms &f,texture3d<float> noise,texture2d<float> cloudMap) {
-    float2 segment=cloudSunSegment(origin,f);
-    float step=(segment.y-segment.x)/8.0f,optical=0;
-    if(step<=0)return 1;
-    for(int i=0;i<8;++i){
+    float2 segment=cloudRaySegment(origin,f.sun.xyz,f);
+    float span=segment.y-segment.x,optical=0;
+    if(span<=0)return 1;
+    // Long grazing rays need enough samples to find the same cloud bodies
+    // seen by the camera, instead of projecting an unrelated coarse pattern.
+    int count=int(clamp(ceil(span/1000.0f),8.0f,256.0f));float step=span/float(count);
+    for(int i=0;i<count;++i){
         float3 point=origin+f.sun.xyz*(segment.x+(float(i)+.5f)*step);
-        optical+=cloudDensity(point,f,noise,cloudRegion(point,f,cloudMap))*step;
+        optical+=sampleCloudDensity(point,f,noise,cloudMap)*step;
+        if(optical>6.0f)break;
     }
     return exp(-optical);
+}
+// A bounded march for reflected rays. It samples the same moving density as
+// the main cloud view and solar shadows, returning opacity and mean distance.
+float2 reflectedCloudRay(float3 origin,float3 ray,float maximumDistance,constant FrameUniforms &f,
+                         texture3d<float> noise,texture2d<float> cloudMap) {
+    float2 segment=cloudRaySegment(origin,ray,f);segment.y=min(segment.y,maximumDistance);
+    float span=segment.y-segment.x;if(span<=0)return float2(0);
+    int count=int(clamp(ceil(span/1000.0f),8.0f,160.0f));
+    float trans=1,weighted=0,weight=0;
+    for(int i=0;i<count;++i){
+        float a=float(i)/count,b=float(i+1)/count;
+        float near=segment.x+span*a*a,far=segment.x+span*b*b,t=(near+far)*.5f;
+        float density=sampleCloudDensity(origin+ray*t,f,noise,cloudMap);
+        float amount=trans*(1-exp(-density*(far-near)));
+        weighted+=t*amount;weight+=amount;trans-=amount;
+        if(trans<.012f)break;
+    }
+    return float2(1-trans,weight>.001f?weighted/weight:segment.x);
+}
+float3 reflectCloudVolume(float3 background,float3 origin,float3 ray,float maximumDistance,constant FrameUniforms &f,
+                          texture3d<float> noise,texture2d<float> cloudMap) {
+    float2 sample=reflectedCloudRay(origin,ray,maximumDistance,f,noise,cloudMap);
+    if(sample.x<.001f)return background;
+    float3 point=origin+ray*sample.y;float mu=dot(normalize(point),f.sun.xyz);
+    float day=smoothstep(-.08f,.12f,mu)*f.sun.w;
+    float phase=(1-.55f*.55f)/pow(max(.05f,1+.55f*.55f-1.10f*dot(ray,f.sun.xyz)),1.5f);
+    float3 sunlight=mix(float3(1.20,.40,.20),float3(1.20,1.25,1.32),smoothstep(.02f,.35f,mu))*solarIntensity(f);
+    float3 ambient=mix(float3(.003,.005,.012),mix(float3(.065,.065,.085),float3(.15,.20,.29),smoothstep(.02f,.3f,mu)),day);
+    float lighting=cloudSunTransmittance(point,f,noise,cloudMap);
+    float3 color=ambient+sunlight*day*(lighting*(.22f+.16f*min(phase,3.0f))+.10f*sqrt(lighting));
+    AirLight air=earthAirLight(f,ray,sample.y);
+    return mix(background,color*air.transmission+air.scattering,sample.x);
 }
 kernel void cloudShadowMap(constant FrameUniforms &f [[buffer(0)]],texture3d<float> noise [[texture(0)]],
                            texture2d<float,access::write> shadow [[texture(1)]],texture2d<float> cloudMap [[texture(2)]],uint2 id [[thread_position_in_grid]]) {
@@ -248,18 +291,15 @@ kernel void marchClouds(constant FrameUniforms &f [[buffer(0)]],constant uint &f
     // Above the transition the full-resolution satellite shell completely
     // replaces this volume. Avoid its 48-step march and sunlight samples.
     if(cameraHeight>=120000.0f){result.write(float4(0),id);data.write(float4(geometry,0,0,0),id);return;}
-    float2 roots=cloudShellRoots(cameraHeight,f.clouds.y,dot(normalize(f.position.xyz),ray),f.body.x);
-    float start=max(0.0f,roots.x),end=min(roots.y,geometry);
-    float2 inner=cloudShellRoots(cameraHeight,f.clouds.x,dot(normalize(f.position.xyz),ray),f.body.x);
-    if(cameraHeight>f.clouds.x&&inner.y>inner.x&&inner.x>start)end=min(end,inner.x);
     float3 origin=normalize(f.position.xyz)*(f.body.x+cameraHeight);
+    float2 segment=cloudRaySegment(origin,ray,f);
+    float start=segment.x,end=min(segment.y,geometry);
     float3 radiance=0;float trans=1,weightedDistance=0,weight=0;
     if(f.clouds.z>0&&end>start){
         float span=end-start;
-        // Sample the weather close to where the ray enters the cloud. Sampling
-        // the midpoint jumps tens of kilometres at a grazing inner-shell hit.
+        // Estimate local sunlight near the cloud entry; density and regional
+        // coverage are evaluated at every step of the ray below.
         float3 center=normalize(origin+ray*(start+min(span*.25f,8000.0f)));
-        float region=cloudRegion(center,f,cloudMap);
         float mu=dot(center,f.sun.xyz),day=smoothstep(-.08f,.12f,mu)*f.sun.w;
         float g=.55,cosTheta=dot(ray,f.sun.xyz);
         float phase=(1-g*g)/pow(max(.05f,1+g*g-2*g*cosTheta),1.5f);
@@ -272,8 +312,8 @@ kernel void marchClouds(constant FrameUniforms &f [[buffer(0)]],constant uint &f
             float a=float(i)/48.0f,b=float(i+1)/48.0f;
             float near=start+span*a*a,far=start+span*b*b,step=far-near;
             float t=mix(near,far,jitter);float3 p=origin+ray*t;
-            float density=cloudDensity(p,f,noise,region);if(density<.000002)continue;
-            float lighting=cloudSunTransmittance(p,f,noise,region);
+            float density=sampleCloudDensity(p,f,noise,cloudMap);if(density<.000002)continue;
+            float lighting=cloudSunTransmittance(p,f,noise,cloudMap);
             // A restrained multiple-scattering term keeps thin edges lit while
             // dense interiors retain their shadows even when backlit.
             float direct=lighting*(.22f+.16f*min(phase,3.0f));
@@ -559,8 +599,7 @@ fragment float4 flameFragment(FlameRaster in [[stage_in]],constant FrameUniforms
     }
     float alpha=(1-trans)*sqrt(in.properties.z)*.8;if(alpha<.002)discard_fragment();
     if(f.environment.x*f.body.x<f.clouds.y+1000&&f.clouds.z>0){float distance=(start+end)*.5,optical=0;float3 origin=f.position.xyz*f.body.x;
-        float region=cloudRegion(origin+ray*distance*.5,f,cloudMap);
-        for(int i=0;i<4;++i)optical+=cloudDensity(origin+ray*distance*((i+.5)/4.0f),f,noise,region)*distance*.25;alpha*=exp(-optical);}
+        for(int i=0;i<4;++i)optical+=sampleCloudDensity(origin+ray*distance*((i+.5)/4.0f),f,noise,cloudMap)*distance*.25;alpha*=exp(-optical);}
     return float4(radiance/max(.001f,1-trans),alpha);
 }
 // Continuous world-space tube segments follow the emitted exhaust; the material
@@ -611,7 +650,7 @@ fragment float4 trailVolumeFragment(TrailRaster in [[stage_in]],constant FrameUn
     color*=(in.vacuum>.5f?.16f:.25f)+.84f*light;color+=hot*(in.vacuum>.5?float3(.60,.38,.18):float3(.50,.28,.12));
     if(f.environment.x*f.body.x<f.clouds.y+1000&&f.clouds.z>0){
         float distance=length(in.ray);float3 midpoint=f.position.xyz*f.body.x+in.ray*.5;
-        alpha*=exp(-cloudDensity(midpoint,f,noise,cloudRegion(midpoint,f,cloudMap))*distance);
+        alpha*=exp(-sampleCloudDensity(midpoint,f,noise,cloudMap)*distance);
     }
     return float4(color,alpha);
 }
