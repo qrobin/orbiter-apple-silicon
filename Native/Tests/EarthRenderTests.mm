@@ -31,6 +31,16 @@ int main(){@autoreleasepool{
     auto load=[&](NSString *path,bool srgb){id<MTLTexture> t=[loader newTextureWithContentsOfURL:[NSURL fileURLWithPath:[root stringByAppendingPathComponent:path]] options:@{MTKTextureLoaderOptionSRGB:@(srgb),MTKTextureLoaderOptionGenerateMipmaps:@YES,MTKTextureLoaderOptionOrigin:MTKTextureLoaderOriginTopLeft} error:&error];
         if(!t)fprintf(stderr,"Texture %s: %s\n",path.UTF8String,error.localizedDescription.UTF8String);require(t!=nil,"Texture load failed");return t;};
     id<MTLTexture> earth=load(@"Native/Assets/earth-8k.jpg",true),cloudMap=load(@"Native/Assets/earth-clouds.png",false),ocean=load(@"Native/Assets/earth-ocean-mask.png",false),oceanWaves=load(@"Native/Assets/earth-waves.png",false),oceanDetail=load(@"Native/Assets/earth-waves-detail.png",false),starMap=load(@"Native/Assets/sky-8k.jpg",true);
+    // The native catalogue must reference a packaged, decodable image for
+    // every body, including worlds without a complete spacecraft mosaic.
+    for(const auto &b:native::bodies()){@autoreleasepool{
+        require(b.texture[0]!=0,"Every body has a texture assignment");
+        NSString *path=b.id==native::BodyId::Earth?@"Native/Assets/earth-8k.jpg":[NSString stringWithFormat:@"Native/Assets/Bodies/%s.jpg",b.texture];
+        id<MTLTexture> image=[loader newTextureWithContentsOfURL:[NSURL fileURLWithPath:[root stringByAppendingPathComponent:path]] options:@{MTKTextureLoaderOptionSRGB:@YES} error:&error];
+        if(!image)fprintf(stderr,"Missing or invalid texture for %s: %s\n",b.name,error.localizedDescription.UTF8String);require(image!=nil,"Body texture decodes");
+        require(image.width>=1024&&image.height>=512,"Body texture has at least 1K dimensions");
+    }}
+    id<MTLTexture> venusSurface=load(@"Native/Assets/Bodies/venus_surface.jpg",true);require(venusSurface.width>=2048,"Venus surface map decodes");
     require(cloudMap.width==8192&&cloudMap.height==4096,"Cloud map must retain its 8K source detail");
     require(starMap.width==8192&&starMap.height==4096,"Celestial sky map must retain 8K source detail");
     id<MTLComputePipelineState> skyCheck=[device newComputePipelineStateWithFunction:[library newFunctionWithName:@"checkSkyCoordinates"] error:&error];require(skyCheck!=nil,"Sky coordinate test pipeline");

@@ -17,7 +17,7 @@ def number(text,key,default=0):
     return float(m[1]) if m else default
 def orbitnum(text,key,default=0):
     return number(text,key,number(text.replace(';',''),key,default))
-textures={n:n.lower() for n in ['Sun','Mercury','Mars','Jupiter','Saturn','Uranus','Neptune','Moon']}
+textures={name:name.lower() for name,parent in entries}
 textures.update(Earth='../earth-8k',Venus='venus_atmosphere')
 palette={'Sun':(1,.8,.4),'Venus':(.85,.69,.45),'Mars':(.55,.24,.12),'Moon':(.42,.41,.39),'Io':(.72,.62,.27),'Europa':(.75,.64,.49),'Ganymede':(.40,.35,.29),'Callisto':(.25,.23,.21),'Titan':(.72,.47,.19),'Triton':(.63,.61,.60)}
 rows=[]

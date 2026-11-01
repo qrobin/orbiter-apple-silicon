@@ -24,7 +24,10 @@ static simd_float4 solarVector(Vector v,float w=0){return {(float)v.x,(float)v.y
     NSNumber *key=@((int)bodyId);if(cache[key])return cache[key];auto &b=body(bodyId);if(!b.texture[0])return white;
     NSString *file=[NSString stringWithFormat:@"Bodies/%s.jpg",b.texture],*path=[NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:file];NSError *error=nil;
     id<MTLTexture> t=[loader newTextureWithContentsOfURL:[NSURL fileURLWithPath:path] options:@{MTKTextureLoaderOptionSRGB:@YES,MTKTextureLoaderOptionGenerateMipmaps:@YES,MTKTextureLoaderOptionOrigin:MTKTextureLoaderOriginTopLeft} error:&error];
-    if(!t)@throw [NSException exceptionWithName:@"Planet texture unavailable" reason:error.localizedDescription userInfo:nil];cache[key]=t;return t;
+    if(!t)@throw [NSException exceptionWithName:@"Planet texture unavailable" reason:error.localizedDescription userInfo:nil];
+    // Keep Earth plus a bounded number of planetary maps resident.
+    if(cache.count>=8){for(NSNumber *old in cache.allKeys)if(old.intValue!=(int)BodyId::Earth){[cache removeObjectForKey:old];break;}}
+    cache[key]=t;return t;
 }
 - (void)updateFrame:(FrameUniforms *)f flight:(const Flight &)flight offset:(Vector)offset{
     auto &b=flight.centralBody();double date=flight.mjd+flight.elapsed/86400;auto central=bodyState(flight.reference,date);Vector ship=central.position+flight.position+offset,sun=(-ship).unit();

@@ -212,10 +212,19 @@ fragment float4 groundFragment(GroundRaster in [[stage_in]],constant FrameUnifor
     float3 n=normalize(cross(dfdx(in.world),dfdy(in.world)));if(dot(n,in.normal)<0)n=-n;
     bool earthBody=int(f.surfaceColor.w)==3;
     float3 albedo=earthBody?earth.sample(map,in.uv).rgb:planetMaterial(in.normal,in.uv,f.surfaceColor.rgb,int(f.surfaceColor.w),f.equatorX.w>.5,earth);
-    if(int(f.surfaceColor.w)==5){
+    if(!earthBody){
         float3 fixedPoint=terrestrial(f.position.xyz*f.body.x+in.world,f);
         float footprint=max(length(dfdx(fixedPoint)),length(dfdy(fixedPoint)));
-        albedo=marsGroundMaterial(albedo,fixedPoint,length(in.world),footprint);
+        if(int(f.surfaceColor.w)==5)albedo=marsGroundMaterial(albedo,fixedPoint,length(in.world),footprint);
+        int bodyId=int(f.surfaceColor.w);
+        bool icy=bodyId==11||bodyId==12||bodyId==15||bodyId==16||bodyId==17||bodyId==18||bodyId==19||bodyId==22||(bodyId>=24&&bodyId<=28)||bodyId==30;
+        if(icy){
+            // Broad ice plates and thin fractures are illustrative, not mapped features.
+            float plate=terrainNoise(fixedPoint/140.0f+float3(bodyId*2.0f,0,0));
+            float crack=(1-smoothstep(.008f,.035f,abs(plate-.5f)))*(1-smoothstep(4.0f,35.0f,footprint));
+            float fade=1-smoothstep(1000.0f,8000.0f,length(in.world));
+            albedo=mix(albedo,albedo*float3(.48,.57,.62),crack*fade*.45f);
+        }
         constexpr sampler detailSampler(filter::linear,mip_filter::linear,s_address::repeat,t_address::repeat,max_anisotropy(8));
         float2 metres=float2((in.uv.x-.5f)*(2*M_PI_F),(.5f-in.uv.y)*M_PI_F)*f.body.x;
         float2 uv1=metres/85.0f,uv2=float2(metres.x*.8f-metres.y*.6f,metres.x*.6f+metres.y*.8f)/107.0f;

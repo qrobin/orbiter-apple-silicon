@@ -16,7 +16,7 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
     double lastElapsed,glassWetness,lastExposureTime;
     Vector glassRunoff;
     NSInteger lastWeather;
-    id<MTLTexture> hdr,lit,depth,trailLayer,msaaColor,msaaDepth,earthCloudMap,earthOceanMask,earthTerrainMask,marsRegolith,earthOceanWaves,earthOceanWaveDetail,exposure;
+    id<MTLTexture> hdr,lit,depth,trailLayer,msaaColor,msaaDepth,earthCloudMap,earthOceanMask,earthTerrainMask,marsRegolith,venusSurface,earthOceanWaves,earthOceanWaveDetail,exposure;
     std::array<id<MTLTexture>,2> cloudHistory,cloudData,bloom;
     std::array<id<MTLBuffer>,3> smokeBuffers;
     ExhaustTrail exhaustTrail;
@@ -43,6 +43,8 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
     earthTerrainMask=[gpu newTextureWithDescriptor:terrainMap];visualCheck(earthTerrainMask,nil);[earthTerrainMask replaceRegion:MTLRegionMake2D(0,0,2048,1024) mipmapLevel:0 withBytes:terrainData.bytes bytesPerRow:2048];
     NSURL *marsURL=[NSURL fileURLWithPath:[NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"mars-regolith.png"]];
     marsRegolith=[loader newTextureWithContentsOfURL:marsURL options:@{MTKTextureLoaderOptionSRGB:@YES,MTKTextureLoaderOptionGenerateMipmaps:@YES,MTKTextureLoaderOptionOrigin:MTKTextureLoaderOriginTopLeft} error:&error];visualCheck(marsRegolith,error);
+    NSURL *venusURL=[NSURL fileURLWithPath:[NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"Bodies/venus_surface.jpg"]];
+    venusSurface=[loader newTextureWithContentsOfURL:venusURL options:@{MTKTextureLoaderOptionSRGB:@YES,MTKTextureLoaderOptionGenerateMipmaps:@YES,MTKTextureLoaderOptionOrigin:MTKTextureLoaderOriginTopLeft} error:&error];visualCheck(venusSurface,error);
     NSURL *waveURL=[NSURL fileURLWithPath:[NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"earth-waves.png"]];
     earthOceanWaves=[loader newTextureWithContentsOfURL:waveURL options:@{MTKTextureLoaderOptionSRGB:@NO,MTKTextureLoaderOptionGenerateMipmaps:@YES,MTKTextureLoaderOptionOrigin:MTKTextureLoaderOriginTopLeft} error:&error];
     visualCheck(earthOceanWaves,error);
@@ -151,7 +153,7 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
     if(f.body.w!=0||f.environment.y>100000||f.environment.y<0)return;
     [encoder setRenderPipelineState:groundPipeline];[encoder setCullMode:MTLCullModeNone];
     [encoder setVertexBytes:&f length:sizeof(f) atIndex:0];[encoder setVertexTexture:earthTerrainMask atIndex:0];
-    [encoder setFragmentBytes:&f length:sizeof(f) atIndex:0];[encoder setFragmentTexture:earth atIndex:0];[encoder setFragmentTexture:_cloudShadows atIndex:1];[encoder setFragmentTexture:marsRegolith atIndex:2];
+    [encoder setFragmentBytes:&f length:sizeof(f) atIndex:0];[encoder setFragmentTexture:(int)f.surfaceColor.w==(int)BodyId::Venus?venusSurface:earth atIndex:0];[encoder setFragmentTexture:_cloudShadows atIndex:1];[encoder setFragmentTexture:marsRegolith atIndex:2];
     for(uint32_t level=0;level<7;++level){[encoder setVertexBytes:&level length:sizeof(level) atIndex:1];[encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6 instanceCount:48*48];}
     if((int)f.surfaceColor.w==(int)BodyId::Mars&&f.environment.y<2100){
         [encoder setRenderPipelineState:marsRockPipeline];[encoder setVertexBytes:&f length:sizeof(f) atIndex:0];[encoder setFragmentBytes:&f length:sizeof(f) atIndex:0];[encoder setFragmentTexture:marsRegolith atIndex:0];
