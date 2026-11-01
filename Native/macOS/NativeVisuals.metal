@@ -98,8 +98,7 @@ fragment float4 terrainFragment(TerrainRaster in [[stage_in]],constant FrameUnif
     float light=max(0.0f,dot(normalize(in.normal),f.sun.xyz))*f.sun.w*shadow*solarIntensity(f);
     return float4(in.color*(.008f+day*.12f+light*.85f),1);
 }
-// Regional coverage varies slowly compared with the volume noise. Sample once
-// per ray instead of once per density and sunlight step.
+// Regional coverage modulates the shared world-space cloud density.
 float regionalCloudCoverage(float observed,float weather) {
     float region=smoothstep(.32f,.90f,observed);
     if(weather>.5&&weather<1.5)region*=.18f;

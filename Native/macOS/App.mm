@@ -88,11 +88,12 @@ struct GpuGroup { id<MTLBuffer> vertices,indices; NSUInteger count; size_t mater
     bool rcsDemo;
     NSPoint lastDragPoint;
     bool haveDragPoint;
-    id<MTLRenderPipelineState> meshPipeline,skyPipeline;
-    id<MTLDepthStencilState> depthState,skyDepth,transparentDepth;
+    id<MTLRenderPipelineState> meshPipeline,meshDepthPipeline,skyPipeline;
+    id<MTLDepthStencilState> depthState,meshShadeDepth,skyDepth,transparentDepth;
     std::array<size_t,2> meshCounts;
     std::vector<GpuGroup> groups;
     std::vector<Material> materials;
+    std::vector<bool> opaqueTextures;
     NSMutableArray<id<MTLTexture>> *textures;
     id<MTLTexture> earthTexture,starTexture,whiteTexture;
     id<MTLTexture> hoverReadoutTexture,mfdLabelTexture;
@@ -105,7 +106,7 @@ struct GpuGroup { id<MTLBuffer> vertices,indices; NSUInteger count; size_t mater
     int activeCockpitControl;
     double activeCockpitDirection;
     CFTimeInterval previous,begin,lastHud;
-    NSUInteger frameCount,smokeFrames;
+    NSUInteger frameCount,smokeFrames,gpuSamples;
     double cpuSum,gpuSum;
     std::vector<double> intervals;
     NSString *capturePath,*reportPath,*restartScenario;
@@ -391,16 +392,19 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     pd.colorAttachments[0].sourceAlphaBlendFactor=MTLBlendFactorOne;
     pd.colorAttachments[0].destinationAlphaBlendFactor=MTLBlendFactorOneMinusSourceAlpha;
     meshPipeline=[device newRenderPipelineStateWithDescriptor:pd error:&error];
-    if(!meshPipeline||!skyPipeline) @throw [NSException exceptionWithName:@"Metal pipeline error" reason:error.localizedDescription userInfo:nil];
+    pd.fragmentFunction=[library newFunctionWithName:@"meshDepthFragment"];pd.colorAttachments[0].blendingEnabled=NO;pd.colorAttachments[0].writeMask=MTLColorWriteMaskNone;
+    meshDepthPipeline=[device newRenderPipelineStateWithDescriptor:pd error:&error];
+    if(!meshPipeline||!meshDepthPipeline||!skyPipeline) @throw [NSException exceptionWithName:@"Metal pipeline error" reason:error.localizedDescription userInfo:nil];
     MTLDepthStencilDescriptor *dd=[MTLDepthStencilDescriptor new]; dd.depthCompareFunction=MTLCompareFunctionGreater; dd.depthWriteEnabled=YES;
     depthState=[device newDepthStencilStateWithDescriptor:dd]; dd.depthCompareFunction=MTLCompareFunctionAlways; dd.depthWriteEnabled=NO;
     dd.depthWriteEnabled=YES;skyDepth=[device newDepthStencilStateWithDescriptor:dd];
     dd.depthWriteEnabled=NO;dd.depthCompareFunction=MTLCompareFunctionGreater; transparentDepth=[device newDepthStencilStateWithDescriptor:dd];
+    dd.depthCompareFunction=MTLCompareFunctionEqual;meshShadeDepth=[device newDepthStencilStateWithDescriptor:dd];
     visuals=[[NativeVisuals alloc] initWithDevice:device library:library queue:queue samples:self.sampleCount];
     textures=[NSMutableArray new];
     MTLTextureDescriptor *td=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm_sRGB width:1 height:1 mipmapped:NO];
     whiteTexture=[device newTextureWithDescriptor:td]; uint32_t white=0xffffffff;
-    [whiteTexture replaceRegion:MTLRegionMake2D(0,0,1,1) mipmapLevel:0 withBytes:&white bytesPerRow:4]; [textures addObject:whiteTexture];
+    [whiteTexture replaceRegion:MTLRegionMake2D(0,0,1,1) mipmapLevel:0 withBytes:&white bytesPerRow:4]; [textures addObject:whiteTexture];opaqueTextures.push_back(true);
     for(int i=0;i<2;++i){auto art=maneuverButtonArtwork(i!=0);
         MTLTextureDescriptor *desc=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm_sRGB width:art.width height:art.height mipmapped:NO];
         maneuverButtonTextures[i]=[device newTextureWithDescriptor:desc];
@@ -418,12 +422,14 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
             if(name.rfind("iss/",0)==0) name="ISS/"+name.substr(4);
             NSString *textureDirectory=meshIndex==2?@"Textures/Base/":@"Textures/";
             auto image=loadDDS(resource([textureDirectory stringByAppendingString:[NSString stringWithUTF8String:name.c_str()]]).fileSystemRepresentation);
+            bool opaque=true;for(size_t a=3;a<image.rgba.size();a+=4)if(image.rgba[a]!=255){opaque=false;break;}
+            if(meshIndex==1&&(name=="DG/dg_vc4.dds"||name=="DG/blittgt1.dds"))opaque=false;
             MTLTextureDescriptor *desc=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm_sRGB width:image.width height:image.height mipmapped:YES];
             id<MTLTexture> tex=[device newTextureWithDescriptor:desc];
             if(meshIndex==1&&name=="DG/dg_vc4.dds"){mfdLabelTexture=tex;mfdLabelOriginal=image;mfdLabelImage=image;}
             [tex replaceRegion:MTLRegionMake2D(0,0,image.width,image.height) mipmapLevel:0 withBytes:image.rgba.data() bytesPerRow:image.width*4];
             id<MTLCommandBuffer> cb=[queue commandBuffer]; id<MTLBlitCommandEncoder> blit=[cb blitCommandEncoder]; [blit generateMipmapsForTexture:tex]; [blit endEncoding]; [cb commit];
-            [textures addObject:tex];
+            [textures addObject:tex];opaqueTextures.push_back(opaque);
             if(meshIndex==1&&name=="DG/blittgt1.dds"){hoverReadoutTexture=tex;hoverReadoutImage=image;}
         }
         for(size_t i=0;i<mesh.groups.size();++i) {
@@ -666,7 +672,36 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         }
         object.model=vesselModel;
         auto transforms=flight.glider.transforms(meshCounts[cockpit?1:0],cockpit?1:0);
-        for(int transparent=0;transparent<2;++transparent) {
+        auto depthEligible=[&](const GpuGroup &g){
+            return materials[g.material].diffuse[3]>=1.0f&&opaqueTextures[g.texture]&&!(cockpit&&(g.index==77||g.index==88||g.index==89||g.index==129));
+        };
+        auto drawVesselGroup=[&](const GpuGroup &g){
+            const auto &mat=materials[g.material];bool label=cockpit&&g.index==129;
+            const auto &t=transforms[g.index];simd_float4x4 local;
+            local.columns[0]=f4({t.rotation.m11,t.rotation.m21,t.rotation.m31});
+            local.columns[1]=f4({t.rotation.m12,t.rotation.m22,t.rotation.m32});
+            local.columns[2]=f4({t.rotation.m13,t.rotation.m23,t.rotation.m33});local.columns[3]=f4(t.translation,1);
+            object.model=simd_mul(vesselModel,local);object.options={0,(cockpit&&g.index!=77)?0.f:-1.f,(float)g.index,cockpit?(float)switchData.size():0.f};
+            object.color={mat.diffuse[0],mat.diffuse[1],mat.diffuse[2],mat.diffuse[3]};
+            object.specular={mat.specular[0],mat.specular[1],mat.specular[2],mat.power};float emission=cockpit&&flight.glider.instrumentLights?.08f:0.f;object.emission={mat.emissive[0]*emission,mat.emissive[1]*emission,mat.emissive[2]*emission,0};
+            if(cockpit&&g.index==77)object.options.x=6;
+            if(label){object.color={1,1,1,1};object.options.x=4;}
+            [encoder setVertexBuffer:g.vertices offset:0 atIndex:0];[encoder setVertexBytes:&object length:sizeof(object) atIndex:2];
+            if(cockpit&&(g.index==88||g.index==89)){object.color={1,1,1,1};object.options.x=3;[encoder setFragmentTexture:instrumentTextures[g.index-88] atIndex:0];}
+            else [encoder setFragmentTexture:textures[g.texture] atIndex:0];
+            [encoder setFragmentBytes:&object length:sizeof(object) atIndex:2];
+            [encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle indexCount:g.count indexType:MTLIndexTypeUInt32 indexBuffer:g.indices indexBufferOffset:0];
+        };
+        if(!panelView){
+            [encoder setRenderPipelineState:meshDepthPipeline];[encoder setDepthStencilState:depthState];
+            for(const auto &g:groups){
+                if(g.mesh!=(cockpit?1:0)||(cockpit&&!visibleCockpitGroup(g.index)))continue;
+                if(!depthEligible(g))continue;
+                drawVesselGroup(g);
+            }
+        }
+        for(int pass=0;pass<3;++pass) {
+            bool transparent=pass==2;
             // The cockpit shares the glider's local frame, so sunlight can
             // also be tested against the external hull from inside the VC.
             bool traced=!transparent&&!panelView&&rayShadows.enabled;
@@ -678,31 +713,19 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
                 [encoder setFragmentAccelerationStructure:rayShadows.structure atBufferIndex:5];
                 [encoder useResource:rayShadows.structure usage:MTLResourceUsageRead stages:MTLRenderStageFragment];
             }
-            [encoder setDepthStencilState:transparent?transparentDepth:depthState];
-            for(const auto &g:groups) {
-                if(panelView||g.mesh!=(cockpit?1:0)) continue;
-                if(cockpit&&!visibleCockpitGroup(g.index)) continue;
+            [encoder setDepthStencilState:transparent?transparentDepth:pass==0?meshShadeDepth:depthState];
+            auto drawPassGroup=[&](const GpuGroup &g){
+                if(panelView||g.mesh!=(cockpit?1:0))return;
+                if(cockpit&&!visibleCockpitGroup(g.index))return;
                 const auto &mat=materials[g.material]; bool label=cockpit&&g.index==129;
-                if((label||mat.diffuse[3]<.99)!=(transparent==1)) continue;
-                const auto &t=transforms[g.index]; simd_float4x4 local;
-                local.columns[0]=f4({t.rotation.m11,t.rotation.m21,t.rotation.m31});
-                local.columns[1]=f4({t.rotation.m12,t.rotation.m22,t.rotation.m32});
-                local.columns[2]=f4({t.rotation.m13,t.rotation.m23,t.rotation.m33}); local.columns[3]=f4(t.translation,1);
-                object.model=simd_mul(vesselModel,local); object.options={0,(cockpit&&g.index!=77)?0.f:-1.f,(float)g.index,cockpit?(float)switchData.size():0.f};
-                object.color={mat.diffuse[0],mat.diffuse[1],mat.diffuse[2],mat.diffuse[3]};
-                object.specular={mat.specular[0],mat.specular[1],mat.specular[2],mat.power};float emission=cockpit&&flight.glider.instrumentLights?.08f:0.f;object.emission={mat.emissive[0]*emission,mat.emissive[1]*emission,mat.emissive[2]*emission,0};
-                if(cockpit&&g.index==77)object.options.x=6;
-                if(label){object.color={1,1,1,1};object.options.x=4;}
-                [encoder setVertexBuffer:g.vertices offset:0 atIndex:0];
-                [encoder setVertexBytes:&object length:sizeof(object) atIndex:2];
-                [encoder setFragmentBytes:&object length:sizeof(object) atIndex:2];
-                if(cockpit&&(g.index==88||g.index==89)) {
-                    object.color={1,1,1,1};object.options.x=3;
-                    [encoder setFragmentBytes:&object length:sizeof(object) atIndex:2];
-                    [encoder setFragmentTexture:instrumentTextures[g.index-88] atIndex:0];
-                } else [encoder setFragmentTexture:textures[g.texture] atIndex:0];
-                [encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle indexCount:g.count indexType:MTLIndexTypeUInt32 indexBuffer:g.indices indexBufferOffset:0];
-            }
+                if((label||mat.diffuse[3]<.99)!=(transparent==1))return;
+                if(!transparent&&depthEligible(g)!=(pass==0))return;
+                drawVesselGroup(g);
+            };
+            // Equal-depth opaque groups would all pass after the prepass.
+            // Reverse their draw order so the original first group wins ties.
+            if(pass==0)for(auto g=groups.rbegin();g!=groups.rend();++g)drawPassGroup(*g);
+            else for(const auto &g:groups)drawPassGroup(g);
         }
         // The upstream logical HUD quad (group 132) is attached to the
         // cockpit combiner. Only glyph pixels write depth, so the rest stays clear.
@@ -750,7 +773,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     __weak FlightView *weakSelf=self; dispatch_semaphore_t semaphore=inflight;
     [cb addCompletedHandler:^(id<MTLCommandBuffer> completed) {
         double ms=(completed.GPUEndTime-completed.GPUStartTime)*1000;
-        dispatch_async(dispatch_get_main_queue(),^{ FlightView *v=weakSelf; if(v&&ms>0) { v->gpuMs=ms; v->gpuSum+=ms; } });
+        dispatch_async(dispatch_get_main_queue(),^{ FlightView *v=weakSelf; if(v&&ms>0) { v->gpuMs=ms; v->gpuSum+=ms; ++v->gpuSamples; } });
         dispatch_semaphore_signal(semaphore);
     }];
     [cb commit];
@@ -798,7 +821,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         @"frames":@(frameCount),@"drawableWidth":@(self.drawableSize.width),@"drawableHeight":@(self.drawableSize.height),
         @"screenMaximumFPS":@(self.window.screen.maximumFramesPerSecond),@"requestedFPS":@(self.preferredFramesPerSecond),@"sampleCount":@(self.sampleCount),@"weather":flight.reference==BodyId::Earth?[visuals weatherName]:@"Not applicable",@"cloudWidth":@(visuals.cloudWidth),@"cloudHeight":@(visuals.cloudHeight),@"hdr":@YES,
         @"exhaustEmitters":@(visuals.emitterCount),@"exhaustTrailPuffs":@([visuals liveTrailPuffCount]),@"cameraDistance":@(externalCamera.distance),@"forwardLength":@(flight.forward.length()),@"rightLength":@(flight.right.length()),@"meanFrameMs":@(mean),@"p95FrameMs":@(p95),@"meanFPS":@(mean?1000/mean:0),
-        @"meanCPUEncodeMs":@(cpuSum/frameCount),@"lastGPUFrameMs":@(gpuMs),@"scenarioElapsed":@(flight.elapsed),
+        @"meanCPUEncodeMs":@(cpuSum/frameCount),@"meanGPUFrameMs":@(gpuSamples?gpuSum/gpuSamples:0),@"lastGPUFrameMs":@(gpuMs),@"scenarioElapsed":@(flight.elapsed),
         @"altitudeMeters":@(flight.altitude()),@"meshGroups":@(groups.size()),
         @"groundSpeed":@(flight.groundSpeed),@"wheelContacts":@(flight.wheelContacts),@"parkingBrake":@(flight.glider.parkingBrake),@"impacted":@(flight.impacted),
         @"hoverHoldActive":@(flight.glider.hoverControl.holdActive),@"hoverHoldMode":@(flight.glider.hoverControl.holdMode),
@@ -910,7 +933,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     flight.weatherPreset=(int)visuals.weather;
     if(restartBody==-2){flight=Flight();flight.startISSApproach();flight.weatherPreset=(int)visuals.weather;}
     else if(restartBody>=0){flight.startOrbit((BodyId)restartBody);flight.weatherPreset=(int)visuals.weather;}
-    else {if(!restartScenario)restartScenario=resource(@"Scenarios/DG Mk4 in orbit.scn");flight.load(restartScenario.fileSystemRepresentation);visuals.weather=flight.weatherPreset;}
+    else {if(!restartScenario)restartScenario=resource(@"Scenarios/Hawaii sunset.scn");flight.load(restartScenario.fileSystemRepresentation);visuals.weather=flight.weatherPreset;}
     flight.automaticReferenceChanges=true;[self resetNavigation];if(restartBody==-1&&restartScenario)[self loadTransXScenario:restartScenario];
     status=[NSString stringWithFormat:@"%s %@ · Press F1 for controls",flight.centralBody().name,flight.groundContact?@"surface flight":flight.reference==BodyId::Earth&&flight.altitude()<120000?@"atmospheric flight":@"orbit"];
 

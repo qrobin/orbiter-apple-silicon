@@ -42,6 +42,11 @@ int main(){@autoreleasepool{
     MTLDepthStencilDescriptor *ds=[MTLDepthStencilDescriptor new];ds.depthCompareFunction=MTLCompareFunctionAlways;ds.depthWriteEnabled=YES;auto skyDepth=[gpu newDepthStencilStateWithDescriptor:ds];ds.depthCompareFunction=MTLCompareFunctionGreater;auto objectDepth=[gpu newDepthStencilStateWithDescriptor:ds];
     auto project=std::filesystem::path(ORBITER_TEST_DATA);loadEphemerides(project/"Src/Celbody");require(loadEarthWeatherMap(project/"Native/Assets/earth-clouds.r8"),"Weather map failed");
     Flight flight;flight.load(project/"Native/Assets/Scenarios/Hawaii sunset.scn");
+    // Preserve this established 4 km rendering fixture independently of the
+    // scenario's 400 m startup, including its air-relative speed and hold.
+    Vector air=flight.airRelativeVelocity();flight.position=flight.position.unit()*(flight.centralBody().radius+4000);
+    flight.velocity=air+crossp(flight.centralBody().spin(),flight.position)+earthWeather(flight.position,flight.mjd,flight.weatherPreset,false).wind;
+    flight.atmospheric.target[0]=4000;
     NSString *elapsed=NSProcessInfo.processInfo.environment[@"ORBITER_SUNSET_ELAPSED"];
     int steps=elapsed?std::clamp((int)(elapsed.doubleValue/.05),0,100000):60;for(int i=0;i<steps;++i)flight.advance(.05);
     if(NSString *later=NSProcessInfo.processInfo.environment[@"ORBITER_SUNSET_LATER"]){

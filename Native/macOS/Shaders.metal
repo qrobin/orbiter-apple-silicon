@@ -29,6 +29,9 @@ vertex Raster meshVertex(uint id [[vertex_id]],const device Vertex *vertices [[b
     out.normal=(o.model*float4(normal,0)).xyz;
     out.world=p; out.uv=uv; out.local=local;return out;
 }
+// Only fully opaque vessel groups use this pass; alpha-tested and transparent
+// geometry retains its original depth and blending behaviour.
+fragment void meshDepthFragment() {}
 // Trace nearby reflections through the same world-space clouds as the main
 // view; the satellite representation remains the distant orbital LOD.
 float3 reflectedEnvironment(constant Frame &f,float3 worldOffset,float3 ray,float roughness,texture2d<float> planet,texture2d<float> clouds,texture2d<float> stars,texture3d<float> noise){

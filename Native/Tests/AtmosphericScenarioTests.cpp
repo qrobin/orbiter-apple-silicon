@@ -14,7 +14,7 @@ int main(){try{
     check(loadEarthWeatherMap(root/"Native/Assets/earth-clouds.r8"),"Load the weather map");
     const Scenario cases[]={
         {"Atlantic Ocean flight.scn",20,-40,5000,4},
-        {"Hawaii sunset.scn",20.5,-156.5,4000,1},
+        {"Hawaii sunset.scn",20.5,-156.5,400,1},
         {"Gulf of Mexico storm.scn",25,-90,2500,3},
         {"Mediterranean clear flight.scn",35,18,5000,0},
         {"France low flight.scn",46,2,400,0}
@@ -28,6 +28,7 @@ int main(){try{
         check(f.weatherPreset==scenario.weather&&dotp(f.forward,f.airRelativeVelocity().unit())>.999,"Weather loads and aircraft faces the airflow");
         check(f.atmosphericAvailable(),"Flight stabilization is available");
         check(f.atmospheric.active[0]&&f.atmospheric.active[1]&&f.atmospheric.active[2],"Preset begins with altitude, airspeed and level-bank holds engaged");
+        check(fabs(f.atmospheric.target[0]-scenario.height)<.1,"Altitude hold matches the scenario's starting altitude");
         if(scenario.weather==3)check(f.currentWeather().rain>.5&&f.currentWeather().wind.length()>15,"Storm produces rain and strong wind");
         if(scenario.latitude==20.5){
             auto sun=[&](double date){return (-bodyState(BodyId::Earth,date).position-bodySurface(BodyId::Earth,lat,lon,date).up*(EarthRadius+scenario.height)).unit();};
