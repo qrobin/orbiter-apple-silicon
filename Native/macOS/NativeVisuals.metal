@@ -333,6 +333,18 @@ float3 earthGroundMaterial(float3 albedo,float3 high,float3 offset,float distanc
     return mix(albedo,regional,fade);
 }
 struct GroundRaster {float4 position [[position]];float3 world;float3 normal;float2 uv;float height;};
+float3 groundDetailProjection(texture2d<float> detail,float2 high,float2 offset){
+    constexpr sampler s(filter::linear,mip_filter::linear,s_address::repeat,t_address::repeat,max_anisotropy(8));
+    // Reduce the large fixed origin before adding the nearby fractional
+    // coordinate. Derivatives then describe real ground motion, instead of
+    // quantization in interpolated planet-scale latitude/longitude.
+    float2 uv1=fmod(high,85.0f)/85.0f+offset/85.0f;
+    float2 rotatedOffset=float2(offset.x*.8f-offset.y*.6f,offset.x*.6f+offset.y*.8f);
+    float2 phase=float2(fmod(high.x,107.0f/.8f)*.8f-fmod(high.y,107.0f/.6f)*.6f,
+                        fmod(high.x,107.0f/.6f)*.6f+fmod(high.y,107.0f/.8f)*.8f);
+    float2 uv2=(phase+rotatedOffset)/107.0f+.37f;
+    return mix(detail.sample(s,uv1).rgb,detail.sample(s,uv2).rgb,.5f);
+}
 int2 groundCenter(float2 metres,float spacing){return int2(floor(metres/(spacing*2)))*2;}
 bool groundTileVisible(int2 tile,float2 metres,float spacing,uint level){
     if(level==0)return true;
@@ -386,8 +398,10 @@ fragment float4 groundFragment(GroundRaster in [[stage_in]],constant FrameUnifor
         albedo=earthGroundMaterial(albedo,high,offset,length(in.world),footprint);
     }
     if(!earthBody){
-        float3 fixedPoint=f.terrainOriginHigh.w>0?f.terrainOriginHigh.xyz+(f.terrainOriginLow.xyz+terrestrial(in.world,f)):terrestrial(f.position.xyz*f.body.x+in.world,f);
-        float footprint=max(length(dfdx(fixedPoint)),length(dfdy(fixedPoint)));
+        float3 high=f.terrainOriginHigh.w>0?f.terrainOriginHigh.xyz:float3(0);
+        float3 offset=f.terrainOriginHigh.w>0?f.terrainOriginLow.xyz+terrestrial(in.world,f):terrestrial(f.position.xyz*f.body.x+in.world,f);
+        float3 fixedPoint=high+offset;
+        float footprint=max(length(dfdx(offset)),length(dfdy(offset)));
         if(int(f.surfaceColor.w)==5)albedo=marsGroundMaterial(albedo,fixedPoint,length(in.world),footprint);
         int bodyId=int(f.surfaceColor.w);
         bool icy=bodyId==11||bodyId==12||bodyId==15||bodyId==16||bodyId==17||bodyId==18||bodyId==19||bodyId==22||(bodyId>=24&&bodyId<=28)||bodyId==30;
@@ -398,10 +412,10 @@ fragment float4 groundFragment(GroundRaster in [[stage_in]],constant FrameUnifor
             float fade=1-smoothstep(1000.0f,8000.0f,length(in.world));
             albedo=mix(albedo,albedo*float3(.48,.57,.62),crack*fade*.45f);
         }
-        constexpr sampler detailSampler(filter::linear,mip_filter::linear,s_address::repeat,t_address::repeat,max_anisotropy(8));
-        float2 metres=float2((in.uv.x-.5f)*(2*M_PI_F),(.5f-in.uv.y)*M_PI_F)*f.body.x;
-        float2 uv1=metres/85.0f,uv2=float2(metres.x*.8f-metres.y*.6f,metres.x*.6f+metres.y*.8f)/107.0f;
-        float3 detail=mix(marsDetail.sample(detailSampler,uv1).rgb,marsDetail.sample(detailSampler,uv2+.37f).rgb,.5f);
+        float3 weights=pow(abs(normalize(terrestrial(in.normal,f))),float3(4));weights/=max(.001f,weights.x+weights.y+weights.z);
+        float3 detail=groundDetailProjection(marsDetail,high.yz,offset.yz)*weights.x+
+                      groundDetailProjection(marsDetail,high.xz,offset.xz)*weights.y+
+                      groundDetailProjection(marsDetail,high.xy,offset.xy)*weights.z;
         float luminance=dot(detail,float3(.2126,.7152,.0722));
         float detailFade=1-smoothstep(1000.0f,7000.0f,length(in.world));
         albedo*=mix(1.0f,clamp(luminance/.14f,.55f,1.45f),detailFade*.72f);

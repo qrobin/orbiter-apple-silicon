@@ -258,6 +258,30 @@ int main(){@autoreleasepool{
             [encoder endEncoding];[command commit];[command waitUntilCompleted];require(command.error==nil,"Mars ground and rock render");std::vector<unsigned char> pixels(width*height*4);[output getBytes:pixels.data() bytesPerRow:width*4 fromRegion:MTLRegionMake2D(0,0,width,height) mipmapLevel:0];return pixels;};
         auto bare=renderMars(false),rocks=renderMars(true);size_t changed=0;for(size_t i=0;i<rocks.size();i+=4)if(abs(int(rocks[i])-int(bare[i]))+abs(int(rocks[i+1])-int(bare[i+1]))+abs(int(rocks[i+2])-int(bare[i+2]))>10)++changed;
         printf("Mars rock pixels: %zu\n",changed);require(changed>25,"Mars rocks visibly cover the generated surface");
+        {
+            // Looking across Mars from a parked, surface-fixed viewpoint, the
+            // regolith must remain stable while the planet rotates underneath.
+            auto saved=f;std::vector<unsigned char> previous;double worst=0;
+            double latitude=Rad(10),longitude=0,altitude=elevation+3;
+            Vector fixed(cos(latitude)*cos(longitude),sin(latitude),cos(latitude)*sin(longitude));
+            Vector fixedEast(-sin(longitude),0,cos(longitude)),fixedNorth(-sin(latitude)*cos(longitude),cos(latitude),-sin(latitude)*sin(longitude));
+            for(int frame=0;frame<24;++frame){
+                double angle=4.2+frame*(Pi2/88642.7)/30;
+                Vector axisX(cos(angle),0,-sin(angle)),axisZ(sin(angle),0,cos(angle)),pole(0,1,0);
+                auto world=[&](Vector v){return axisX*v.x+pole*v.y+axisZ*v.z;};
+                auto simd=[](Vector v,float w=0){return simd_float4{(float)v.x,(float)v.y,(float)v.z,w};};
+                setTerrainFrame(f,world(fixed)*(b.radius+altitude),axisX,pole,axisZ);
+                f.position=simd(world(fixed)*(1+altitude/b.radius));f.right=simd(world(fixedEast));
+                f.up=simd(world(fixed));f.forward=simd(world(fixedNorth));f.sun=simd(world((fixed+fixedNorth*.5).unit()),1);
+                f.screen.w=(float)(angle/Pi2);f.environment={(float)(altitude/b.radius),(float)altitude,0,0};
+                auto current=renderMars(false);
+                if(!previous.empty()){double sum=0;for(size_t i=0;i<current.size();i+=4)for(int c=0;c<3;++c)sum+=abs(int(current[i+c])-int(previous[i+c]));
+                    worst=std::max(worst,sum/(width*height*3));}
+                previous=std::move(current);
+            }
+            printf("Mars ground temporal mean change: %.4f/255\n",worst);
+            require(worst<.15,"Mars ground material must remain stable at a parked surface viewpoint");f=saved;
+        }
         NSString *path=NSProcessInfo.processInfo.environment[@"ORBITER_MARS_PREVIEW"];if(path.length){NSBitmapImageRep *rep=[[NSBitmapImageRep alloc] initWithBitmapDataPlanes:nullptr pixelsWide:width pixelsHigh:height bitsPerSample:8 samplesPerPixel:4 hasAlpha:YES isPlanar:NO colorSpaceName:NSCalibratedRGBColorSpace bytesPerRow:width*4 bitsPerPixel:32];memcpy(rep.bitmapData,rocks.data(),rocks.size());[[rep representationUsingType:NSBitmapImageFileTypePNG properties:@{}] writeToFile:path atomically:YES];}
     }
     f=savedGroundFrame;
