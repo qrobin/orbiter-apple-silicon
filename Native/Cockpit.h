@@ -22,4 +22,6 @@ const std::vector<CockpitZone> &cockpitMfdScreens();
 bool visibleCockpitGroup(size_t group);
 CockpitHit pickCockpit(const Vector &origin,const Vector &direction);
 int cockpitNavButton(double u,double v);
+// Keep a drag on its current side of the main/retro neutral detent.
+double cockpitMainRetroDrag(double level,double delta,int &mode);
 }

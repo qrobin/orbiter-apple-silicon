@@ -124,7 +124,7 @@ bool Glider::parse(const std::string &line) {
     if(key=="DGLIGHTS") { if(!(s>>navLights>>beacons>>strobes>>landingLight>>instrumentLights)) throw std::runtime_error("Invalid light state.");landingLightMode=landingLight?1:0;return true; }
     if(key=="LANDDOCKLIGHT") { if(!(s>>landingLightMode)) throw std::runtime_error("Invalid landing light state.");landingLightMode=std::clamp(landingLightMode,0,2);landingLight=landingLightMode!=0;return true; }
     if(key=="FLOODLIGHT") { if(!(s>>cabinLightMode>>cabinLightBrightness)) throw std::runtime_error("Invalid floodlight state.");cabinLightMode=std::clamp(cabinLightMode,0,2);cabinLightBrightness=std::clamp(cabinLightBrightness,0.,1.);return true; }
-    if(key=="INSTRLIGHT") { int enabled,color;double brightness;if(!(s>>enabled>>color>>brightness))throw std::runtime_error("Invalid instrument light state.");instrumentLights=enabled!=0;return true; }
+    if(key=="INSTRLIGHT") { int enabled;if(!(s>>enabled>>instrumentLightColour>>instrumentLightBrightness))throw std::runtime_error("Invalid instrument light state.");instrumentLights=enabled!=0;return true; }
     return false;
 }
 void Glider::save(std::ostream &o) const {
@@ -140,10 +140,11 @@ void Glider::save(std::ostream &o) const {
     for(bool v:valves) o<<' '<<v;
     o<<"\n  DGTHERMAL "<<coolantTemperature<<' '<<cabinTemperature<<' '<<coolantPump
      <<"\n  DGLIGHTS "<<navLights<<' '<<beacons<<' '<<strobes<<' '<<landingLight<<' '<<instrumentLights<<'\n'
-     <<"  LANDDOCKLIGHT "<<(landingLight?std::max(1,landingLightMode):0)<<"\n  FLOODLIGHT "<<cabinLightMode<<' '<<cabinLightBrightness<<'\n';
+     <<"  LANDDOCKLIGHT "<<(landingLight?std::max(1,landingLightMode):0)<<"\n  FLOODLIGHT "<<cabinLightMode<<' '<<cabinLightBrightness
+     <<"\n  INSTRLIGHT "<<instrumentLights<<' '<<instrumentLightColour<<' '<<instrumentLightBrightness<<'\n';
 }
 bool Glider::valid() const {
-    if(!hoverControl.valid()||cabinLightMode<0||cabinLightMode>2||landingLightMode<0||landingLightMode>2||!std::isfinite(cabinLightBrightness)||cabinLightBrightness<0||cabinLightBrightness>1)return false;
+    if(!hoverControl.valid()||cabinLightMode<0||cabinLightMode>2||landingLightMode<0||landingLightMode>2||!std::isfinite(cabinLightBrightness)||cabinLightBrightness<0||cabinLightBrightness>1||instrumentLightColour<0||instrumentLightColour>2||!std::isfinite(instrumentLightBrightness)||instrumentLightBrightness<0||instrumentLightBrightness>1)return false;
     for(const auto &a:parts) if(!std::isfinite(a.position)||!std::isfinite(a.target)||a.position<0||a.position>1||a.target<0||a.target>1) return false;
     for(double n:{hover,retro,mainBalance,gimbalPitch,gimbalYaw,hoverBalance,trim,cabinPressure,lockPressure,coolantTemperature,cabinTemperature}) if(!std::isfinite(n)) return false;
     return hover>=0&&hover<=1&&retro>=0&&retro<=1&&fabs(mainBalance)<=1&&fabs(gimbalPitch)<=1&&fabs(gimbalYaw)<=1&&fabs(hoverBalance)<=1&&fabs(trim)<=1&&rcsMode>=0&&rcsMode<=2&&cabinPressure>=0&&cabinPressure<=400000&&lockPressure>=0&&lockPressure<=400000&&coolantTemperature>=100&&coolantTemperature<=1000&&cabinTemperature>=100&&cabinTemperature<=1000;

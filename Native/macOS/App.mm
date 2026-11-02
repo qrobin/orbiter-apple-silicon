@@ -106,6 +106,7 @@ struct GpuGroup { id<MTLBuffer> vertices,indices; NSUInteger count; size_t mater
     std::array<id<MTLTexture>,2> instrumentTextures;
     id<MTLTexture> cockpitHudTexture;
     int activeCockpitControl;
+    int mainRetroDragMode;
     double activeCockpitDirection;
     CFTimeInterval previous,begin,lastHud;
     NSUInteger frameCount,smokeFrames,gpuSamples;
@@ -545,6 +546,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     if((input.pitch||input.yaw||input.roll)&&flight.glider.rcsMode!=2) flight.clearAssist();
     if(smokeFrames&&rcsDemo){input.pitch=.3;input.yaw=-.15;input.roll=.2;flight.clearAssist();}
     if(activeCockpitControl==22)flight.glider.cabinLightBrightness=std::clamp(flight.glider.cabinLightBrightness+activeCockpitDirection*dt*.3,0.,1.);
+    if(activeCockpitControl==23)flight.glider.instrumentLightBrightness=std::clamp(flight.glider.instrumentLightBrightness+activeCockpitDirection*dt*.3,0.,1.);
     if(activeCockpitControl==62){flight.hud.adjustBrightness(activeCockpitDirection*dt*.3);self.hud.needsDisplay=YES;}
     if(activeCockpitControl>=41&&activeCockpitControl<=43){
         auto &h=flight.glider.hoverControl;
@@ -750,6 +752,8 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
             auto &hover=g.hoverControl;double amount=(enabled?1:-1)*28*RAD;bool lit=false;Vector axis=sw.axis;
             if(sw.action==19)amount=(g.landingLight?(g.landingLightMode==2?-1:1):0)*28*RAD;
             else if(sw.action==22)amount=-280*RAD*g.cabinLightBrightness;
+            else if(sw.action==23)amount=-280*RAD*(g.instrumentLightBrightness-.5);
+            else if(sw.action==24)amount=activeCockpitControl==24?-90*RAD:0;
             else if(sw.action==21)amount=(g.cabinLightMode==2?-1:g.cabinLightMode==1?1:0)*28*RAD;
             else if(sw.action==30)amount=(1-g.rcsMode)*50*RAD;
             else if(sw.action==40)amount=(1-hover.attitudeMode)*50*RAD;
@@ -833,7 +837,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
             if(cockpit&&g.index!=77&&mat.diffuse[3]>=.99f&&object.specular.w<1){object.specular={.16f,.16f,.16f,24};}
             if(cockpit&&(g.index==85||g.index==100||g.index==101))object.specular={.12f,.12f,.12f,32};
             if(cockpit&&g.index==77)object.options.x=6;
-            if(label){object.color={1,1,1,1};object.options.x=4;}
+            if(label){const float colors[3][3]={{.35f,1,.35f},{1,.7f,.15f},{.6f,.6f,1}};auto &lights=flight.glider;float level=lights.instrumentLights?(float)(.2+.8*lights.instrumentLightBrightness):.05f;const auto &c=colors[std::clamp(lights.instrumentLightColour,0,2)];object.color={c[0]*level,c[1]*level,c[2]*level,1};object.options.x=4.25;}
             if(cockpit&&(g.index==86||g.index==123))object.options.x=4;
             id<MTLBuffer> vertices=cockpit&&g.index==86&&horizonVertices?horizonVertices:cockpit&&g.index==123&&flightTapeVertices?flightTapeVertices:g.vertices;
             [encoder setVertexBuffer:vertices offset:0 atIndex:0];[encoder setVertexBytes:&object length:sizeof(object) atIndex:2];
@@ -1338,6 +1342,8 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     else if(hit.action==19){g.landingLightMode=std::clamp((g.landingLight?std::max(1,g.landingLightMode):0)+(hit.v>.5?-1:1),0,2);g.landingLight=g.landingLightMode!=0;}
     else if(hit.action==21){g.cabinLightMode=std::clamp(g.cabinLightMode+(hit.v>.5?-1:1),0,2);}
     else if(hit.action==22){activeCockpitControl=22;activeCockpitDirection=hit.u>.5?1:-1;g.cabinLightBrightness=std::clamp(g.cabinLightBrightness+activeCockpitDirection*.04,0.,1.);}
+    else if(hit.action==23){activeCockpitControl=23;activeCockpitDirection=hit.u>.5?1:-1;g.instrumentLightBrightness=std::clamp(g.instrumentLightBrightness+activeCockpitDirection*.04,0.,1.);}
+    else if(hit.action==24){activeCockpitControl=24;[self undockISS:nil];return;}
     else if(hit.action>=10&&hit.action<=20) {
         bool *values[]={&g.valves[0],&g.valves[1],&g.valves[2],&g.valves[3],&g.valves[4],&g.coolantPump,&g.navLights,&g.beacons,&g.strobes,&g.landingLight,&g.instrumentLights};
         *values[hit.action-10]=!*values[hit.action-10];
@@ -1345,7 +1351,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     else if(hit.action==31) g.trim=std::clamp(g.trim+(hit.v>.5?-.1:.1),-1.,1.);
     else if(hit.action==32) g.gimbalPitch=std::clamp(g.gimbalPitch+(hit.v>.5?.1:-.1),-1.,1.);
     else if(hit.action==33) g.gimbalYaw=std::clamp(g.gimbalYaw+(hit.v>.5?.1:-.1),-1.,1.);
-    else if(hit.action==34||hit.action==35) {activeCockpitControl=hit.action;}
+    else if(hit.action==34||hit.action==35) {activeCockpitControl=hit.action;mainRetroDragMode=2;}
     else if(hit.action==40) {g.hoverControl.attitudeMode=std::clamp(g.hoverControl.attitudeMode+(hit.u>.5?1:-1),0,2);}
     else if(hit.action>=41&&hit.action<=43) {
         activeCockpitControl=hit.action;activeCockpitDirection=hit.v>.5?-1:1;auto &h=g.hoverControl;
@@ -1370,13 +1376,13 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     double deltaX=event.deltaX,deltaY=event.deltaY;NSPoint point=event.locationInWindow;
     if(!deltaX&&!deltaY&&haveDragPoint){deltaX=point.x-lastDragPoint.x;deltaY=lastDragPoint.y-point.y;}
     lastDragPoint=point;haveDragPoint=true;
-    if(activeCockpitControl==22)return;
+    if(activeCockpitControl==22||activeCockpitControl==23||activeCockpitControl==24)return;
     if(activeCockpitControl>=200&&activeCockpitControl<202){[self rotateTransXGraph:activeCockpitControl-200 horizontal:deltaX vertical:deltaY];return;}
     if(activeCockpitControl>=100)return;
     if(activeCockpitControl==34||activeCockpitControl==35) {
-        double &level=activeCockpitControl==34?flight.throttle:flight.glider.hover;
-        double value=std::clamp(level-deltaY*.01,0.,1.);
-        if(activeCockpitControl==35)flight.setHoverThrottle(value);else flight.setMainThrottle(value);return;
+        if(activeCockpitControl==35)flight.setHoverThrottle(std::clamp(flight.glider.hover-deltaY*.01,0.,1.));
+        else if(!flight.issDocked){double value=cockpitMainRetroDrag(flight.throttle-flight.glider.retro,-deltaY*.01,mainRetroDragMode);flight.setMainThrottle(std::max(0.,value));flight.glider.retro=std::max(0.,-value);}
+        return;
     }
     if(activeCockpitControl>=40)return;
     if(freeCamera.active)freeCamera.drag(deltaX,deltaY);

@@ -6,6 +6,11 @@
 #include <cstdio>
 #include <limits>
 namespace native {
+double cockpitMainRetroDrag(double level,double delta,int &mode) {
+    if(level>0)mode=0;else if(level<0)mode=1;
+    double result=std::clamp(level+delta,mode==0?0.:-1.,mode==1?0.:1.);
+    return fabs(result)<.01?0.:result;
+}
 bool paintHoverReadout(Image &target,const Image &glyphs,const HoverControl &hover) {
     // Original HoverHoldAltIndicator atlas coordinates and 8x11 glyph cells.
     if(target.width<394||target.height<23||glyphs.width<136||glyphs.height<22||

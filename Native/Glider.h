@@ -39,6 +39,8 @@ public:
     std::array<bool,5> valves{};
     int landingLightMode=0,cabinLightMode=0; // off, docking/white, landing/red
     double cabinLightBrightness=.7;
+    double instrumentLightBrightness=.5;
+    int instrumentLightColour=0;
     int rcsMode=1; // 0 off, 1 rotation, 2 translation
     double mainLevel=0,retroLevel=0,hoverLevel=0;
     Vector rcsRotation,rcsTranslation;

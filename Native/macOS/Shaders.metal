@@ -113,7 +113,7 @@ float4 shadeMesh(Raster in,constant Frame &f,constant Object &o,texture2d<float>
         return float4(float3(.48,.57,.63)+glint*float3(.55,.55,.52)+reflected*.55f,alpha);
     }
     if(o.options.x>4.5) { float alpha=tex.sample(s,in.uv).a; if(alpha<.03)discard_fragment(); return float4(o.color.rgb,alpha); }
-    if(o.options.x>3.5) { float4 label=tex.sample(s,in.uv); if(label.a<.03) discard_fragment(); return label; }
+    if(o.options.x>3.5) { float4 label=tex.sample(s,in.uv); if(label.a<.03) discard_fragment(); if(o.options.x>4.1)label.rgb*=o.color.rgb; return label; }
     if(o.options.x>2.5) return float4(tex.sample(s,in.uv).rgb,1);
     if(o.options.x>.5) {
         float alpha=o.options.x>1.5?pow(max(0.0f,1-length(in.uv)),2.0f):pow(max(0.0f,1-abs(in.uv.x)),1.5f)*pow(max(0.0f,1-in.uv.y),.65f);
