@@ -1,5 +1,6 @@
 #include "Flight.h"
 #include "Mesh.h"
+#include "GliderGeometry.h"
 #include <iostream>
 #include <algorithm>
 #include <fstream>
@@ -77,6 +78,29 @@ int main() { try {
     check(cockpitSkin.width==1024&&cockpitSkin.height==1024,"high-resolution original cockpit skin loads");
     auto enhancedSkin=loadDDS(root/"Native/GliderTextures/dgmk4_2.dds");
     check(enhancedSkin.width==2508&&enhancedSkin.height==2508&&enhancedSkin.rgba.size()==size_t(2508)*2508*4,"generated glider texture loads");
+    for(const char *name:{"dgip_01.dds","dgip_03.dds","dgip_04.dds","dgip_05.dds"}) {
+        auto original=loadDDS(root/"Src/Vessel/DeltaGlider/Textures"/name);
+        auto enlarged=loadDDS(root/"Native/GliderTextures"/name);
+        check(original.width==256&&original.height==256&&enlarged.width==512&&enlarged.height==512,"static cockpit atlas loads at twice the original resolution");
+    }
+    auto refined=mesh; refineGliderWheels(refined);
+    check(refined.groups.size()==mesh.groups.size(),"wheel refinement preserves mesh groups");
+    for(size_t i=0;i<mesh.groups.size();++i) {
+        bool wheel=i==99||i==100||i==101;
+        check(refined.groups[i].indices.size()==mesh.groups[i].indices.size()*(wheel?4:1),"only landing wheel triangles are subdivided");
+        if(wheel) {
+            check(refined.groups[i].vertices.size()>mesh.groups[i].vertices.size(),"wheel subdivision adds vertices");
+            for(auto index:refined.groups[i].indices)check(index<refined.groups[i].vertices.size(),"refined wheel indices are valid");
+            for(const auto &v:refined.groups[i].vertices)check(std::isfinite(v.x)&&std::isfinite(v.y)&&std::isfinite(v.z),"refined wheel vertices are finite");
+        }
+    }
+    // The first two vertices of the right wheel share a 12-sided hub ring.
+    const auto &wheel=refined.groups[99];const auto &a=wheel.vertices[0],&b=wheel.vertices[1];
+    float radius=std::hypot(a.y+1.995099f,a.z+3.133083f);bool curved=false;
+    for(size_t i=mesh.groups[99].vertices.size();i<wheel.vertices.size();++i){const auto &v=wheel.vertices[i];
+        if(std::abs(v.x-a.x)<1e-5f&&std::abs(v.u-(a.u+b.u)*.5f)<1e-6f&&std::abs(v.v-(a.v+b.v)*.5f)<1e-6f&&std::abs(std::hypot(v.y+1.995099f,v.z+3.133083f)-radius)<1e-4f)curved=true;
+    }
+    check(curved,"wheel ring midpoint follows original circular profile");
     size_t triangles=0; for(const auto &g:mesh.groups) triangles+=g.indices.size()/3;
     check(triangles>10000,"complete mesh topology");
     for(auto &name:mesh.textures) {

@@ -1,3 +1,4 @@
+#include "GliderGeometry.h"
 #import <Cocoa/Cocoa.h>
 #import <Metal/Metal.h>
 #import <MetalKit/MetalKit.h>
@@ -415,6 +416,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     surfaceBase=loadSurfaceBase(resource(@"Bases/Canaveral.cfg").fileSystemRepresentation,resource(@"Meshes").fileSystemRepresentation);
     for(int meshIndex=0;meshIndex<4;++meshIndex) {
         auto mesh=meshIndex==2?surfaceBase.mesh:loadMesh(resource(meshIndex==3?@"Meshes/ProjectAlpha_ISS.msh":meshIndex?@"Meshes/deltaglider_vc.msh":@"Meshes/deltaglider_ns.msh").fileSystemRepresentation);
+        if(meshIndex==0) refineGliderWheels(mesh);
         size_t materialBase=materials.size(),textureBase=textures.count-1;
         materials.insert(materials.end(),mesh.materials.begin(),mesh.materials.end());
         if(meshIndex<2) meshCounts[meshIndex]=mesh.groups.size();

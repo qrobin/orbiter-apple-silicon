@@ -235,7 +235,7 @@ The native panel is a separate macOS window. Click the flight window to return k
 
 ## Build
 
-The native build uses a generated replacement for the Delta-glider's second exterior texture atlas, resized to 2508 × 2508 from 1254 × 1254. It is based on the original atlas, but some markings and panels may not line up exactly with the mesh; the other exterior atlas remains original. The upstream texture files are retained under `Src/Vessel/DeltaGlider/Textures2`.
+The native build uses a generated replacement for the Delta-glider's second exterior texture atlas, resized to 2508 × 2508 from 1254 × 1254. It is based on the original atlas, but some markings and panels may not line up exactly with the mesh; the other exterior atlas remains original. Four static 256 × 256 cockpit control atlases are resized to 512 × 512 with mild sharpening, preserving the original layout; this smooths the existing artwork but does not restore missing detail. The original twelve-sided landing wheels are refined to 24 sides for the native renderer, retaining their UVs and gear animations. The upstream texture files and meshes are retained under `Src/Vessel/DeltaGlider`.
 
 Requires Apple Silicon, macOS 13+, Xcode command-line tools and CMake 3.19+. The native build fetches no dependencies and links only Apple system frameworks/libraries.
 
