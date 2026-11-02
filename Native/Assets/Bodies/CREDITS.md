@@ -22,8 +22,13 @@ Europa uses the USGS Voyager/Galileo 500 m global mosaic, reduced to
 pole are filled from the previous map. The mosaic contains visible boundaries
 between images and uneven resolution: https://astrogeology.usgs.gov/search/map/europa_voyager_galileo_ssi_global_mosaic_500m.
 
+Enceladus uses a 7208 × 3604 crop of the Cassini mosaic PIA14937, with a
+longitude shift and tint. It is contrast-enhanced and does not represent
+uniform surface brightness. Credit: NASA/JPL-Caltech/Space Science Institute;
+https://science.nasa.gov/photojournal/map-of-enceladus-december-2011/.
+
 Moon textures for Phobos, Deimos, Io, Ganymede, Callisto, Mimas,
-Enceladus, Tethys, Dione, Rhea, Iapetus, Ariel, Umbriel, Titania, Oberon,
+Tethys, Dione, Rhea, Iapetus, Ariel, Umbriel, Titania, Oberon,
 Miranda and Triton derive from NASA/JPL/Caltech/USGS Solar System Simulator
 mosaics: https://maps.jpl.nasa.gov/tmaps/. Original mosaics are generally
 1440 × 720, based on Voyager and in some cases Galileo imagery. They were
