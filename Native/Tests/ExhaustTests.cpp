@@ -11,7 +11,7 @@ int checks=0;
 void check(bool ok,const char *name){++checks;if(!ok)throw std::runtime_error(name);}
 int main(){try {
     Flight f;check(gliderExhaust(f).empty(),"No jets at idle");check(gliderFlameLights(f).empty(),"No flame lights at idle");
-    f.glider.mainLevel=.7;f.glider.mainBalance=.3;f.glider.gimbalPitch=.8;
+    f.glider.mainLevel=.7;f.glider.mainBalance=.3;f.glider.mainGimbal.pitch.fill(.8*MainGimbal::pitchRange);
     auto e=gliderExhaust(f);check(e.size()==2,"Two main engines");check(fabs(e[0].level-.49)<1e-10,"Main engine balance");check(e[0].direction.y<0,"Exhaust opposes gimbal thrust");
     check(e[0].id==0&&e[1].id==1,"Main nozzles have stable identities");
     auto flameLights=gliderFlameLights(f);check(flameLights.size()==2&&flameLights[1].intensity>flameLights[0].intensity,"Each main flame emits light proportional to its actual thrust");

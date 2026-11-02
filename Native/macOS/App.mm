@@ -106,6 +106,7 @@ struct GpuGroup { id<MTLBuffer> vertices,indices; NSUInteger count; size_t mater
     std::array<id<MTLTexture>,2> instrumentTextures;
     id<MTLTexture> cockpitHudTexture;
     int activeCockpitControl;
+    int activeGimbalEngines;
     int mainRetroDragMode;
     double activeCockpitDirection;
     CFTimeInterval previous,begin,lastHud;
@@ -357,7 +358,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     if(!loadTerrainMask(resource(@"earth-terrain-mask.r8").fileSystemRepresentation))
         @throw [NSException exceptionWithName:@"Terrain map unavailable" reason:@"The Earth terrain mask could not be loaded." userInfo:nil];
     displayedAoa=0;instrumentElapsed=-1;lastVsScale=INT_MIN;lastVsCentered=false;
-    activeCockpitControl=-1;cockpitPitch=-.25;restartBody=-1;lastBody=BodyId::Earth;
+    activeCockpitControl=-1;activeGimbalEngines=0;cockpitPitch=-.25;restartBody=-1;lastBody=BodyId::Earth;
     held.fill(false);lastMfdLabels.fill(false);transxMfd.fill(false);transxAlignDisplay=-1;transxAlignBody=flight.reference;transxRefresh=0; externalCamera.yaw=-.55; externalCamera.pitch=.32; externalCamera.distance=43; helpVisible=false; orbitVisible=true;
     NSNumber *savedFov=[NSUserDefaults.standardUserDefaults objectForKey:@"FieldOfViewDegrees"];
     double fov=savedFov&&std::isfinite(savedFov.doubleValue)?std::clamp(savedFov.doubleValue,15.,85.):50.;
@@ -548,6 +549,8 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     if(smokeFrames&&rcsDemo){input.pitch=.3;input.yaw=-.15;input.roll=.2;flight.clearAssist();}
     if(activeCockpitControl==22)flight.glider.cabinLightBrightness=std::clamp(flight.glider.cabinLightBrightness+activeCockpitDirection*dt*.3,0.,1.);
     if(activeCockpitControl==23)flight.glider.instrumentLightBrightness=std::clamp(flight.glider.instrumentLightBrightness+activeCockpitDirection*dt*.3,0.,1.);
+    if((activeCockpitControl==32||activeCockpitControl==33)&&!flight.paused)
+        flight.glider.mainGimbal.command(activeCockpitControl==32,activeGimbalEngines,activeCockpitDirection,std::min(dt,.1)*std::clamp(flight.warp,1.0,MaximumTimeAcceleration));
     if(activeCockpitControl==62){flight.hud.adjustBrightness(activeCockpitDirection*dt*.3);self.hud.needsDisplay=YES;}
     if(activeCockpitControl>=41&&activeCockpitControl<=43){
         auto &h=flight.glider.hoverControl;
@@ -761,6 +764,9 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
             else if(sw.action==24)amount=activeCockpitControl==24?-90*RAD:0;
             else if(sw.action==21)amount=(g.cabinLightMode==2?-1:g.cabinLightMode==1?1:0)*28*RAD;
             else if(sw.action==30)amount=(1-g.rcsMode)*50*RAD;
+            else if(sw.action==36)amount=(1-g.mainGimbal.mode)*50*RAD;
+            else if(sw.action>=90&&sw.action<=93) { int control=sw.action<92?32:33,engine=(sw.action-90)%2; amount=activeCockpitControl==control&&(activeGimbalEngines&(1<<engine))?activeCockpitDirection*(control==32?15:-15)*RAD:0; }
+            else if(sw.action>=84&&sw.action<=87) { int engine=(sw.action-84)/2;bool actual=(sw.action-84)%2;const auto &gm=g.mainGimbal;double p=(actual?gm.pitch:gm.pitchCommand)[engine]/MainGimbal::pitchRange;double y=(actual?gm.yaw:gm.yawCommand)[engine]/MainGimbal::yawRange;double dy=-p*.0103;axis={-y*.0103,dy*cos(.622165),dy*sin(.622165)};amount=1; }
             else if(sw.action==40)amount=(1-hover.attitudeMode)*50*RAD;
             else if(sw.action>=41&&sw.action<=43)amount=activeCockpitControl==sw.action?activeCockpitDirection*15*RAD:0;
             else if(sw.action==45)amount=activeCockpitControl==45?.004:0;
@@ -849,6 +855,8 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
             // opaque surfaces a restrained satin highlight where the mesh has none.
             if(cockpit&&g.index!=77&&mat.diffuse[3]>=.99f&&object.specular.w<1){object.specular={.16f,.16f,.16f,24};}
             if(cockpit&&(g.index==85||g.index==100||g.index==101))object.specular={.12f,.12f,.12f,32};
+            // The original molded switches and metal dial catch a restrained highlight.
+            if(cockpit&&(g.index==102||g.index==106))object.specular={.16f,.16f,.16f,48};
             if(cockpit&&g.index==77)object.options.x=6;
             if(label){const float colors[3][3]={{.35f,1,.35f},{1,.7f,.15f},{.6f,.6f,1}};auto &lights=flight.glider;float level=lights.instrumentLights?(float)(.2+.8*lights.instrumentLightBrightness):.05f;const auto &c=colors[std::clamp(lights.instrumentLightColour,0,2)];object.color={c[0]*level,c[1]*level,c[2]*level,1};object.options.x=4.25;}
             if(cockpit&&(g.index==86||g.index==123))object.options.x=4;
@@ -1366,8 +1374,8 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         *values[hit.action-10]=!*values[hit.action-10];
     } else if(hit.action==30) g.rcsMode=std::clamp(g.rcsMode+(hit.u>.5?1:-1),0,2);
     else if(hit.action==31) g.trim=std::clamp(g.trim+(hit.v>.5?-.1:.1),-1.,1.);
-    else if(hit.action==32) g.gimbalPitch=std::clamp(g.gimbalPitch+(hit.v>.5?.1:-.1),-1.,1.);
-    else if(hit.action==33) g.gimbalYaw=std::clamp(g.gimbalYaw+(hit.v>.5?.1:-.1),-1.,1.);
+    else if(hit.action==32||hit.action==33) { activeCockpitControl=hit.action;activeGimbalEngines=hit.u<.25?1:hit.u>.75?2:3;activeCockpitDirection=hit.action==32?(hit.v>.5?1:-1):(hit.v>.5?-1:1); }
+    else if(hit.action==36) g.mainGimbal.mode=std::clamp(g.mainGimbal.mode+(hit.u>.5?1:-1),0,2);
     else if(hit.action==34||hit.action==35) {activeCockpitControl=hit.action;mainRetroDragMode=2;}
     else if(hit.action==40) {g.hoverControl.attitudeMode=std::clamp(g.hoverControl.attitudeMode+(hit.u>.5?1:-1),0,2);}
     else if(hit.action>=41&&hit.action<=43) {
@@ -1393,7 +1401,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     double deltaX=event.deltaX,deltaY=event.deltaY;NSPoint point=event.locationInWindow;
     if(!deltaX&&!deltaY&&haveDragPoint){deltaX=point.x-lastDragPoint.x;deltaY=lastDragPoint.y-point.y;}
     lastDragPoint=point;haveDragPoint=true;
-    if(activeCockpitControl==22||activeCockpitControl==23||activeCockpitControl==24)return;
+    if(activeCockpitControl==22||activeCockpitControl==23||activeCockpitControl==24||activeCockpitControl==32||activeCockpitControl==33)return;
     if(activeCockpitControl>=200&&activeCockpitControl<202){[self rotateTransXGraph:activeCockpitControl-200 horizontal:deltaX vertical:deltaY];return;}
     if(activeCockpitControl>=100)return;
     if(activeCockpitControl==34||activeCockpitControl==35) {

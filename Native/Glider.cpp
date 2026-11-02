@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <istream>
+#include <iomanip>
 #include <ostream>
 #include <sstream>
 #include <stdexcept>
@@ -117,7 +118,9 @@ bool Glider::parse(const std::string &line) {
     }
     if(key=="DGTARGETS") { for(auto &a:parts) if(!(s>>a.target)) throw std::runtime_error("Invalid mechanism target.");return true; }
     if(key=="DGPARKBRAKE") { if(!(s>>parkingBrake)) throw std::runtime_error("Invalid parking brake state.");return true; }
-    if(key=="DGENGINES") { if(!(s>>hover>>retro>>mainBalance>>gimbalPitch>>gimbalYaw>>hoverBalance)) throw std::runtime_error("Invalid engine controls."); return true; }
+    if(key=="DGENGINES") { double pitch,yaw;if(!(s>>hover>>retro>>mainBalance>>pitch>>yaw>>hoverBalance)) throw std::runtime_error("Invalid engine controls."); if(!std::isfinite(pitch)||!std::isfinite(yaw)||fabs(pitch)>1||fabs(yaw)>1)throw std::runtime_error("Invalid engine controls.");mainGimbal.setBoth(true,pitch);mainGimbal.setBoth(false,yaw);mainGimbal.pitch=mainGimbal.pitchCommand;mainGimbal.yaw=mainGimbal.yawCommand;return true; }
+    if(key=="MGIMBALMODE") { if(!(s>>mainGimbal.mode))throw std::runtime_error("Invalid gimbal mode.");if(mainGimbal.mode==2&&!(s>>mainGimbal.pitchCommand[0]>>mainGimbal.pitchCommand[1]>>mainGimbal.yawCommand[0]>>mainGimbal.yawCommand[1]))throw std::runtime_error("Invalid gimbal commands.");return true; }
+    if(key=="DGMGIMBAL") { if(!(s>>mainGimbal.pitch[0]>>mainGimbal.pitch[1]>>mainGimbal.yaw[0]>>mainGimbal.yaw[1]))throw std::runtime_error("Invalid gimbal position.");return true; }
     if(key=="DGCONTROLS") { if(!(s>>rcsMode>>trim)) throw std::runtime_error("Invalid flight controls."); return true; }
     if(key=="DGPRESSURE") { if(!(s>>cabinPressure>>lockPressure)) throw std::runtime_error("Invalid pressure state."); for(auto &v:valves) {int n=0;if(!(s>>n)) throw std::runtime_error("Invalid valve state.");v=n!=0;} return true; }
     if(key=="DGTHERMAL") { if(!(s>>coolantTemperature>>cabinTemperature>>coolantPump)) throw std::runtime_error("Invalid thermal state."); return true; }
@@ -135,8 +138,11 @@ void Glider::save(std::ostream &o) const {
     }
     o<<"  DGTARGETS"; for(const auto &a:parts)o<<' '<<a.target;o<<'\n';
     o<<"  DGPARKBRAKE "<<parkingBrake<<'\n';
-    o<<"  DGENGINES "<<hover<<' '<<retro<<' '<<mainBalance<<' '<<gimbalPitch<<' '<<gimbalYaw<<' '<<hoverBalance
-     <<"\n  DGCONTROLS "<<rcsMode<<' '<<trim<<"\n  DGPRESSURE "<<cabinPressure<<' '<<lockPressure;
+    auto precision=o.precision();
+    o<<std::setprecision(17)<<"  DGENGINES "<<hover<<' '<<retro<<' '<<mainBalance<<' '<<0<<' '<<0<<' '<<hoverBalance
+     <<"\n  MGIMBALMODE "<<mainGimbal.mode<<' '<<mainGimbal.pitchCommand[0]<<' '<<mainGimbal.pitchCommand[1]<<' '<<mainGimbal.yawCommand[0]<<' '<<mainGimbal.yawCommand[1]
+     <<"\n  DGMGIMBAL "<<mainGimbal.pitch[0]<<' '<<mainGimbal.pitch[1]<<' '<<mainGimbal.yaw[0]<<' '<<mainGimbal.yaw[1]
+     <<std::setprecision(precision)<<"\n  DGCONTROLS "<<rcsMode<<' '<<trim<<"\n  DGPRESSURE "<<cabinPressure<<' '<<lockPressure;
     for(bool v:valves) o<<' '<<v;
     o<<"\n  DGTHERMAL "<<coolantTemperature<<' '<<cabinTemperature<<' '<<coolantPump
      <<"\n  DGLIGHTS "<<navLights<<' '<<beacons<<' '<<strobes<<' '<<landingLight<<' '<<instrumentLights<<'\n'
@@ -144,9 +150,9 @@ void Glider::save(std::ostream &o) const {
      <<"\n  INSTRLIGHT "<<instrumentLights<<' '<<instrumentLightColour<<' '<<instrumentLightBrightness<<'\n';
 }
 bool Glider::valid() const {
-    if(!hoverControl.valid()||cabinLightMode<0||cabinLightMode>2||landingLightMode<0||landingLightMode>2||!std::isfinite(cabinLightBrightness)||cabinLightBrightness<0||cabinLightBrightness>1||instrumentLightColour<0||instrumentLightColour>2||!std::isfinite(instrumentLightBrightness)||instrumentLightBrightness<0||instrumentLightBrightness>1)return false;
+    if(!mainGimbal.valid()||!hoverControl.valid()||cabinLightMode<0||cabinLightMode>2||landingLightMode<0||landingLightMode>2||!std::isfinite(cabinLightBrightness)||cabinLightBrightness<0||cabinLightBrightness>1||instrumentLightColour<0||instrumentLightColour>2||!std::isfinite(instrumentLightBrightness)||instrumentLightBrightness<0||instrumentLightBrightness>1)return false;
     for(const auto &a:parts) if(!std::isfinite(a.position)||!std::isfinite(a.target)||a.position<0||a.position>1||a.target<0||a.target>1) return false;
-    for(double n:{hover,retro,mainBalance,gimbalPitch,gimbalYaw,hoverBalance,trim,cabinPressure,lockPressure,coolantTemperature,cabinTemperature}) if(!std::isfinite(n)) return false;
-    return hover>=0&&hover<=1&&retro>=0&&retro<=1&&fabs(mainBalance)<=1&&fabs(gimbalPitch)<=1&&fabs(gimbalYaw)<=1&&fabs(hoverBalance)<=1&&fabs(trim)<=1&&rcsMode>=0&&rcsMode<=2&&cabinPressure>=0&&cabinPressure<=400000&&lockPressure>=0&&lockPressure<=400000&&coolantTemperature>=100&&coolantTemperature<=1000&&cabinTemperature>=100&&cabinTemperature<=1000;
+    for(double n:{hover,retro,mainBalance,hoverBalance,trim,cabinPressure,lockPressure,coolantTemperature,cabinTemperature}) if(!std::isfinite(n)) return false;
+    return hover>=0&&hover<=1&&retro>=0&&retro<=1&&fabs(mainBalance)<=1&&fabs(hoverBalance)<=1&&fabs(trim)<=1&&rcsMode>=0&&rcsMode<=2&&cabinPressure>=0&&cabinPressure<=400000&&lockPressure>=0&&lockPressure<=400000&&coolantTemperature>=100&&coolantTemperature<=1000&&cabinTemperature>=100&&cabinTemperature<=1000;
 }
 }

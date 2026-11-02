@@ -143,7 +143,7 @@
         mechanismValues[i].stringValue=[NSString stringWithFormat:@"%@ %.0f%%",a.moving()?(a.target>a.position?@"Opening":@"Closing"):(a.position>.99?@"Open":a.position<.01?@"Closed":@"Stopped"),a.position*100];
         mechanismButtons[i].title=a.target>.5?@"Retract":@"Deploy";
     }
-    double values[]={f.throttle,g.hover,g.retro,g.mainBalance,g.gimbalPitch,g.gimbalYaw,g.hoverBalance,g.trim};
+    double values[]={f.throttle,g.hover,g.retro,g.mainBalance,(g.mainGimbal.pitchCommand[0]+g.mainGimbal.pitchCommand[1])/(2*MainGimbal::pitchRange),(g.mainGimbal.yawCommand[0]+g.mainGimbal.yawCommand[1])/(2*MainGimbal::yawRange),g.hoverBalance,g.trim};
     for(size_t i=0;i<8;++i) { engineSliders[i].doubleValue=values[i]; engineValues[i].stringValue=[NSString stringWithFormat:@"%+.0f%%",values[i]*100]; }
     auto &ap=f.atmospheric;
     if(!ap.targetsInitialized){for(int i=0;i<4;++i)f.captureAtmosphericTarget(i);ap.targetsInitialized=true;}
@@ -187,8 +187,8 @@
 }
 - (void)changeEngine:(NSSlider *)sender {
     auto &f=flightView->flight; auto &g=f.glider;
-    double *values[]={&f.throttle,&g.hover,&g.retro,&g.mainBalance,&g.gimbalPitch,&g.gimbalYaw,&g.hoverBalance,&g.trim};
-    if(sender.tag==0)f.setMainThrottle(sender.doubleValue);else if(sender.tag==1)f.setHoverThrottle(sender.doubleValue);else *values[sender.tag]=sender.doubleValue; [self refresh:nil];
+    double *values[]={&f.throttle,&g.hover,&g.retro,&g.mainBalance,nullptr,nullptr,&g.hoverBalance,&g.trim};
+    if(sender.tag==0)f.setMainThrottle(sender.doubleValue);else if(sender.tag==1)f.setHoverThrottle(sender.doubleValue);else if(sender.tag==4||sender.tag==5)g.mainGimbal.setBoth(sender.tag==4,sender.doubleValue);else *values[sender.tag]=sender.doubleValue; [self refresh:nil];
 }
 - (void)changeAirTarget:(NSTextField *)sender {
     auto &f=flightView->flight;int channel=(int)sender.tag;double value=sender.doubleValue;

@@ -460,14 +460,15 @@ void Flight::step(double dt,const Input &input) {
     };
     double left=throttle*std::clamp(1-glider.mainBalance,0.,1.)*200000;
     double rightEngine=throttle*std::clamp(1+glider.mainBalance,0.,1.)*200000;
-    Vector mainDirection(glider.gimbalYaw/7.7,tan(5*RAD)*glider.gimbalPitch,1); mainDirection.unify();
+    Vector mainDirectionLeft(glider.mainGimbal.yaw[0],glider.mainGimbal.pitch[0],1); mainDirectionLeft.unify();
+    Vector mainDirectionRight(glider.mainGimbal.yaw[1],glider.mainGimbal.pitch[1],1); mainDirectionRight.unify();
     double retro=glider.retroLevel*34000;
     hover.balance(glider.hover,glider.hoverBalance,pitch(),bank(),-angularVelocity.x,-angularVelocity.z,
                   glider.rcsMode==2?0:input.pitch,glider.rcsMode==2?0:input.roll);
     double hf=hover.levels[0]*140000,hl=hover.levels[1]*140000*(3./4.55)*.5,hr=hover.levels[2]*140000*(3./4.55)*.5;
     double demand=(left+rightEngine+retro*2+hf+hl+hr)*dt/ExhaustVelocity;
     double scale=demand>0?std::min(1.,fuel/demand):1;
-    engine({-1,0,-7.7},mainDirection,left*scale); engine({1,0,-7.7},mainDirection,rightEngine*scale);
+    engine({-1,0,-7.7},mainDirectionLeft,left*scale); engine({1,0,-7.7},mainDirectionRight,rightEngine*scale);
     engine({-3,-.236,5.6},{0,.04210548,-.99911317},retro*scale);
     engine({3,-.236,5.6},{0,.04210548,-.99911317},retro*scale);
     engine({0,0,3},{0,1,0},hf*scale); engine({-3,0,-4.55},{0,1,0},hl*scale); engine({3,0,-4.55},{0,1,0},hr*scale);
@@ -559,6 +560,8 @@ void Flight::advance(double realSeconds,const Input &input) {
     double dt=std::min(realSeconds,.1)*std::clamp(warp,1.0,MaximumTimeAcceleration);
     glider.elevator=-input.pitch;glider.rudder=input.yaw;glider.aileron=input.roll;
     glider.advance(dt,throttle,bodyAtmosphere(reference,altitude()).p);
+    double left=throttle*std::clamp(1-glider.mainBalance,0.,1.),right=throttle*std::clamp(1+glider.mainBalance,0.,1.);
+    glider.mainGimbal.advance(dt,glider.rcsMode==2?0:input.pitch,glider.rcsMode==2?0:input.yaw,glider.rcsMode==2?0:input.roll,left,right);
     if(!maneuver&&!atmosphericFlight&&(assist==Assist::Free||warp>1)) {
         coast(dt); acceleration=0;
         // At accelerated time the finite-torque nav programs are suspended;

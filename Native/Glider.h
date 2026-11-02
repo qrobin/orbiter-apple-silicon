@@ -1,6 +1,7 @@
 #pragma once
 #include "Vecmat.h"
 #include "Hover.h"
+#include "MainGimbal.h"
 #include <array>
 #include <iosfwd>
 #include <string>
@@ -31,7 +32,8 @@ class Glider {
 public:
     std::array<Actuator,PartCount> parts;
     HoverControl hoverControl;
-    double hover=0,retro=0,mainBalance=0,gimbalPitch=0,gimbalYaw=0,hoverBalance=0;
+    MainGimbal mainGimbal;
+    double hover=0,retro=0,mainBalance=0,hoverBalance=0;
     double elevator=0,rudder=0,aileron=0,trim=0;
     double cabinPressure=100000,lockPressure=100000,coolantTemperature=293,cabinTemperature=293;
     bool parkingBrake=false;

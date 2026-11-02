@@ -11,8 +11,8 @@ int checks=0;
 void check(bool value,const char *message) { ++checks;if(!value) throw std::runtime_error(message); }
 void run(Flight &f,double seconds,const Input &input={}) { for(int i=0;i<(int)(seconds*100);++i) f.advance(.01,input); }
 int main() {try {
-    check(cockpitZones().size()==37&&cockpitSpheres().size()==3,"original cockpit quadrilateral and spherical click zones present");
-    check(cockpitSwitches().size()==54,"mechanical cockpit switch, nav and HUD-control animations present");
+    check(cockpitZones().size()==38&&cockpitSpheres().size()==3,"original cockpit quadrilateral and spherical click zones present");
+    check(cockpitSwitches().size()==63,"mechanical cockpit switch, nav and HUD-control animations present");
     const auto &zone=*std::find_if(cockpitZones().begin(),cockpitZones().end(),[](const CockpitZone &z){return z.action==0;});
     Vector center=(zone.corners[0]+zone.corners[3])*.5;
     Vector normal=crossp(zone.corners[1]-zone.corners[0],zone.corners[2]-zone.corners[0]).unit();
@@ -30,6 +30,17 @@ int main() {try {
     check(lever==-.5&&cockpitMainRetroDrag(lever,1,dragMode)==0,"retro lever stops at neutral until released");
     check(!visibleCockpitGroup(130)&&!visibleCockpitGroup(98)&&!visibleCockpitGroup(99),"HUD glass pane is hidden while HUD glyphs render separately");
     check(!visibleCockpitGroup(78)&&!visibleCockpitGroup(96),"Pilot visor pane and unused SCRAM display are hidden");
+    {
+    MainGimbal mg;
+    mg.command(true,1,1,1);check(mg.pitchCommand[0]==0,"off mode ignores manual gimbal commands");
+    mg.mode=2;mg.command(true,1,1,1);check(fabs(mg.pitchCommand[0]-.5*MainGimbal::pitchRange)<1e-12&&mg.pitchCommand[1]==0,"manual pitch selects one engine");
+    mg.advance(.1,0,0,0,0,0);check(fabs(mg.pitch[0]-.006)<1e-12&&mg.pitch[1]==0,"gimbals track commands at the upstream slew rate");
+    mg.mode=1;mg.advance(.1,0,0,1,1,0);check(mg.pitchCommand[0]==-MainGimbal::pitchRange&&mg.pitchCommand[1]==MainGimbal::pitchRange&&mg.yawCommand[0]==MainGimbal::yawRange,"automatic gimbal mixes roll and engine imbalance");
+    Glider saved; saved.mainGimbal.setBoth(true,1);saved.mainGimbal.command(false,1,-1,2);saved.mainGimbal.advance(.2,0,0,0,0,0);
+    std::stringstream state;saved.save(state);Glider restored;std::string line;while(std::getline(state,line))restored.parse(line);
+    check(restored.valid()&&restored.mainGimbal.mode==2&&restored.mainGimbal.pitchCommand==saved.mainGimbal.pitchCommand&&restored.mainGimbal.yaw==saved.mainGimbal.yaw,"gimbal commands and positions survive scenario save");
+    Glider legacy;legacy.parse("DGENGINES 0 0 0 0.5 -0.25 0");check(fabs(legacy.mainGimbal.pitch[0]-.5*MainGimbal::pitchRange)<1e-12&&fabs(legacy.mainGimbal.yaw[1]+.25*MainGimbal::yawRange)<1e-12,"legacy shared gimbal settings load on both engines");
+    }
     Glider g;
     check(Glider::animations().size()==63,"all extracted animation components present");
     for(const auto &c:Glider::animations()) {
@@ -98,7 +109,7 @@ int main() {try {
     check(rotation.angularVelocity.length()<rate*.1,"kill rotation uses finite RCS torque");
     Flight noRCS;noRCS.glider.rcsMode=0;run(noRCS,1,input);check(noRCS.angularVelocity.length()==0,"RCS off disables manual jets");
     Flight empty;empty.rcs=0;run(empty,1,input);check(empty.angularVelocity.length()==0,"empty RCS tank cannot rotate ship");
-    Flight gimbal;gimbal.throttle=.5;gimbal.glider.gimbalPitch=1;run(gimbal,.5);
+    Flight gimbal;gimbal.throttle=.5;gimbal.glider.mainGimbal.setBoth(true,1);run(gimbal,.5);
     check(fabs(gimbal.angularVelocity.x)>.01,"gimbal force at engine mount produces torque");
     Flight balanced;balanced.throttle=.5;run(balanced,.5);
     check(balanced.angularVelocity.length()<1e-10,"balanced main engines do not induce torque");

@@ -13,9 +13,10 @@ std::vector<ExhaustEmitter> gliderExhaust(const Flight &f) {
         unsigned nozzle=id++;level=std::clamp(level,0.,1.);if(level>1e-6)out.push_back({p,d.unit(),level,radius,kind,nozzle});
     };
     // Force is applied at z=-7.7; the exterior mesh nozzle lips end at z=-8.043.
-    Vector main(-g.gimbalYaw/7.7,-tan(5*RAD)*g.gimbalPitch,-1);
-    emit({-1,0,-8.043},main,g.mainLevel*std::clamp(1-g.mainBalance,0.,1.),.55,ExhaustKind::Main);
-    emit({1,0,-8.043},main,g.mainLevel*std::clamp(1+g.mainBalance,0.,1.),.55,ExhaustKind::Main);
+    for(int i=0;i<2;++i) {
+        Vector main(-g.mainGimbal.yaw[i],-g.mainGimbal.pitch[i],-1);
+        emit({i?1.:-1.,0,-8.043},main,g.mainLevel*std::clamp(1+(i?1:-1)*g.mainBalance,0.,1.),.55,ExhaustKind::Main);
+    }
     for(double x:{-3.,3.})emit({x,-.236,5.6},{0,-.04210548,.99911317},g.retroLevel,.22,ExhaustKind::Retro);
     const auto &h=g.hoverControl.levels;
     emit({0,-1.5,3},{0,-1,0},h[0],.45,ExhaustKind::Hover);
