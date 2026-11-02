@@ -23,6 +23,14 @@ int main(){@autoreleasepool{try{
     check(mesh.groups.size()>132&&mesh.groups[132].label.find("HUDDISP")!=std::string::npos,"Original HUD surface exists");auto &group=mesh.groups[132];
     id<MTLBuffer> vertices=[gpu newBufferWithBytes:group.vertices.data() length:group.vertices.size()*sizeof(Vertex) options:MTLResourceStorageModeShared];id<MTLBuffer> indices=[gpu newBufferWithBytes:group.indices.data() length:group.indices.size()*sizeof(uint32_t) options:MTLResourceStorageModeShared];
     Flight flight;flight.hud.mode=2;NSBitmapImageRep *rep=makeCockpitHud(flight);
+    auto bitmap=[](const Flight &f){NSBitmapImageRep *r=makeCockpitHud(f);return std::vector<uint8_t>(r.bitmapData,r.bitmapData+512*512*4);};
+    auto changed=[](const std::vector<uint8_t> &a,const std::vector<uint8_t> &b){size_t n=0;for(size_t i=3;i<a.size();i+=4)if(a[i]!=b[i])++n;return n;};
+    auto surface=bitmap(flight);Flight tilted=flight;tilted.forward=(flight.forward*.94+flight.up*.342).unit();tilted.up=crossp(tilted.forward,tilted.right).unit();
+    check(changed(surface,bitmap(tilted))>500,"Surface HUD responds to pitch and velocity direction");
+    flight.hud.mode=1;auto orbitHud=bitmap(flight);check(changed(surface,orbitHud)>500,"Orbit and surface modes have distinct symbology");
+    Flight docking;docking.startISSApproach();auto dockHud=bitmap(docking);check(changed(orbitHud,dockHud)>500,"Docking mode shows its own target display");
+    docking.reference=BodyId::Moon;check(changed(dockHud,bitmap(docking))>200,"Docking target and gates disappear away from Earth");
+    flight.hud.mode=2;
     MTLTextureDescriptor *td=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm width:512 height:512 mipmapped:NO];td.usage=MTLTextureUsageShaderRead;td.storageMode=MTLStorageModeShared;id<MTLTexture> hud=[gpu newTextureWithDescriptor:td];[hud replaceRegion:MTLRegionMake2D(0,0,512,512) mipmapLevel:0 withBytes:rep.bitmapData bytesPerRow:2048];
     MTLTextureDescriptor *nd=[MTLTextureDescriptor new];nd.textureType=MTLTextureType3D;nd.width=nd.height=nd.depth=1;nd.pixelFormat=MTLPixelFormatRGBA8Unorm;nd.usage=MTLTextureUsageShaderRead;id<MTLTexture> noise=[gpu newTextureWithDescriptor:nd];
     constexpr int width=640,height=640;td=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm width:width height:height mipmapped:NO];td.usage=MTLTextureUsageRenderTarget;td.storageMode=MTLStorageModeShared;id<MTLTexture> image=[gpu newTextureWithDescriptor:td];

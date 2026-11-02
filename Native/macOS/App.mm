@@ -259,17 +259,9 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     if(f.impacted) {
         text(@"Hard impact — press ⌘R to restart",w*.5-170,h*.63,18,[NSColor orangeColor]);
     }
-    // Restrained flight symbology, leaving the view unobstructed.
-    CGFloat cx=w*.5,cy=h*.5;
-    const double colours[4][3]={{0,1,0},{1,.27,0},{1,1,.50},{0,.64,.80}};
-    auto &hud=f.hud;const auto &rgb=colours[hud.colour];
-    NSColor *hudInk=[NSColor colorWithRed:rgb[0]*hud.brightness green:rgb[1]*hud.brightness blue:rgb[2]*hud.brightness alpha:1];
-    if(!v->cockpit&&hud.brightness>0){
-        line(cx-22,cy,cx-7,cy,hudInk);line(cx+7,cy,cx+22,cy,hudInk);line(cx,cy-7,cx,cy+7,hudInk);
-    }
     if(!v->cockpit) {
     CGFloat left=26,bottom=35,pw=252,ph=194;
-    if(hud.mode==3&&f.reference==BodyId::Earth){
+    if(f.hud.mode==3&&f.reference==BodyId::Earth){
         auto station=issState(f.issOrbit,f.mjd+f.elapsed/86400.);auto t=issDockingTelemetry(f,station,f.issTargetPort);
         [panel setFill];NSRectFill(NSMakeRect(left,bottom+ph+30,pw,135));
         text([NSString stringWithFormat:@"ISS  PORT %d%@",f.issTargetPort+1,f.issDocked?@"  DOCKED":@""],left+14,bottom+ph+142,11,ink);
