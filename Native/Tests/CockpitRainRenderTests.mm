@@ -35,8 +35,10 @@ int main(){@autoreleasepool{try{
         background[i]=stripe?105:55;background[i+1]=stripe?154:100;background[i+2]=stripe?202:149;background[i+3]=255;}
     [scene replaceRegion:MTLRegionMake2D(0,0,width,height) mipmapLevel:0 withBytes:background.data() bytesPerRow:width*4];
     td=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatDepth32Float width:width height:height mipmapped:NO];td.usage=MTLTextureUsageRenderTarget;td.storageMode=MTLStorageModePrivate;id<MTLTexture> depth=[gpu newTextureWithDescriptor:td];
+    MTLTextureDescriptor *scratchDesc=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatR8Unorm width:2 height:2 mipmapped:NO];scratchDesc.usage=MTLTextureUsageShaderRead;scratchDesc.storageMode=MTLStorageModeShared;
+    id<MTLTexture> scratchTexture=[gpu newTextureWithDescriptor:scratchDesc];uint8_t white[]={255,255,255,255};[scratchTexture replaceRegion:MTLRegionMake2D(0,0,2,2) mipmapLevel:0 withBytes:white bytesPerRow:2];
     id<MTLCommandQueue> queue=[gpu newCommandQueue];simd_float4x4 model={};model.columns[0]={1,0,0,0};model.columns[1]={0,1,0,0};model.columns[2]={0,0,1,0};model.columns[3]={0,-1.467f,-6.782f,1};
-    auto render=[&](float rain,float time,bool occluded,float yaw,float speed=80,int sunMode=0){
+    auto render=[&](float rain,float time,bool occluded,float yaw,float speed=80,int sunMode=0,bool textured=false){
         FrameUniforms f{};f.right={cosf(yaw),0,-sinf(yaw),0};f.up={0,1,0,0};f.forward={sinf(yaw),0,cosf(yaw),0};
         f.position={0,1,0,0};f.sun=sunMode==1?simd_float4{0,0,1,1}:sunMode==2?simd_float4{0,0,-1,1}:sunMode==3?simd_float4{1,0,0,1}:simd_float4{0,1,0,1};f.weather={3,.9f,rain,0};f.weatherWind={0,0,speed,0};f.environment.w=time;f.screen={width,height,.466f,0};
         Vector flow=glassRunoffVelocity({0,0,speed},{0,1,0},{1,0,0},{0,1,0},{0,0,1})*time;simd_float4 runoff={(float)flow.x,(float)flow.y,(float)flow.z,0};
@@ -48,6 +50,7 @@ int main(){@autoreleasepool{try{
         id<MTLRenderCommandEncoder> e=[cb renderCommandEncoderWithDescriptor:pass];[e setRenderPipelineState:pipeline];[e setDepthStencilState:depthState];[e setCullMode:MTLCullModeNone];
         [e setVertexBuffer:vertices offset:0 atIndex:0];[e setVertexBytes:&f length:sizeof(f) atIndex:1];[e setVertexBytes:&model length:sizeof(model) atIndex:2];
         [e setFragmentBytes:&f length:sizeof(f) atIndex:1];[e setFragmentBytes:&model length:sizeof(model) atIndex:2];[e setFragmentBytes:&runoff length:sizeof(runoff) atIndex:3];[e setFragmentTexture:scene atIndex:0];
+        uint32_t hasTexture=textured?1:0;[e setFragmentBytes:&hasTexture length:sizeof(hasTexture) atIndex:4];[e setFragmentTexture:scratchTexture atIndex:1];
         [e drawIndexedPrimitives:MTLPrimitiveTypeTriangle indexCount:glass.indices.size() indexType:MTLIndexTypeUInt32 indexBuffer:indices indexBufferOffset:0];[e endEncoding];
         [cb commit];[cb waitUntilCompleted];check(cb.error==nil,"Cockpit rain render failed");
         std::vector<uint8_t> pixels(width*height*4);[output getBytes:pixels.data() bytesPerRow:width*4 fromRegion:MTLRegionMake2D(0,0,width,height) mipmapLevel:0];return pixels;
@@ -62,6 +65,9 @@ int main(){@autoreleasepool{try{
     size_t scratches=0;for(int sun=1;sun<=3;++sun)scratches=std::max(scratches,differences(background,render(0,1,false,0,80,sun)));
     std::cout<<"Sunlit scratch pixels: "<<scratches<<'\n';
     check(scratches>10&&scratches<width*height/8,"Dry glass shows restrained sunlight-dependent scratches");
+    size_t textureDifference=0;for(int sun=1;sun<=3;++sun)textureDifference=std::max(textureDifference,differences(render(0,1,false,0,80,sun),render(0,1,false,0,80,sun,true)));
+    check(textureDifference>100,"Local scratch texture changes sunlit glass");
+    check(render(0,1,true,0,80,1,true)==background,"Cockpit geometry occludes the scratch texture");
     auto slow=render(1,1,false,0,0),slowLater=render(1,1.1f,false,0,0),fast=render(1,1,false,0,250),fastLater=render(1,1.1f,false,0,250);
     auto slowMotion=differences(slow,slowLater),fastMotion=differences(fast,fastLater);
     std::cout<<"Drop motion: stationary "<<slowMotion<<", fast "<<fastMotion<<'\n';

@@ -17,7 +17,8 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;bool rcsGas;};
     Vector glassRunoff,rainMotion;
     BOOL haveRainTime;
     NSInteger lastWeather;
-    id<MTLTexture> hdr,lit,depth,trailLayer,msaaColor,msaaDepth,earthCloudMap,earthOceanMask,earthTerrainMask,marsRegolith,venusSurface,earthOceanWaves,earthOceanWaveDetail,exposure;
+    id<MTLTexture> hdr,lit,depth,trailLayer,msaaColor,msaaDepth,earthCloudMap,earthOceanMask,earthTerrainMask,marsRegolith,venusSurface,earthOceanWaves,earthOceanWaveDetail,exposure,cockpitGlassTexture;
+    BOOL hasCockpitGlassTexture;
     std::array<id<MTLTexture>,2> cloudHistory,cloudData,bloom;
     std::array<id<MTLBuffer>,3> smokeBuffers;
     ExhaustTrail exhaustTrail;
@@ -52,6 +53,21 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;bool rcsGas;};
     NSURL *detailURL=[NSURL fileURLWithPath:[NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"earth-waves-detail.png"]];
     earthOceanWaveDetail=[loader newTextureWithContentsOfURL:detailURL options:@{MTKTextureLoaderOptionSRGB:@NO,MTKTextureLoaderOptionGenerateMipmaps:@YES,MTKTextureLoaderOptionOrigin:MTKTextureLoaderOriginTopLeft} error:&error];
     visualCheck(earthOceanWaveDetail,error);
+    // Texturelabs' source image stays in the user's local application support,
+    // outside the redistributable app and source tree.
+    NSString *glassPath=[NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support/Orbiter Native/cockpit-glass.jpg"];
+    if([[NSFileManager defaultManager] fileExistsAtPath:glassPath]){
+        NSError *glassError=nil;
+        cockpitGlassTexture=[loader newTextureWithContentsOfURL:[NSURL fileURLWithPath:glassPath] options:@{MTKTextureLoaderOptionSRGB:@NO,MTKTextureLoaderOptionGenerateMipmaps:@YES,MTKTextureLoaderOptionOrigin:MTKTextureLoaderOriginTopLeft} error:&glassError];
+        hasCockpitGlassTexture=cockpitGlassTexture!=nil;
+        if(!cockpitGlassTexture)NSLog(@"Cockpit glass texture could not be loaded: %@",glassError.localizedDescription);
+    }
+    if(!cockpitGlassTexture){
+        MTLTextureDescriptor *fallback=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatR8Unorm width:1 height:1 mipmapped:NO];
+        fallback.storageMode=MTLStorageModeShared;fallback.usage=MTLTextureUsageShaderRead;
+        cockpitGlassTexture=[gpu newTextureWithDescriptor:fallback];visualCheck(cockpitGlassTexture,nil);
+        uint8_t zero=0;[cockpitGlassTexture replaceRegion:MTLRegionMake2D(0,0,1,1) mipmapLevel:0 withBytes:&zero bytesPerRow:1];
+    }
     auto kernel=[&](NSString *name){id<MTLComputePipelineState> p=[gpu newComputePipelineStateWithFunction:[library newFunctionWithName:name] error:&error];visualCheck(p,error);return p;};
     noiseKernel=kernel(@"makeCloudNoise");shadowKernel=kernel(@"cloudShadowMap");vesselShadowKernel=kernel(@"vesselCloudShadow");cloudKernel=kernel(@"marchClouds");
     extractKernel=kernel(@"extractBloom");blurKernel=kernel(@"blurBloom");exposureKernel=kernel(@"adaptSolarExposure");
@@ -263,15 +279,16 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;bool rcsGas;};
     FrameUniforms wetFrame=f;wetFrame.weather.z=(float)glassWetness;
     simd_float4 runoff=visualVector(glassRunoff);
     // Copy once, then refract from the previous scene while writing the wet
-    // glass to the other HDR texture. This pass is skipped outside rain/VC.
+    // glass to the other HDR texture. This pass is limited to the cockpit.
     id<MTLBlitCommandEncoder> blit=[cb blitCommandEncoder];
     [blit copyFromTexture:lit sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0,0,0) sourceSize:MTLSizeMake(width,height,1) toTexture:hdr destinationSlice:0 destinationLevel:0 destinationOrigin:MTLOriginMake(0,0,0)];[blit endEncoding];
     MTLRenderPassDescriptor *pass=[MTLRenderPassDescriptor renderPassDescriptor];pass.colorAttachments[0].texture=hdr;pass.colorAttachments[0].loadAction=MTLLoadActionLoad;pass.colorAttachments[0].storeAction=MTLStoreActionStore;
     pass.depthAttachment.texture=depth;pass.depthAttachment.loadAction=MTLLoadActionLoad;pass.depthAttachment.storeAction=MTLStoreActionStore;
-    id<MTLRenderCommandEncoder> r=[cb renderCommandEncoderWithDescriptor:pass];r.label=@"Rain on cockpit glass";
+    id<MTLRenderCommandEncoder> r=[cb renderCommandEncoderWithDescriptor:pass];r.label=@"Cockpit glass weather and scratches";
     [r setRenderPipelineState:rainGlassPipeline];[r setDepthStencilState:rainDepth];[r setCullMode:MTLCullModeNone];
     [r setVertexBuffer:vertices offset:0 atIndex:0];[r setVertexBytes:&wetFrame length:sizeof(wetFrame) atIndex:1];[r setVertexBytes:&model length:sizeof(model) atIndex:2];
     [r setFragmentBytes:&wetFrame length:sizeof(wetFrame) atIndex:1];[r setFragmentBytes:&model length:sizeof(model) atIndex:2];[r setFragmentBytes:&runoff length:sizeof(runoff) atIndex:3];[r setFragmentTexture:lit atIndex:0];
+    uint32_t hasTexture=hasCockpitGlassTexture?1:0;[r setFragmentBytes:&hasTexture length:sizeof(hasTexture) atIndex:4];[r setFragmentTexture:cockpitGlassTexture atIndex:1];
     [r drawIndexedPrimitives:MTLPrimitiveTypeTriangle indexCount:count indexType:MTLIndexTypeUInt32 indexBuffer:indices indexBufferOffset:0];[r endEncoding];
     id<MTLTexture> previous=lit;lit=hdr;hdr=previous;
 }

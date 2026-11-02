@@ -926,7 +926,9 @@ float4 rainBead(float2 uv,float probability,uint salt,float stretch){
     return float4(body,slope,rim);
 }
 fragment float4 rainGlassFragment(RainRaster in [[stage_in]],constant FrameUniforms &f [[buffer(1)]],
-                                   constant float4x4 &model [[buffer(2)]],constant float4 &runoff [[buffer(3)]],texture2d<float> scene [[texture(0)]]){
+                                   constant float4x4 &model [[buffer(2)]],constant float4 &runoff [[buffer(3)]],
+                                   constant uint &hasScratchTexture [[buffer(4)]],texture2d<float> scene [[texture(0)]],
+                                   texture2d<float> scratches [[texture(1)]]){
     float3 localNormal=normalize(in.normal);float side=smoothstep(.38f,.76f,abs(localNormal.x));
     float sideSign=in.local.x<0?-1.0f:1.0f;
     float2 surface=float2(mix(in.local.x,in.local.z*sideSign,side),in.local.y+in.local.z*.35f);
@@ -938,6 +940,12 @@ fragment float4 rainGlassFragment(RainRaster in [[stage_in]],constant FrameUnifo
     float2 offset=float2(visualRandom(scratchSeed+13)-.5f,visualRandom(scratchSeed+29)-.5f)*.65f;
     float2 q=scratchLocal-offset;float lengthwise=abs(dot(q,along)),width=abs(dot(q,perp));
     float scratch=step(visualRandom(scratchSeed+47),.45f)*(1-smoothstep(.006f,.025f,width))*(1-smoothstep(.20f,.43f,lengthwise));
+    if(hasScratchTexture){
+        // Project in vessel space so the marks remain fixed as the pilot looks around.
+        constexpr sampler scratchSampler(filter::linear,mip_filter::linear,address::repeat);
+        float3 photo=scratches.sample(scratchSampler,surface*.55f+float2(.5f,.1f)).rgb;
+        scratch=smoothstep(.07f,.5f,dot(photo,float3(.2126f,.7152f,.0722f)));
+    }
     float3 worldNormal=normalize((model*float4(localNormal,0)).xyz),viewDirection=normalize(-in.world);
     float sunGlint=pow(max(0.0f,dot(reflect(-f.sun.xyz,worldNormal),viewDirection)),3.0f)*f.sun.w;
     float scratchLight=scratch*sunGlint*.55f*solarIntensity(f);
