@@ -18,6 +18,11 @@ int main(){try{
     check(body(BodyId::Moon).mu()/(1738000.*1738000.)>1.6&&body(BodyId::Moon).mu()/(1738000.*1738000.)<1.7,"Lunar surface gravity");
     double date=51982.5292925579;
     check(fabs(solarIrradiance(AU)-1)<1e-12&&fabs(solarIrradiance(2*AU)-.25)<1e-12,"Solar irradiance follows the inverse square law");
+    double full=reflectedIrradiance(AU,1737400,384400000,.12,0);
+    check(full>2e-6&&full<3e-6,"Full Moon reflected irradiance has realistic magnitude");
+    check(fabs(reflectedIrradiance(AU,1737400,768800000,.12,0)/full-.25)<1e-12,"Reflected light follows inverse square distance");
+    check(fabs(reflectedIrradiance(AU,1737400,384400000,.12,Pi/2)/full-1/Pi)<1e-12&&reflectedIrradiance(AU,1737400,384400000,.12,Pi)<1e-18,"Reflected light follows illuminated phase");
+    check(reflectedIrradiance(AU,0,384400000,.12,0)==0,"Invalid reflector contributes no light");
     check(solarDiscVisibility(.01,.02,.04)==1&&solarDiscVisibility(.01,.02,0)==0,"Solar eclipse clear and total cases");
     double partial=solarDiscVisibility(.01,.01,.01);check(partial>.60&&partial<.62,"Partial eclipse retains the unobscured solar disc fraction");
     check(fabs(solarDiscVisibility(.02,.01,0)-.75)<1e-12,"Annular eclipse preserves the visible solar ring");

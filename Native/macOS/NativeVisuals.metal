@@ -4,6 +4,20 @@ float solarIntensity(constant FrameUniforms &f);
 struct AirLight {float3 transmission,scattering;};
 AirLight earthAirLight(constant FrameUniforms &f,float3 ray,float maximumDistance);
 float3 planetMaterial(float3 n,float2 uv,float3 color,int id,bool mapped,texture2d<float> map);
+// Lambertian light from nearby sunlit bodies. Positions and points are in
+// receiver radii; the solid receiver blocks sources below the horizon.
+float reflectedBodyLight(constant float4 *sources,float3 point,float3 normal){
+    float result=0;
+    for(int i=0;i<4;++i){
+        float4 source=sources[i];if(source.w<=0)continue;
+        float3 delta=source.xyz-point;float d2=dot(delta,delta);if(d2<1e-10f)continue;
+        float3 direction=delta*rsqrt(d2);float along=dot(point,direction);
+        float disc=along*along-(dot(point,point)-1.0f);
+        if(along<0&&disc>0)continue;
+        result+=source.w*dot(source.xyz,source.xyz)/d2*max(0.0f,dot(normal,direction));
+    }
+    return result;
+}
 // Local vessel emitters illuminate surfaces in camera-relative metres. The
 // final component distinguishes the cabin floodlight from exterior lights.
 float3 vesselIllumination(constant FrameUniforms &f,float3 point,float3 normal,bool cockpit){
@@ -245,7 +259,8 @@ fragment float4 terrainFragment(TerrainRaster in [[stage_in]],constant FrameUnif
     float light=max(0.0f,diffuse)*f.sun.w*shadow*solarIntensity(f);
     float footprint=max(length(dfdx(in.local)),length(dfdy(in.local)));
     float grain=mix(.5f,terrainNoise(in.local*(in.material<.5f?float3(18,1.8,18):float3(9))),1-smoothstep(.15f,.7f,footprint));
-    float3 color=in.color*(.78f+grain*.44f)*(.01f+day*(in.material<1.5f?.23f:.16f)+light*.8f);
+    float bounce=reflectedBodyLight(f.reflectedLights,f.position.xyz+in.world/f.body.x,normal);
+    float3 color=in.color*(.78f+grain*.44f)*(.01f+day*(in.material<1.5f?.23f:.16f)+light*.8f+bounce);
     color+=in.color*vesselIllumination(f,in.world,normal,false);
     if(in.material>2.5f)color+=in.color*day*.1f; // Thin blades transmit skylight.
     AirLight air=earthAirLight(f,normalize(in.world),length(in.world));
@@ -299,7 +314,8 @@ fragment float4 marsRockFragment(MarsRockRaster in [[stage_in]],constant FrameUn
     float textureFactor=clamp(dot(speckle,float3(.2126,.7152,.0722))/.14f,.6f,1.4f);
     float day=smoothstep(-.08f,.12f,dot(normalize(f.position.xyz),f.sun.xyz))*f.sun.w;
     float light=max(0.0f,dot(normalize(in.normal),f.sun.xyz))*f.sun.w*solarIntensity(f);
-    return float4(in.color*textureFactor*(.012f+day*.15f+light*.85f),1);
+    float bounce=reflectedBodyLight(f.reflectedLights,f.position.xyz,normalize(in.normal));
+    return float4(in.color*textureFactor*(.012f+day*.15f+light*.85f+bounce),1);
 }
 // Blend several world-anchored scales into the regional orbital image so nearby
 // dust and exposed bedrock remain detailed without changing distant Mars.
@@ -444,7 +460,8 @@ fragment float4 groundFragment(GroundRaster in [[stage_in]],constant FrameUnifor
     float day=smoothstep(-.08f,.12f,dot(in.normal,f.sun.xyz))*f.sun.w;
     float shadow=earthBody?shadows.sample(screen,in.position.xy/f.screen.xy).r:1.0f;
     float light=max(0.0f,dot(n,f.sun.xyz))*f.sun.w*shadow*solarIntensity(f);
-    float3 color=albedo*(.012+day*.15+light*.85)+albedo*vesselIllumination(f,in.world,n,false);
+    float bounce=reflectedBodyLight(f.reflectedLights,f.position.xyz+in.world/f.body.x,n);
+    float3 color=albedo*(.012+day*.15+light*.85+bounce)+albedo*vesselIllumination(f,in.world,n,false);
     if(earthBody){float distance=length(in.world);AirLight air=earthAirLight(f,normalize(in.world),distance);color=color*air.transmission+air.scattering;}
     else if(f.body.y>0){
         float3 ray=normalize(in.world),camera=normalize(f.position.xyz);

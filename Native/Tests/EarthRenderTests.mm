@@ -21,8 +21,18 @@ int main(){@autoreleasepool{
     [source appendString:@"\nkernel void probeMarsMaterial(device float4 *out [[buffer(0)]],uint id [[thread_position_in_grid]]) {if(id<4){float3 p=float3(1200000+float(id)*13,700000,2500000);out[id]=float4(marsGroundMaterial(float3(.4,.2,.1),p,id==3?7000.0f:50.0f,0.0f),1);}}\n"];
     [source appendString:@"\nkernel void probeOtherTerrain(device const float4 *p [[buffer(0)]],device float *out [[buffer(1)]],device const float2 *body [[buffer(2)]],uint id [[thread_position_in_grid]]) {if(id<27)out[id]=bodyTerrainHeight(normalize(p[id].xyz),int(body[id].x),body[id].y); }\n"];
     [source appendString:@"\nkernel void probeGroundCoverage(device const float4 *p [[buffer(0)]],device uint *out [[buffer(1)]],uint id [[thread_position_in_grid]]) {float2 point=p[id].xy,camera=p[id].zw;uint count=0;for(uint level=0;level<7;++level){float spacing=80.0f*float(1u<<level);int2 tile=int2(floor(point/spacing)),center=groundCenter(camera,spacing);if(all(tile>=center-24)&&all(tile<center+24)&&groundTileVisible(tile,camera,spacing,level))++count;}out[id]=count;}\n"];
+    [source appendString:@"\nkernel void probeReflectedBody(constant FrameUniforms &f [[buffer(0)]],device float *out [[buffer(1)]],uint i [[thread_position_in_grid]]) {float3 p=i==0?float3(0,0,1):i==1?float3(0,0,-1):float3(0,0,1);float3 n=i==2?float3(0,0,-1):p;out[i]=reflectedBodyLight(f.reflectedLights,p,n); }\n"];
     id<MTLLibrary> library=[device newLibraryWithSource:source options:nil error:&error];
     if(!library){fprintf(stderr,"Metal compilation: %s\n",error.localizedDescription.UTF8String);return 1;}
+    {
+        id<MTLComputePipelineState> probe=[device newComputePipelineStateWithFunction:[library newFunctionWithName:@"probeReflectedBody"] error:&error];require(probe!=nil,"Reflected light probe pipeline");
+        FrameUniforms frame{};frame.reflectedLights[0]={0,0,60,0.001f};
+        id<MTLBuffer> values=[device newBufferWithLength:3*sizeof(float) options:MTLResourceStorageModeShared];
+        id<MTLCommandQueue> queue=[device newCommandQueue];id<MTLCommandBuffer> command=[queue commandBuffer];id<MTLComputeCommandEncoder> encoder=[command computeCommandEncoder];
+        [encoder setComputePipelineState:probe];[encoder setBytes:&frame length:sizeof(frame) atIndex:0];[encoder setBuffer:values offset:0 atIndex:1];[encoder dispatchThreads:MTLSizeMake(3,1,1) threadsPerThreadgroup:MTLSizeMake(3,1,1)];[encoder endEncoding];[command commit];[command waitUntilCompleted];
+        require(command.status==MTLCommandBufferStatusCompleted,"Reflected light probe completes");float *light=(float *)values.contents;
+        require(light[0]>.001f&&light[1]==0&&light[2]==0,"Reflected light reaches the facing side and respects the horizon and surface normal");
+    }
     auto pipeline=[&](NSString *fragment,MTLPixelFormat color,bool depth){
         MTLRenderPipelineDescriptor *d=[MTLRenderPipelineDescriptor new];d.vertexFunction=[library newFunctionWithName:@"skyVertex"];d.fragmentFunction=[library newFunctionWithName:fragment];
         d.colorAttachments[0].pixelFormat=color;if(depth)d.depthAttachmentPixelFormat=MTLPixelFormatDepth32Float;

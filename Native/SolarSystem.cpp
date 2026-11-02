@@ -14,6 +14,13 @@ double solarIrradiance(double distance){
     if(!std::isfinite(distance)||distance<=0)return 0;
     double ratio=AU/distance;return std::min(64.0,ratio*ratio);
 }
+double reflectedIrradiance(double solarDistance,double sourceRadius,double receiverDistance,double geometricAlbedo,double phaseAngle){
+    if(!std::isfinite(sourceRadius)||!std::isfinite(receiverDistance)||!std::isfinite(geometricAlbedo)||!std::isfinite(phaseAngle)||sourceRadius<=0||receiverDistance<=sourceRadius||geometricAlbedo<=0)return 0;
+    double a=std::clamp(phaseAngle,0.,Pi);
+    double phase=std::max(0.,(sin(a)+(Pi-a)*cos(a))/Pi);
+    double size=sourceRadius/receiverDistance;
+    return solarIrradiance(solarDistance)*geometricAlbedo*size*size*phase;
+}
 double solarDiscVisibility(double sunRadius,double occluderRadius,double separation){
     if(!std::isfinite(sunRadius)||!std::isfinite(occluderRadius)||!std::isfinite(separation)||sunRadius<=0||occluderRadius<=0||separation<0)return 1;
     if(separation>=sunRadius+occluderRadius)return 1;

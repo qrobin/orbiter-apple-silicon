@@ -5,6 +5,40 @@
 #include <vector>
 using namespace native;
 static simd_float4 solarVector(Vector v,float w=0){return {(float)v.x,(float)v.y,(float)v.z,w};}
+// Approximate geometric albedos, ordered by the original Sol catalogue.
+static double bodyAlbedo(BodyId id){
+    static const double albedo[BodyCount]={0,.142,.689,.367,.12,.170,.071,.068,.423,.538,.63,.67,.43,.22,.499,.69,.99,.81,.55,.95,.21,.30,.05,.488,.32,.39,.19,.27,.23,.442,.76,.10,.16};
+    return albedo[(size_t)id];
+}
+static void reflectedLights(BodyId receiver,double date,simd_float4 *out){
+    std::fill_n(out,4,simd_float4{});
+    if(receiver==BodyId::Sun)return;
+    const auto &target=body(receiver);Vector targetPosition=bodyState(receiver,date).position;
+    struct Light {Vector offset;double flux;};std::vector<Light> lights;
+    for(const auto &source:bodies()){
+        if(source.id==BodyId::Sun||source.id==receiver)continue;
+        Vector position=bodyState(source.id,date).position,offset=position-targetPosition;
+        double distance=offset.length(),solarDistance=position.length();
+        if(distance<=source.radius+target.radius||solarDistance<=body(BodyId::Sun).radius)continue;
+        Vector toSun=-position/solarDistance,toTarget=-offset/distance;
+        double phase=acos(std::clamp(dotp(toSun,toTarget),-1.,1.));
+        double flux=reflectedIrradiance(solarDistance,source.radius,distance,bodyAlbedo(source.id),phase);
+        if(flux<1e-12)continue;
+        // The reflecting body can itself be eclipsed, including by the receiver.
+        double sunRadius=asin(std::clamp(body(BodyId::Sun).radius/solarDistance,0.,1.));
+        for(const auto &occluder:bodies())if(occluder.id!=BodyId::Sun&&occluder.id!=source.id){
+            Vector delta=bodyState(occluder.id,date).position-position;double d=delta.length();
+            if(d<=occluder.radius||dotp(delta,toSun)<=0||d>=solarDistance)continue;
+            double angular=asin(std::clamp(occluder.radius/d,0.,1.));
+            double separation=acos(std::clamp(dotp(delta/d,toSun),-1.,1.));
+            flux*=solarDiscVisibility(sunRadius,angular,separation);
+            if(flux<1e-12)break;
+        }
+        if(flux>=1e-12)lights.push_back({offset/target.radius,flux});
+    }
+    std::sort(lights.begin(),lights.end(),[](const Light &a,const Light &b){return a.flux>b.flux;});
+    for(size_t i=0;i<std::min<size_t>(4,lights.size());++i)out[i]=solarVector(lights[i].offset,(float)lights[i].flux);
+}
 @interface SolarRenderer(){
     id<MTLDevice> gpu;MTKTextureLoader *loader;NSMutableDictionary<NSNumber*,id<MTLTexture>> *cache;
     id<MTLTexture> white;id<MTLRenderPipelineState> pipeline;
@@ -34,6 +68,7 @@ static simd_float4 solarVector(Vector v,float w=0){return {(float)v.x,(float)v.y
     auto &b=flight.centralBody();double date=flight.mjd+flight.elapsed/86400;auto central=bodyState(flight.reference,date);Vector ship=central.position+flight.position+offset,sun=(-ship).unit();
     double sunDistance=ship.length(),solarRadius=asin(std::clamp(body(BodyId::Sun).radius/sunDistance,0.,1.));float visible=1;
     for(auto &other:bodies())if(other.id!=BodyId::Sun){auto state=bodyState(other.id,date);Vector v=state.position-ship;double distance=v.length(),along=dotp(v,sun);if(distance<=other.radius){visible=0;break;}if(along>0&&along<sunDistance){double radius=asin(std::clamp(other.radius/distance,0.,1.));double separation=acos(std::clamp(dotp(v/distance,sun),-1.,1.));visible=std::min(visible,(float)solarDiscVisibility(solarRadius,radius,separation));}}
+    reflectedLights(b.id,date,f->reflectedLights);
     f->sun=solarVector(sun,visible);f->position=solarVector((flight.position+offset)/b.radius);
     f->sunShape={(float)(body(BodyId::Sun).radius/sunDistance),1,0,(float)solarIrradiance(sunDistance)};
     f->environment.x=(float)((flight.position+offset).length()/b.radius-1);f->screen.w=(float)(b.rotation(date)/Pi2);
@@ -59,6 +94,7 @@ static simd_float4 solarVector(Vector v,float w=0){return {(float)v.x,(float)v.y
     [e setRenderPipelineState:pipeline];[e setVertexBytes:&f length:sizeof(f) atIndex:0];[e setFragmentBytes:&f length:sizeof(f) atIndex:0];[e setFragmentTexture:_rings atIndex:1];
     for(auto &v:objects){const auto &b=body(v.id);Vector sun=b.id==BodyId::Sun?Vector(0,1,0):(-bodyState(b.id,date).position).unit();CelestialUniforms u{};
         u.directionRadius=solarVector(v.delta/v.distance,b.radius/v.distance);u.axisX=solarVector(b.equatorX(),b.rotation(date)/Pi2);u.pole=solarVector(b.pole(),b.id==BodyId::Sun?2:b.solid?0:1);u.axisZ=solarVector(b.equatorZ(),b.texture[0]?1:0);
+        reflectedLights(b.id,date,u.reflectedLights);
         u.light=solarVector(sun,v.distance);u.material=solarVector(b.color,(int)b.id);u.rings={b.id==BodyId::Saturn?1.24f:0.f,b.id==BodyId::Saturn?2.4f:0.f,(float)solarIrradiance(bodyState(b.id,date).position.length()),0};
         [e setVertexBytes:&u length:sizeof(u) atIndex:1];[e setFragmentBytes:&u length:sizeof(u) atIndex:1];[e setFragmentTexture:[self textureForBody:b.id] atIndex:0];[e drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
     }
