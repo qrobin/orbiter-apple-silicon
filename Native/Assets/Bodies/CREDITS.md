@@ -1,14 +1,14 @@
 # Planetary maps
 
 The Sun, Mercury, Venus atmosphere and surface, Moon, Mars, Saturn,
-Uranus, Neptune and Saturn-ring maps are by **Solar System Scope / INOVE**,
+Uranus and Saturn-ring maps are by **Solar System Scope / INOVE**,
 used under **Creative Commons Attribution 4.0 International (CC BY 4.0)**:
 https://www.solarsystemscope.com/textures/ and
 https://creativecommons.org/licenses/by/4.0/. Earth uses the separately
 credited NASA 8K image. Mercury, Venus surface, Moon and Mars use the
 8192 × 4096 originals; the Saturn rings use the 8192 × 500 original. Sun,
-Venus atmosphere and Saturn are 4096 × 2048, and Uranus and
-Neptune are 2048 × 1024. The source's files labelled 8K for the Sun,
+Venus atmosphere and Saturn are 4096 × 2048, and Uranus is 2048 × 1024.
+The source's files labelled 8K for the Sun,
 Jupiter and Saturn actually have 4096 × 2048 pixels.
 Solar System Scope notes that its maps contain enhanced color and invented
 fill where observations are incomplete.
@@ -16,6 +16,11 @@ fill where observations are incomplete.
 Jupiter uses NASA's Goddard Space Flight Center's 6000 × 3000 visible
 surface map, shifted by half a turn to match the previous map's orientation:
 https://svs.gsfc.nasa.gov/13007/. Its clouds are a snapshot, not live weather.
+
+Neptune uses the 4096 × 2048 map by Askaniy Anpilogov, NASA/JPL-Caltech and
+Björn Jónsson (including Karkoschka 1994), from Celestia Content, under
+CC BY 3.0: https://github.com/CelestiaProject/CelestiaContent/blob/master/textures/hires/neptune.jpg
+and https://creativecommons.org/licenses/by/3.0/. Its clouds are a snapshot.
 
 Europa uses the USGS Voyager/Galileo 500 m global mosaic, reduced to
 8192 × 4096, shifted half a turn, and tinted. Missing pixels near the south
@@ -26,6 +31,11 @@ Ganymede uses the USGS Voyager/Galileo color mosaic, reduced to 8192 × 4096
 and shifted in longitude. Small gaps near the poles use the previous map;
 the original mosaic has uneven resolution and visible image joins:
 https://astrogeology.usgs.gov/search/map/ganymede_voyager_galileo_ssi_color_global_mosaic_1_4km.
+
+Io uses the USGS Voyager/Galileo color-merged mosaic, reduced to 8192 × 4096
+and shifted slightly in longitude. It uses enhanced color and has uneven
+coverage and image joins:
+https://astrogeology.usgs.gov/search/map/io_galileo_ssi_voyager_color_merged_global_mosaic_1km.
 
 Callisto uses the USGS Voyager/Galileo 1 km grayscale mosaic, reduced to
 8192 × 4096, shifted half a turn, brightened and tinted. Gaps near the poles
@@ -69,8 +79,7 @@ nearby image colors and is not observed geography. Credit: NASA/JPL-Caltech,
 Lunar and Planetary Institute and Paul Schenk:
 https://commons.wikimedia.org/wiki/File:Triton_map_no_grid.jpg.
 
-Moon textures for Io,
-Ariel, Umbriel, Titania, Oberon and Miranda derive from
+Moon textures for Ariel, Umbriel, Titania, Oberon and Miranda derive from
 NASA/JPL/Caltech/USGS Solar System Simulator
 mosaics: https://maps.jpl.nasa.gov/tmaps/. Original mosaics are generally
 1440 × 720, based on Voyager and in some cases Galileo imagery. They were
