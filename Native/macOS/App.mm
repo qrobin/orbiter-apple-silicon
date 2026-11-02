@@ -32,10 +32,10 @@
 using namespace native;
 static NSString *resource(NSString *p) { return [NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:p]; }
 static simd_float4 f4(const Vector &v,float w=0) { return {(float)v.x,(float)v.y,(float)v.z,w}; }
-static simd_float4x4 projection(float aspect,float t) {
+static simd_float4x4 projection(float aspect,float t,float n) {
     // Reversed infinite depth preserves centimetre-scale ground overlays even
     // when the visible Earth surface is kilometres from the camera.
-    float n=.2f; simd_float4x4 m={};
+    simd_float4x4 m={};
     m.columns[0]={1/(aspect*t),0,0,0}; m.columns[1]={0,1/t,0,0};
     m.columns[2]={0,0,0,-1}; m.columns[3]={0,0,n,0}; return m;
 }
@@ -90,7 +90,7 @@ struct GpuGroup { id<MTLBuffer> vertices,indices; NSUInteger count; size_t mater
     std::vector<Material> materials;
     std::vector<bool> opaqueTextures;
     NSMutableArray<id<MTLTexture>> *textures;
-    id<MTLTexture> earthTexture,starTexture,whiteTexture,vesselShadowMask,vesselReflection,vesselReflectionDepth;
+    id<MTLTexture> earthTexture,starTexture,whiteTexture,cockpitMaterial,vesselShadowMask,vesselReflection,vesselReflectionDepth;
     id<MTLTexture> hoverReadoutTexture,mfdLabelTexture;
     std::array<id<MTLTexture>,2> maneuverButtonTextures;
     Image mfdLabelImage,mfdLabelOriginal;
@@ -470,6 +470,8 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     }
     MTKTextureLoader *loader=[[MTKTextureLoader alloc] initWithDevice:device];
     hoverGlyphs=loadDDS(resource(@"Textures/DG/blitsrc1.dds").fileSystemRepresentation);
+    cockpitMaterial=[loader newTextureWithContentsOfURL:[NSURL fileURLWithPath:resource(@"cockpit-powder-coat.png")] options:@{MTKTextureLoaderOptionSRGB:@YES,MTKTextureLoaderOptionGenerateMipmaps:@YES,MTKTextureLoaderOptionOrigin:MTKTextureLoaderOriginTopLeft} error:&error];
+    if(!cockpitMaterial) @throw [NSException exceptionWithName:@"Cockpit material error" reason:error.localizedDescription userInfo:nil];
     earthTexture=[loader newTextureWithContentsOfURL:[NSURL fileURLWithPath:resource(@"earth-8k.jpg")] options:@{MTKTextureLoaderOptionSRGB:@YES,MTKTextureLoaderOptionGenerateMipmaps:@YES,MTKTextureLoaderOptionOrigin:MTKTextureLoaderOriginTopLeft} error:&error];
     if(!earthTexture) @throw [NSException exceptionWithName:@"Earth texture error" reason:error.localizedDescription userInfo:nil];
     starTexture=[loader newTextureWithContentsOfURL:[NSURL fileURLWithPath:resource(@"sky-8k.jpg")] options:@{MTKTextureLoaderOptionSRGB:@YES,MTKTextureLoaderOptionGenerateMipmaps:@YES,MTKTextureLoaderOptionOrigin:MTKTextureLoaderOriginTopLeft} error:&error];
@@ -502,6 +504,10 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         else if([args[i] isEqual:@"--surface"]) {[self startSurface:nil];warmHover=false;}
         else if([args[i] isEqual:@"--hover-demo"]) {[self startHoverPractice:nil];warmHover=true;}
         else if([args[i] isEqual:@"--cockpit"]) cockpit=true;
+        else if([args[i] isEqual:@"--cockpit-yaw"]&&i+1<args.count)cockpitYaw=std::clamp([args[++i] doubleValue]*RAD,-2.5,2.5);
+        else if([args[i] isEqual:@"--cockpit-pitch"]&&i+1<args.count)cockpitPitch=std::clamp([args[++i] doubleValue]*RAD,-1.1,1.1);
+        else if([args[i] isEqual:@"--no-ray-shadows"])rayShadows.enabled=NO;
+        else if([args[i] isEqual:@"--cabin-light"]){flight.glider.cabinLightMode=1;flight.glider.cabinLightBrightness=1;}
         else if([args[i] isEqual:@"--glider-demo"]) {
             for(Part p:{Part::Gear,Part::Nose,Part::Radiator,Part::RetroCover,Part::Airbrake}) { flight.glider.part(p).position=1;flight.glider.part(p).target=1; }
             flight.glider.navLights=flight.glider.beacons=flight.glider.strobes=true;
@@ -597,7 +603,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     if(freeCamera.active){freeCamera.changeReference(flight.reference,flight.mjd+flight.elapsed/86400.);offset=freeCamera.position-flight.position;dir=freeCamera.direction();up=freeCamera.up();}
     Vector cameraRight=crossp(up,dir).unit(),cameraUp=crossp(dir,cameraRight).unit();
     float aspect=self.drawableSize.width/std::max(1.,self.drawableSize.height),tanHalf=freeCamera.active?tan(externalCamera.fieldOfView*.5):cockpit?cockpitCamera.tanHalfFov():externalCamera.tanHalfFov();
-    FrameUniforms uniforms{}; uniforms.projection=projection(aspect,tanHalf);
+    FrameUniforms uniforms{}; uniforms.projection=projection(aspect,tanHalf,cockpit&&!freeCamera.active?CockpitNearPlane:ExternalNearPlane);
     uniforms.right=f4(cameraRight); uniforms.up=f4(cameraUp); uniforms.forward=f4(dir);
     uniforms.position=f4((flight.position+offset)/flight.centralBody().radius);
     uniforms.screen={(float)self.drawableSize.width,(float)self.drawableSize.height,tanHalf,0};
@@ -635,7 +641,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         addLight(flame.position,{},(float)flame.range,flame.color,(float)flame.intensity,.25,.025,0,-1);
     if(cockpit&&lights.cabinLightMode){
         Vector color=lights.cabinLightMode==1?Vector(1,1,1):Vector(.6,.05,0);
-        addLight({0,1.65,6.68},{},3,color,(float)(.2+.8*lights.cabinLightBrightness),0,3,0,-1,true);
+        addLight({0,1.65,6.68},{},3,color,(float)(.2+.8*lights.cabinLightBrightness),1,3,0,-1,true);
     }
     // Use a stable orthonormal basis perpendicular to the direction toward the Sun.
     Vector sun(uniforms.sun.x,uniforms.sun.y,uniforms.sun.z);
@@ -735,7 +741,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     [encoder setFragmentBytes:&uniforms length:sizeof(uniforms) atIndex:1];
     [encoder setFragmentTexture:visuals.cloudShadows atIndex:1];
     [encoder setFragmentTexture:[solar textureForBody:flight.reference] atIndex:2];
-    [encoder setFragmentTexture:[visuals satelliteClouds] atIndex:3];[encoder setFragmentTexture:starTexture atIndex:4];[encoder setFragmentTexture:visuals.cloudNoise atIndex:5];
+    [encoder setFragmentTexture:[visuals satelliteClouds] atIndex:3];[encoder setFragmentTexture:starTexture atIndex:4];[encoder setFragmentTexture:visuals.cloudNoise atIndex:5];[encoder setFragmentTexture:cockpitMaterial atIndex:6];
     {
         [encoder setRenderPipelineState:meshPipeline]; [encoder setDepthStencilState:depthState]; [encoder setCullMode:MTLCullModeNone];
         [encoder setVertexBytes:&uniforms length:sizeof(uniforms) atIndex:1];
@@ -823,8 +829,10 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
             local.columns[2]=f4({t.rotation.m13,t.rotation.m23,t.rotation.m33});local.columns[3]=f4(t.translation,1);
             object.model=simd_mul(vesselModel,local);object.options={0,(cockpit&&g.index!=77)?0.f:-1.f,(float)g.index,cockpit?(float)switchData.size():0.f};
             object.color={mat.diffuse[0],mat.diffuse[1],mat.diffuse[2],mat.diffuse[3]};
-            // Dark, neutral painted panels retain the original texture and markings.
-            if(cockpit&&(g.index==85||g.index==100||g.index==101)){object.color.x*=.30f;object.color.y*=.31f;object.color.z*=.32f;}
+            // Keep marked controls on their original atlases; coat unmarked structure.
+            bool coated=cockpit&&(g.index==27||g.index==36||g.index==37||g.index==38||g.index==42||g.index==85);
+            if(coated){object.color={1,1,1,1};object.options.x=-1;}
+            else if(cockpit&&(g.index==100||g.index==101)){object.color.x*=.30f;object.color.y*=.31f;object.color.z*=.32f;}
             object.specular={mat.specular[0],mat.specular[1],mat.specular[2],mat.power};float emission=cockpit&&flight.glider.instrumentLights?.08f:0.f;object.emission={mat.emissive[0]*emission,mat.emissive[1]*emission,mat.emissive[2]*emission,cockpit?1.f:0.f};
             // The original VC textures supply panel markings and colour; give
             // opaque surfaces a restrained satin highlight where the mesh has none.
@@ -850,9 +858,9 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         }
         for(int pass=0;pass<3;++pass) {
             bool transparent=pass==2;
-            // The cockpit shares the glider's local frame, so sunlight can
-            // also be tested against the external hull from inside the VC.
-            bool traced=!transparent&&rayShadows.enabled;
+            // Per-fragment hull rays are prohibitively expensive over the full
+            // cockpit. Retain them for the exterior; cabin surfaces use direct lighting.
+            bool traced=!transparent&&!cockpit&&rayShadows.enabled;
             [encoder setRenderPipelineState:traced?rayShadows.pipeline:meshPipeline];
             if(traced){
                 struct RayShadowFrame {simd_float4 right,up,forward,origin;};
@@ -963,6 +971,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         @"frames":@(frameCount),@"drawableWidth":@(self.drawableSize.width),@"drawableHeight":@(self.drawableSize.height),
         @"screenMaximumFPS":@(self.window.screen.maximumFramesPerSecond),@"requestedFPS":@(self.preferredFramesPerSecond),@"sampleCount":@(self.sampleCount),@"weather":flight.reference==BodyId::Earth?[visuals weatherName]:@"Not applicable",@"cloudWidth":@(visuals.cloudWidth),@"cloudHeight":@(visuals.cloudHeight),@"hdr":@YES,
         @"exhaustEmitters":@(visuals.emitterCount),@"exhaustTrailPuffs":@([visuals liveTrailPuffCount]),@"cameraDistance":@(externalCamera.distance),@"forwardLength":@(flight.forward.length()),@"rightLength":@(flight.right.length()),@"meanFrameMs":@(mean),@"p95FrameMs":@(p95),@"meanFPS":@(mean?1000/mean:0),
+        @"cockpit":@(cockpit),@"rayTracedVessel":@(!cockpit&&rayShadows.enabled),@"nearPlaneMeters":@(cockpit&&!freeCamera.active?CockpitNearPlane:ExternalNearPlane),
         @"meanCPUEncodeMs":@(cpuSum/frameCount),@"meanGPUFrameMs":@(gpuSamples?gpuSum/gpuSamples:0),@"lastGPUFrameMs":@(gpuMs),@"scenarioElapsed":@(flight.elapsed),
         @"altitudeMeters":@(flight.altitude()),@"meshGroups":@(groups.size()),
         @"groundSpeed":@(flight.groundSpeed),@"wheelContacts":@(flight.wheelContacts),@"waterContact":@(flight.waterContact),@"parkingBrake":@(flight.glider.parkingBrake),@"impacted":@(flight.impacted),

@@ -1,4 +1,5 @@
 #include "Camera.h"
+#include "Mesh.h"
 #include "Surface.h"
 #include "SolarSystem.h"
 #include <iostream>
@@ -19,6 +20,13 @@ int main(){try {
     fractional.drag(0,10000);check(fractional.pitch==1.35,"Upper native pitch stop");fractional.drag(0,-10000);check(fractional.pitch==-1.35,"Lower native pitch stop");
     full.zoom(5);check(fabs(full.distance-43*exp(-.125))<1e-10,"Continuous native zoom response");
     full.zoom(100000);check(full.distance==14,"Near distance stop");full.zoom(-100000);check(full.distance==MaxExternalCameraDistance,"Far distance stop allows viewing kilometre-scale trails");
+    auto vc=loadMesh(std::filesystem::path(ORBITER_TEST_DATA)/"Src/Vessel/DeltaGlider/Meshes/deltaglider_vc.msh");
+    Vector eye(0,1.467,6.782),upward(0,sin(58*RAD),cos(58*RAD));int recovered=0;
+    for(const auto &v:vc.groups[105].vertices){Vector p(v.x,v.y,v.z);double depth=dotp(p-eye,upward);
+        if(v.y>1.6&&fabs(v.x)<.4&&depth>CockpitNearPlane&&depth<ExternalNearPlane)++recovered;
+    }
+    check(recovered>10,"Cockpit near plane retains nearby overhead switch geometry");
+    check(ExternalNearPlane==.2&&CockpitNearPlane>0&&CockpitNearPlane<.02,"Separate reversed-depth near planes for cockpit and external views");
     CockpitCamera cockpit,steps;check(fabs(cockpit.fov-50*RAD)<1e-12,"Original cockpit field of view");
     Vector edge=cockpit.ray(0,0,1,0,16./9);cockpit.zoom(10);for(int i=0;i<10;++i)steps.zoom(1);
     check(fabs(cockpit.fov-steps.fov)<1e-12,"Cockpit zoom is independent of event batching");

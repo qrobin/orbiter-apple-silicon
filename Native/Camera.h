@@ -2,6 +2,7 @@
 #include "Flight.h"
 namespace native {
 constexpr double MaxExternalCameraDistance=1000000.;
+constexpr double CockpitNearPlane=.015, ExternalNearPlane=.2;
 enum class ExternalCameraMode { OrbitalChase, TargetRelative, AbsoluteDirection, GlobalFrame, TargetTo, TargetFrom, GroundObserver };
 const char *externalCameraModeName(ExternalCameraMode mode);
 struct CameraPose { Vector offset,up; };

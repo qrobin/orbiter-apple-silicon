@@ -7,7 +7,7 @@ float solarIntensity(constant Frame &f){return f.sunShape.w>0?f.sunShape.w:1.0f;
 float2 skyCoordinates(float3 ray);
 struct SwitchUniform { float4 pivotAngle,axisStart,range; };
 struct Vertex { packed_float3 position; packed_float3 normal; packed_float2 uv; };
-struct Raster { float4 position [[position]]; float3 normal; float2 uv; float3 world; float3 local; };
+struct Raster { float4 position [[position]]; float3 normal; float2 uv; float3 world; float3 local; float3 localNormal; };
 vertex Raster meshVertex(uint id [[vertex_id]],const device Vertex *vertices [[buffer(0)]],
                          constant Frame &f [[buffer(1)]],constant Object &o [[buffer(2)]],constant SwitchUniform *switches [[buffer(3)]]) {
     Raster out; Vertex v=vertices[id]; float3 local=float3(v.position),normal=float3(v.normal);float2 uv=float2(v.uv);
@@ -27,7 +27,7 @@ vertex Raster meshVertex(uint id [[vertex_id]],const device Vertex *vertices [[b
     float3 view=float3(dot(p,f.right.xyz),dot(p,f.up.xyz),-dot(p,f.forward.xyz));
     out.position=f.projection*float4(view,1);
     out.normal=(o.model*float4(normal,0)).xyz;
-    out.world=p; out.uv=uv; out.local=local;return out;
+    out.world=p; out.uv=uv; out.local=local;out.localNormal=normal;return out;
 }
 vertex float4 vesselShadowVertex(uint id [[vertex_id]],const device Vertex *vertices [[buffer(0)]],
     constant Frame &f [[buffer(1)]],constant Object &o [[buffer(2)]]) {
@@ -44,7 +44,7 @@ vertex Raster vesselReflectionVertex(uint id [[vertex_id]],const device Vertex *
     float3 mirrored=world-2*(dot(world,f.waterPlane.xyz)-f.waterPlane.w)*f.waterPlane.xyz;
     float3 view=float3(dot(mirrored,f.right.xyz),dot(mirrored,f.up.xyz),-dot(mirrored,f.forward.xyz));
     out.position=f.projection*float4(view,1);out.world=world;
-    out.normal=(o.model*float4(float3(v.normal),0)).xyz;out.uv=float2(v.uv);out.local=float3(v.position);
+    out.normal=(o.model*float4(float3(v.normal),0)).xyz;out.uv=float2(v.uv);out.local=float3(v.position);out.localNormal=float3(v.normal);
     return out;
 }
 fragment float4 vesselReflectionFragment(Raster in [[stage_in]],constant Frame &f [[buffer(1)]],
@@ -100,7 +100,7 @@ float3 reflectedEnvironment(constant Frame &f,float3 worldOffset,float3 ray,floa
     }
     return reflected;
 }
-float4 shadeMesh(Raster in,constant Frame &f,constant Object &o,texture2d<float> tex,texture2d<float> shadows,texture2d<float> planet,texture2d<float> clouds,texture2d<float> stars,texture3d<float> noise,float sunVisibility) {
+float4 shadeMesh(Raster in,constant Frame &f,constant Object &o,texture2d<float> tex,texture2d<float> shadows,texture2d<float> planet,texture2d<float> clouds,texture2d<float> stars,texture3d<float> noise,texture2d<float> cockpitMaterial,float sunVisibility) {
     constexpr sampler s(filter::linear,mip_filter::linear,address::repeat, max_anisotropy(8));
     if(o.options.x>5.5){
         float3 n=normalize(in.normal),view=normalize(-in.world);
@@ -119,7 +119,16 @@ float4 shadeMesh(Raster in,constant Frame &f,constant Object &o,texture2d<float>
         float alpha=o.options.x>1.5?pow(max(0.0f,1-length(in.uv)),2.0f):pow(max(0.0f,1-abs(in.uv.x)),1.5f)*pow(max(0.0f,1-in.uv.y),.65f);
         return float4(o.color.rgb*(1.1+alpha*.7),o.color.a*alpha);
     }
-    float4 albedo=tex.sample(s,in.uv)*o.color;
+    float4 albedo;
+    if(o.options.x<-.5f){
+        // Unmarked cabin framing uses a world-scale, triplanar powder coat;
+        // the original UV atlases still provide labels, switches and displays.
+        float3 weights=pow(abs(normalize(in.localNormal)),float3(4));
+        weights/=max(weights.x+weights.y+weights.z,.001f);
+        float3 p=in.local*8.0f;
+        float3 coating=cockpitMaterial.sample(s,p.yz).rgb*weights.x+cockpitMaterial.sample(s,p.xz).rgb*weights.y+cockpitMaterial.sample(s,p.xy).rgb*weights.z;
+        albedo=float4(coating,1)*o.color;
+    }else albedo=tex.sample(s,in.uv)*o.color;
     if(albedo.a<.03) discard_fragment();
     float3 normal=normalize(in.normal);
     if(dot(normal,-in.world)<0) normal=-normal;
@@ -162,8 +171,8 @@ float4 shadeMesh(Raster in,constant Frame &f,constant Object &o,texture2d<float>
     return float4(color,albedo.a);
 }
 fragment float4 meshFragment(Raster in [[stage_in]],constant Frame &f [[buffer(1)]],
-                             constant Object &o [[buffer(2)]],texture2d<float> tex [[texture(0)]],texture2d<float> shadows [[texture(1)]],texture2d<float> planet [[texture(2)]],texture2d<float> clouds [[texture(3)]],texture2d<float> stars [[texture(4)]],texture3d<float> noise [[texture(5)]]) {
-    return shadeMesh(in,f,o,tex,shadows,planet,clouds,stars,noise,1);
+                             constant Object &o [[buffer(2)]],texture2d<float> tex [[texture(0)]],texture2d<float> shadows [[texture(1)]],texture2d<float> planet [[texture(2)]],texture2d<float> clouds [[texture(3)]],texture2d<float> stars [[texture(4)]],texture3d<float> noise [[texture(5)]],texture2d<float> cockpitMaterial [[texture(6)]]) {
+    return shadeMesh(in,f,o,tex,shadows,planet,clouds,stars,noise,cockpitMaterial,1);
 }
 vertex SkyRaster skyVertex(uint id [[vertex_id]]) {
     float2 p=float2((id<<1)&2,id&2); return {float4(p*2-1,1,1),p};

@@ -95,13 +95,13 @@ Press **C** (or **V**) to switch between external view and the original 3D cockp
 
 The Delta-glider casts a Sun-aligned shadow onto nearby solid-body terrain and Earth’s water. The shadow follows animated exterior parts, and its edges soften with distance according to the apparent size of the Sun.
 
-On supported Apple GPUs, **Graphics → Ray-Traced Glider Shadows** tests sunlight against the static exterior hull in both exterior and virtual cockpit views. Animated parts and interior geometry are not yet included in the acceleration structure, and this path does not provide ray-traced reflections. Unsupported devices use the regular lighting path.
+On supported Apple GPUs, **Graphics → Ray-Traced Glider Shadows** tests sunlight against the static exterior hull in exterior view. The cockpit uses direct lighting instead to avoid the cost of tracing the hull at every visible cockpit pixel. Animated parts and interior geometry are not included in the acceleration structure, and this path does not provide ray-traced reflections. Unsupported devices use the regular lighting path.
 
 Choose **Scenarios → Earth → ISS — 50 m Approach** to start facing ISS port 1, with the vessel centres 50 m apart and matching initial velocities. The left display and docking HUD show the selected port, port-to-port distance, closing speed and alignment. Select the other original ISS ports under **Navigation → ISS Docking Port**. With the nose cone open, fly slowly into an aligned port to dock automatically; **Control-D** undocks. The station uses the original ISS mesh, textures, port coordinates and scenario orbital elements. Its attitude is fixed in inertial space and this is a two-body orbit, not a live ISS ephemeris or a complete vessel-collision simulation.
 
 The 3D cockpit HUD retains the original combiner position, so its symbology moves and scales with cockpit look and zoom; the glass and its frame are hidden. Its mode, brightness and colour use the existing HUD controls. Simulation time, date and notices appear along the bottom of the flight view.
 
-The 3D cockpit panels use dark charcoal painted surfaces with restrained highlights while retaining the original textures and controls. The original floodlight switch and brightness dial control white or red cabin illumination. **M → Vessel lighting** also provides cabin brightness and the off/docking/landing light modes. Vessel lights illuminate nearby terrain and meshes, and the engine light follows main thrust. Local lights use distance and cone attenuation but do not cast shadows; other vessels and station lighting systems remain unported.
+The 3D cockpit uses a generated charcoal powder-coat material on unmarked framing, while retaining the original panel labels, instruments and controls. The cockpit camera uses a close near plane so nearby overhead switches remain visible. The original floodlight switch and brightness dial control white or red cabin illumination. **M → Vessel lighting** also provides cabin brightness and the off/docking/landing light modes. Vessel lights illuminate nearby terrain and meshes, and the engine light follows main thrust. Local lights use distance and cone attenuation but do not cast shadows; other vessels and station lighting systems remain unported.
 
 The cockpit has live native surface/orbit and propulsion displays on the original MFD meshes. These are new native displays, not the full Orbiter MFD implementation. Original analog instruments and other cockpit buttons are not all connected.
 
@@ -251,7 +251,7 @@ For a bounded rendering run:
   --capture /absolute/path/frame.png --report /absolute/path/performance.json
 ```
 
-Use `--hover-demo` for a repeatable hover capture (the practice flight advances 60 simulation seconds before rendering), `--surface` for the bundled parked Cape start, `--cockpit` for the 3D cockpit, and `--scenario /absolute/path/file.scn` for a supported scenario. `--glider-demo` starts with selected mechanisms deployed for a repeatable render capture; the menu demonstration runs their actual transitions. Bounded frame runs ignore manual keyboard/camera input.
+Use `--hover-demo` for a repeatable hover capture (the practice flight advances 60 simulation seconds before rendering), `--surface` for the bundled parked Cape start, `--cockpit` for the 3D cockpit, and `--scenario /absolute/path/file.scn` for a supported scenario. `--glider-demo` starts with selected mechanisms deployed for a repeatable render capture; the menu demonstration runs their actual transitions. For repeatable overhead views, use `--cockpit-pitch 58 --cabin-light`; `--cockpit-yaw` also accepts degrees, and `--no-ray-shadows` selects the regular exterior lighting path. Bounded frame runs ignore manual keyboard/camera input.
 
 Animation and cockpit geometry data can be regenerated from the included upstream sources with:
 
