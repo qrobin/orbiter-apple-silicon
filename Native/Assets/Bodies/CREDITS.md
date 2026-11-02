@@ -55,10 +55,11 @@ resampled to 2048 × 1024 and tinted for display. Large missing areas in some
 maps use blended, transformed Phobos imagery as artistic filler; this does
 not depict actual geography. Resampling does not add observed detail.
 
-Titan is based on a Cassini ISS mosaic, via
-https://github.com/Sanghel/solar-system-3d/tree/develop/public/textures/satellites;
-the source is a 1024 × 512 NASA/USGS-derived near-infrared map, resampled and
-tinted for display. Vesta uses Dawn Framing Camera HAMO mosaic tiles from
+Titan uses the 5760 × 2880 Cassini ISS near-infrared surface mosaic PIA22770,
+tinted for display. It represents surface brightness through the haze in
+near-infrared, not a visible-light view. Credit: NASA/JPL-Caltech/University
+of Arizona; https://science.nasa.gov/photojournal/titan-mosaic-the-surface-under-the-haze/.
+Vesta uses Dawn Framing Camera HAMO mosaic tiles from
 NASA/JPL Vesta Trek: https://trek.nasa.gov/tiles/apidoc/trekAPI.html?body=vesta.
 Hyperion uses a resampled, tinted shaded-relief map by Philip Stooke from the
 NASA PDS archive: https://sbnarchive.psi.edu/pds3/non_mission/EAR_A_3_RDR_STOOKEMAPS_V1_0/maps/.
