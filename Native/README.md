@@ -97,7 +97,7 @@ Press **C** (or **V**) to switch between external view and the original 3D cockp
 
 The Delta-glider casts a Sun-aligned shadow onto nearby solid-body terrain and Earth’s water. The shadow follows animated exterior parts, and its edges soften with distance according to the apparent size of the Sun.
 
-On supported Apple GPUs, **Graphics → Ray-Traced Glider Shadows** tests sunlight against the static exterior hull in exterior view. The cockpit uses direct lighting instead to avoid the cost of tracing the hull at every visible cockpit pixel. Animated parts and interior geometry are not included in the acceleration structure, and this path does not provide ray-traced reflections. Unsupported devices use the regular lighting path.
+On supported Apple GPUs, **Graphics → Ray-Traced Glider Shadows** is off by default to maintain frame rate and can be enabled to test sunlight against the static exterior hull in exterior view. The cockpit uses direct lighting instead to avoid the cost of tracing the hull at every visible cockpit pixel. Animated parts and interior geometry are not included in the acceleration structure, and this path does not provide ray-traced reflections. Unsupported devices use the regular lighting path.
 
 Choose **Scenarios → Earth → ISS — 50 m Approach** to start facing ISS port 1, with the vessel centres 50 m apart and matching initial velocities. The left display shows the selected port, port-to-port distance, closing speed and alignment. The docking HUD marks the station and relative velocity and draws the selected port’s approach gates. Select the other original ISS ports under **Navigation → ISS Docking Port**. With the nose cone open, fly slowly into an aligned port to dock automatically; **Control-D** undocks. The station uses the original ISS mesh, textures, port coordinates and scenario orbital elements. Its attitude is fixed in inertial space and this is a two-body orbit, not a live ISS ephemeris or a complete vessel-collision simulation.
 
@@ -253,7 +253,7 @@ For a bounded rendering run:
   --capture /absolute/path/frame.png --report /absolute/path/performance.json
 ```
 
-Use `--hover-demo` for a repeatable hover capture (the practice flight advances 60 simulation seconds before rendering), `--surface` for the bundled parked Cape start, `--cockpit` for the 3D cockpit, and `--scenario /absolute/path/file.scn` for a supported scenario. `--glider-demo` starts with selected mechanisms deployed for a repeatable render capture; the menu demonstration runs their actual transitions. For repeatable overhead views, use `--cockpit-pitch 58 --cabin-light`; `--cockpit-yaw` also accepts degrees, and `--no-ray-shadows` selects the regular exterior lighting path. Bounded frame runs ignore manual keyboard/camera input.
+Use `--hover-demo` for a repeatable hover capture (the practice flight advances 60 simulation seconds before rendering), `--surface` for the bundled parked Cape start, `--cockpit` for the 3D cockpit, and `--scenario /absolute/path/file.scn` for a supported scenario. `--glider-demo` starts with selected mechanisms deployed for a repeatable render capture; the menu demonstration runs their actual transitions. For repeatable overhead views, use `--cockpit-pitch 58 --cabin-light`; `--cockpit-yaw` also accepts degrees, and `--ray-shadows` enables ray-traced exterior shadows for comparisons. Bounded frame runs ignore manual keyboard/camera input.
 
 Animation and cockpit geometry data can be regenerated from the included upstream sources with:
 

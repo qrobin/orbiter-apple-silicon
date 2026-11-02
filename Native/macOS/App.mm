@@ -501,6 +501,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         else if([args[i] isEqual:@"--cockpit"]) cockpit=true;
         else if([args[i] isEqual:@"--cockpit-yaw"]&&i+1<args.count)cockpitYaw=std::clamp([args[++i] doubleValue]*RAD,-2.5,2.5);
         else if([args[i] isEqual:@"--cockpit-pitch"]&&i+1<args.count)cockpitPitch=std::clamp([args[++i] doubleValue]*RAD,-1.1,1.1);
+        else if([args[i] isEqual:@"--ray-shadows"])rayShadows.enabled=YES;
         else if([args[i] isEqual:@"--no-ray-shadows"])rayShadows.enabled=NO;
         else if([args[i] isEqual:@"--cabin-light"]){flight.glider.cabinLightMode=1;flight.glider.cabinLightBrightness=1;}
         else if([args[i] isEqual:@"--glider-demo"]) {
@@ -816,8 +817,12 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         }
         object.model=vesselModel;
         auto transforms=flight.glider.transforms(meshCounts[cockpit?1:0],cockpit?1:0);
+        bool usePrepass=cockpit||rayShadows.enabled;
+        std::vector<bool> movingGroups(meshCounts[0]);
+        if(!cockpit&&usePrepass)for(const auto &a:Glider::animations())if(a.mesh==0)for(size_t index:a.groups)if(index<movingGroups.size())movingGroups[index]=true;
         auto depthEligible=[&](const GpuGroup &g){
-            return materials[g.material].diffuse[3]>=1.0f&&opaqueTextures[g.texture]&&!(cockpit&&(g.index==77||g.index==88||g.index==89||g.index==129));
+            return materials[g.material].diffuse[3]>=1.0f&&opaqueTextures[g.texture]&&!(cockpit&&(g.index==77||g.index==88||g.index==89||g.index==129))&&
+                (cockpit||!usePrepass||!movingGroups[g.index]);
         };
         auto drawVesselGroup=[&](const GpuGroup &g){
             const auto &mat=materials[g.material];bool label=cockpit&&g.index==129;
@@ -846,7 +851,9 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
             [encoder setFragmentBytes:&object length:sizeof(object) atIndex:2];
             [encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle indexCount:g.count indexType:MTLIndexTypeUInt32 indexBuffer:g.indices indexBufferOffset:0];
         };
-        {
+        // Moving exterior groups use one depth-writing pass. The prepass for
+        // static ray-traced hull geometry still avoids expensive hidden rays.
+        if(usePrepass){
             [encoder setRenderPipelineState:meshDepthPipeline];[encoder setDepthStencilState:depthState];
             for(const auto &g:groups){
                 if(g.mesh!=(cockpit?1:0)||(cockpit&&!visibleCockpitGroup(g.index)))continue;
@@ -855,6 +862,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
             }
         }
         for(int pass=0;pass<3;++pass) {
+            if(!usePrepass&&pass==1)continue;
             bool transparent=pass==2;
             // Per-fragment hull rays are prohibitively expensive over the full
             // cockpit. Retain them for the exterior; cabin surfaces use direct lighting.
@@ -867,18 +875,18 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
                 [encoder setFragmentAccelerationStructure:rayShadows.structure atBufferIndex:5];
                 [encoder useResource:rayShadows.structure usage:MTLResourceUsageRead stages:MTLRenderStageFragment];
             }
-            [encoder setDepthStencilState:transparent?transparentDepth:pass==0?meshShadeDepth:depthState];
+            [encoder setDepthStencilState:transparent?transparentDepth:usePrepass&&pass==0?meshShadeDepth:depthState];
             auto drawPassGroup=[&](const GpuGroup &g){
                 if(g.mesh!=(cockpit?1:0))return;
                 if(cockpit&&!visibleCockpitGroup(g.index))return;
                 const auto &mat=materials[g.material]; bool label=cockpit&&g.index==129;
                 if((label||mat.diffuse[3]<.99)!=(transparent==1))return;
-                if(!transparent&&depthEligible(g)!=(pass==0))return;
+                if(usePrepass&&!transparent&&depthEligible(g)!=(pass==0))return;
                 drawVesselGroup(g);
             };
             // Equal-depth opaque groups would all pass after the prepass.
             // Reverse their draw order so the original first group wins ties.
-            if(pass==0)for(auto g=groups.rbegin();g!=groups.rend();++g)drawPassGroup(*g);
+            if(usePrepass&&pass==0)for(auto g=groups.rbegin();g!=groups.rend();++g)drawPassGroup(*g);
             else for(const auto &g:groups)drawPassGroup(g);
         }
         // The upstream logical HUD quad (group 132) is attached to the

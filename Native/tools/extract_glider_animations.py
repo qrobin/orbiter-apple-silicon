@@ -33,15 +33,22 @@ result=['// Generated from original Delta-glider source by Native/tools/extract_
 count=0
 for filename in ['GearSubsys.cpp','DockingSubsys.cpp','PressureSubsys.cpp','ThermalSubsys.cpp','MainRetroSubsys.cpp','AerodynSubsys.cpp','HoverSubsys.cpp','DeltaGlider.cpp']:
     source=clean((dg/filename).read_text())
-    groups={}
-    for name,body in re.findall(r'static UINT (\w+)(?:\[\d*\])?\s*=\s*\{([^{}]+)\}',source): groups[name]=[int(num(x)) for x in split(body)]
-    for name,body in re.findall(r'static UINT (\w+)\s*=\s*(GRP_\w+)\s*;',source):groups[name]=[int(num(body))]
+    # Animation declarations can share a variable name with later, unrelated
+    # local arrays (e.g. the hatch damage handler). Resolve the declaration
+    # nearest to and preceding each MGROUP, matching the C++ source order.
+    group_declarations=[]
+    for m in re.finditer(r'static UINT (\w+)(?:\[\d*\])?\s*=\s*\{([^{}]+)\}',source):
+        group_declarations.append((m.start(),m.group(1),[int(num(x)) for x in split(m.group(2))]))
+    for m in re.finditer(r'static UINT (\w+)\s*=\s*(GRP_\w+)\s*;',source):
+        group_declarations.append((m.start(),m.group(1),[int(num(m.group(2)))]))
     for name,body in re.findall(r'static VECTOR3 (\w+)\s*=\s*\{([^{}]+)\}',source):vectors[name]=split(body)
     transforms={}
     def vector(s):
         body=split(s[3:-1]) if s.startswith('_V(') else vectors[s]
         return '{'+','.join(f'{num(x):.15g}' for x in body)+'}'
-    for kind,name,args in re.findall(r'static MGROUP_(ROTATE|TRANSLATE)\s+(\w+)\s*\((.*?)\);',source,re.S):
+    for match in re.finditer(r'static MGROUP_(ROTATE|TRANSLATE)\s+(\w+)\s*\((.*?)\);',source,re.S):
+        kind,name,args=match.groups()
+        groups={name:indices for position,name,indices in sorted(group_declarations) if position<match.start()}
         a=split(args)
         if a[0] not in ('0','1'):continue
         try:
@@ -64,7 +71,7 @@ for filename in ['GearSubsys.cpp','DockingSubsys.cpp','PressureSubsys.cpp','Ther
 print(f'Extracted {count} animation components from original source.')
 # Cockpit click quadrilaterals, in the original vessel coordinate frame.
 zone_map={'VC_GEARLEVER':0,'VC_NCONELEVER':1,'VC_ELADDER_SWITCH':2,'VC_OLOCK_SWITCH':3,'VC_ILOCK_SWITCH':4,'VC_HATCH_SWITCH':5,'VC_RADIATOR_SWITCH':6,'VC_RCOVER_SWITCH':7,'VC_AIRBRAKELEVER':8,
-'VC_CABIN_O2_SWITCH':10,'VC_VALVE1_SWITCH':11,'VC_VALVE2_SWITCH':12,'VC_VALVE3_SWITCH':13,'VC_LOCK_O2_SWITCH':14,'VC_PUMP_SWITCH':15,'VC_NAVLIGHT_SWITCH':16,'VC_STROBELIGHT_SWITCH':18,'VC_LANDINGLIGHT_SWITCH':19,'VC_INSTRLIGHT_SWITCH':20,'VC_FLOODLIGHT_SWITCH':21,'VC_FLOOD_BRIGHTNESS':22,
+'VC_CABIN_O2_SWITCH':10,'VC_VALVE1_SWITCH':11,'VC_VALVE2_SWITCH':12,'VC_VALVE3_SWITCH':13,'VC_LOCK_O2_SWITCH':14,'VC_PUMP_SWITCH':15,'VC_NAVLIGHT_SWITCH':16,'VC_STROBELIGHT_SWITCH':18,'VC_LANDINGLIGHT_SWITCH':19,'VC_INSTRLIGHT_SWITCH':20,'VC_FLOODLIGHT_SWITCH':21,'VC_FLOOD_BRIGHTNESS':22,'VC_INSTR_BRIGHTNESS':23,'VC_UNDOCKLEVER':24,
 'VC_HOVER_DIAL':40,'VC_HOVER_PSWITCH':41,'VC_HOVER_RSWITCH':42,'VC_HOVER_HOLDALT_SWITCH':43,'VC_HOVERMODE_BUTTONS':44,'VC_RCS_DIAL':30,'VC_ETRIMWHEEL':31,'VC_GIMBAL_PSWITCH':32,'VC_GIMBAL_YSWITCH':33,
 'VC_NAV_BUTTONS':60,'VC_HUD_BUTTONS':61,'VC_HUD_BRIGHTNESS':62}
 zones=['// Original cockpit click areas. Copyright (c) Martin Schweiger. MIT License.']
@@ -124,7 +131,7 @@ for groupname,actionbase,count in [('HUDMODE',80,3),('NAVMODE',70,6)]:
         axis='{'+','.join(str(num(n)) for n in vectors[prefix+'_axis'])+'}'
         for group,first,nv,motion in [('GRP_BUTTON3_VC',offsets[prefix],20,1),('GRP_LIT_SURF_VC',offsets[prefix+'_LABEL'],8,2)]:
             switches.append('{'+f'{action},{int(symbols[group])},{first},{nv},{pivot},{axis},{motion}'+'}, // '+prefix)
-for prefix,action,group,first,count,motion in [('VC_FLOOD_BRIGHTNESS',22,'GRP_FLOOD_BRIGHTNESS_VC',0,34,0),('VC_HUD_BRIGHTNESS',62,'GRP_HUD_BRIGHTNESS_VC',0,34,0),('VC_HUD_COLBUTTON',63,'GRP_BUTTON2_VC',offsets['VC_HUD_COLBUTTON'],20,1)]:
+for prefix,action,group,first,count,motion in [('VC_FLOOD_BRIGHTNESS',22,'GRP_FLOOD_BRIGHTNESS_VC',0,34,0),('VC_INSTR_BRIGHTNESS',23,'GRP_INSTR_BRIGHTNESS_VC',0,34,0),('VC_UNDOCKLEVER',24,'GRP_UNDOCK_LEVER_VC',0,33,0),('VC_HUD_BRIGHTNESS',62,'GRP_HUD_BRIGHTNESS_VC',0,34,0),('VC_HUD_COLBUTTON',63,'GRP_BUTTON2_VC',offsets['VC_HUD_COLBUTTON'],20,1)]:
     pivot='{'+','.join(str(num(n)) for n in vectors[prefix+'_ref'])+'}'
     axis='{'+','.join(str(num(n)) for n in vectors[prefix+'_axis'])+'}'
     switches.append('{'+f'{action},{int(symbols[group])},{first},{count},{pivot},{axis},{motion}'+'}, // '+prefix)

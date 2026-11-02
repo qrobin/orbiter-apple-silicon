@@ -29,7 +29,7 @@
 {Channel::OuterLock, 1, {13}, {0,-0.08,9.851}, {1,0,0}, 1.91986217719376, 0, 1, 0, false}, // PressureSubsys.cpp: VCOLock
 {Channel::InnerLock, 0, {9,10}, {0,-0.573,7.8}, {1,0,0}, 1.48352986419518, 0, 1, 0, false}, // PressureSubsys.cpp: ILock
 {Channel::InnerLock, 1, {10,19,11,76}, {0,-0.573,7.8}, {1,0,0}, 1.48352986419518, 0, 1, 0, false}, // PressureSubsys.cpp: VCILock
-{Channel::Hatch, 0, {12,88}, {0,2.069,5.038}, {1,0,0}, 1.91986217719376, 0, 1, 0, false}, // PressureSubsys.cpp: Hatch
+{Channel::Hatch, 0, {12,93}, {0,2.069,5.038}, {1,0,0}, 1.91986217719376, 0, 1, 0, false}, // PressureSubsys.cpp: Hatch
 {Channel::Hatch, 1, {14}, {0,2.069,5.038}, {1,0,0}, 1.91986217719376, 0, 1, 0, false}, // PressureSubsys.cpp: VCHatch
 {Channel::Hatch, 0, {14,15}, {0,1.7621,4.0959}, {1,0,0}, -0.349065850398866, 0, 0.25, 0, false}, // PressureSubsys.cpp: RearLadder1
 {Channel::Hatch, 0, {15}, {0,1.1173,4.1894}, {1,0,0}, 3.14159265358979, 0.25, 0.8, 0, false}, // PressureSubsys.cpp: RearLadder2

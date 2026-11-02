@@ -25,6 +25,6 @@
     if(!encoder)return nil;
     [encoder buildAccelerationStructure:_structure descriptor:description scratchBuffer:scratch scratchBufferOffset:0];[encoder endEncoding];[cb commit];[cb waitUntilCompleted];
     if(cb.error){fprintf(stderr,"Ray-traced shadows unavailable: %s\n",cb.error.localizedDescription.UTF8String);return nil;}
-    _enabled=YES;return self;
+    _enabled=NO;return self;
 }
 @end

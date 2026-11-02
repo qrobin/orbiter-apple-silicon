@@ -36,6 +36,11 @@ int main() {try {
         check(c.end>c.start,"animation stage has positive duration");
         for(auto index:c.groups) check(index<(c.mesh?133:122),"animation addresses valid original mesh group");
     }
+    Glider closedHatch,openHatch;openHatch.part(Part::Hatch).position=1;
+    auto closedParts=closedHatch.transforms(122),openParts=openHatch.transforms(122);
+    Vector hatchPoint(0,2,5);
+    check(closedParts[93].point(hatchPoint).dist(openParts[93].point(hatchPoint))>.1,"opening the hatch moves its exterior panel");
+    check(closedParts[88].point(hatchPoint).dist(openParts[88].point(hatchPoint))<1e-10,"opening the hatch does not move the nose gear cover");
     g.toggle(Part::Airbrake);g.advance(2,0);check(g.part(Part::Airbrake).position==.5,"airbrake has original halfway stop");
     g.toggle(Part::Gear);g.advance(3,0);
     check(fabs(g.part(Part::Gear).position-.45)<1e-10,"gear uses original deployment speed");
