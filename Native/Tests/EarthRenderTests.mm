@@ -2,6 +2,7 @@
 #import <MetalKit/MetalKit.h>
 #include "VisualTypes.h"
 #include "Surface.h"
+#include "TerrainFrame.h"
 #include <array>
 #include <cmath>
 #include <cstdio>
@@ -19,6 +20,7 @@ int main(){@autoreleasepool{
     [source appendString:@"\nkernel void probeTerrain(device const float4 *p [[buffer(0)]],device float *out [[buffer(1)]],texture2d<float> mask [[texture(0)]],uint id [[thread_position_in_grid]]) {if(id<6)out[id]=terrainHeightAt(normalize(p[id].xyz),mask); }\n"];
     [source appendString:@"\nkernel void probeMarsMaterial(device float4 *out [[buffer(0)]],uint id [[thread_position_in_grid]]) {if(id<4){float3 p=float3(1200000+float(id)*13,700000,2500000);out[id]=float4(marsGroundMaterial(float3(.4,.2,.1),p,id==3?7000.0f:50.0f,0.0f),1);}}\n"];
     [source appendString:@"\nkernel void probeOtherTerrain(device const float4 *p [[buffer(0)]],device float *out [[buffer(1)]],device const float2 *body [[buffer(2)]],uint id [[thread_position_in_grid]]) {if(id<27)out[id]=bodyTerrainHeight(normalize(p[id].xyz),int(body[id].x),body[id].y); }\n"];
+    [source appendString:@"\nkernel void probeGroundCoverage(device const float4 *p [[buffer(0)]],device uint *out [[buffer(1)]],uint id [[thread_position_in_grid]]) {float2 point=p[id].xy,camera=p[id].zw;uint count=0;for(uint level=0;level<7;++level){float spacing=80.0f*float(1u<<level);int2 tile=int2(floor(point/spacing)),center=groundCenter(camera,spacing);if(all(tile>=center-24)&&all(tile<center+24)&&groundTileVisible(tile,camera,spacing,level))++count;}out[id]=count;}\n"];
     id<MTLLibrary> library=[device newLibraryWithSource:source options:nil error:&error];
     if(!library){fprintf(stderr,"Metal compilation: %s\n",error.localizedDescription.UTF8String);return 1;}
     auto pipeline=[&](NSString *fragment,MTLPixelFormat color,bool depth){
@@ -80,6 +82,22 @@ int main(){@autoreleasepool{
         auto p=(simd_float4 *)results.contents;require(fabs(p[0].x-p[1].x)+fabs(p[1].x-p[2].x)>.002,"Mars dust and bedrock vary across the surface");require(fabs(p[3].x-.4)<1e-6&&fabs(p[3].y-.2)<1e-6,"Mars ground detail fades to the orbital texture at distance");
     }
     id<MTLCommandQueue> queue=[device newCommandQueue];MTLDepthStencilDescriptor *ds=[MTLDepthStencilDescriptor new];ds.depthCompareFunction=MTLCompareFunctionAlways;ds.depthWriteEnabled=YES;id<MTLDepthStencilState> depthState=[device newDepthStencilStateWithDescriptor:ds];
+    {
+        // Every point near a detail-level seam has exactly one owner, even
+        // while the clipmap crosses a cell boundary or a negative coordinate.
+        std::vector<simd_float4> points;
+        for(float phase:{-161.f,-1.f,0.f,79.f,161.f})for(int level=0;level<6;++level)
+            for(float sign:{-1.f,1.f})for(float epsilon:{-.1f,.1f})for(int axis=0;axis<2;++axis){
+                float edge=sign*24*80*(1<<level)+epsilon;
+                points.push_back(simd_make_float4(axis==0?edge:phase,axis==1?edge:phase,phase,phase+2));
+            }
+        auto input=[device newBufferWithBytes:points.data() length:points.size()*sizeof(simd_float4) options:MTLResourceStorageModeShared];
+        auto output=[device newBufferWithLength:points.size()*sizeof(uint32_t) options:MTLResourceStorageModeShared];
+        auto pipeline=[device newComputePipelineStateWithFunction:[library newFunctionWithName:@"probeGroundCoverage"] error:&error];require(pipeline!=nil,"terrain detail seam probe pipeline");
+        auto command=[queue commandBuffer];auto encoder=[command computeCommandEncoder];[encoder setComputePipelineState:pipeline];[encoder setBuffer:input offset:0 atIndex:0];[encoder setBuffer:output offset:0 atIndex:1];
+        [encoder dispatchThreads:MTLSizeMake(points.size(),1,1) threadsPerThreadgroup:MTLSizeMake(32,1,1)];[encoder endEncoding];[command commit];[command waitUntilCompleted];require(command.error==nil,"terrain detail seam probe executes");
+        for(size_t i=0;i<points.size();++i)require(((uint32_t *)output.contents)[i]==1,"Terrain detail rings must never overlap or leave holes");
+    }
     MTLTextureDescriptor *noiseDescriptor=[MTLTextureDescriptor new];noiseDescriptor.textureType=MTLTextureType3D;noiseDescriptor.width=noiseDescriptor.height=noiseDescriptor.depth=64;noiseDescriptor.pixelFormat=MTLPixelFormatRGBA8Unorm;noiseDescriptor.usage=MTLTextureUsageShaderRead|MTLTextureUsageShaderWrite;noiseDescriptor.storageMode=MTLStorageModePrivate;
     id<MTLTexture> cloudNoise=[device newTextureWithDescriptor:noiseDescriptor];
     id<MTLComputePipelineState> noisePipeline=[device newComputePipelineStateWithFunction:[library newFunctionWithName:@"makeCloudNoise"] error:&error];require(noisePipeline!=nil,"Cloud noise pipeline failed");
@@ -178,6 +196,29 @@ int main(){@autoreleasepool{
     f.position={france.x*(1+400.0f/6371010),france.y*(1+400.0f/6371010),france.z*(1+400.0f/6371010),0};f.forward={-france.x,-france.y,-france.z,0};f.right={franceEast.x,franceEast.y,franceEast.z,0};f.up={franceNorth.x,franceNorth.y,franceNorth.z,0};f.sun={france.x,france.y,france.z,1};
     auto franceTerrain=renderTerrain(ocean,earth);size_t francePixels=0;for(size_t i=0;i<franceTerrain.size();i+=4)if(franceTerrain[i+1]>5)++francePixels;
     require(francePixels>20,"The 400 m France scenario has procedural land scenery");
+    {
+        // A camera attached to a rotating planet must see stationary scenery.
+        // Static screenshots cannot expose cancellation at planet-sized positions.
+        FrameUniforms saved=f;std::vector<unsigned char> previous;size_t worst=0;
+        for(int frame=0;frame<24;++frame){
+            double angle=4.2+frame*(Pi2/native::SiderealDay)/30;
+            auto world=[&](double x,double y,double z,float w=0){return simd_float4{(float)(cos(angle)*x+sin(angle)*z),(float)y,(float)(-sin(angle)*x+cos(angle)*z),w};};
+            double lat=Rad(46),lon=Rad(2),x=cos(lat)*cos(lon),y=sin(lat),z=cos(lat)*sin(lon);
+            double r=1+12.0/native::EarthRadius;
+            Vector axisX(cos(angle),0,-sin(angle)),axisZ(sin(angle),0,cos(angle));
+            setTerrainFrame(f,(axisX*x+Vector(0,1,0)*y+axisZ*z)*(native::EarthRadius+12),axisX,Vector(0,1,0),axisZ);
+            f.position=world(x*r,y*r,z*r);f.forward=world(-x,-y,-z);
+            f.right=world(-sin(lon),0,cos(lon));f.up=world(-sin(lat)*cos(lon),cos(lat),-sin(lat)*sin(lon));f.sun=world(x,y,z,1);
+            f.screen.w=(float)(angle/Pi2);f.environment={12.0f/(float)native::EarthRadius,12,0,0};
+            auto current=renderTerrain(ocean,earth);
+            if(!previous.empty()){size_t changed=0;for(size_t i=0;i<current.size();i+=4)
+                if(abs(int(current[i])-int(previous[i]))+abs(int(current[i+1])-int(previous[i+1]))+abs(int(current[i+2])-int(previous[i+2]))>30)++changed;
+                worst=std::max(worst,changed);}
+            previous=std::move(current);
+        }
+        printf("Rotating surface temporal changes: %zu pixels\n",worst);
+        require(worst<width*height/200,"A surface-fixed camera must not see terrain shaking as the planet rotates");f=saved;
+    }
     {
     // Render the elevation mesh itself, not only its vegetation instances.
     terrainDescriptor.vertexFunction=[library newFunctionWithName:@"groundVertex"];terrainDescriptor.fragmentFunction=[library newFunctionWithName:@"groundFragment"];

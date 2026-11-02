@@ -266,9 +266,10 @@ fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buf
         float3 base=planetMaterial(n,uv,f.surfaceColor.rgb,int(f.surfaceColor.w),f.equatorX.w>.5,map);
         if(earth&&t*radius<65000.0f){
             float land=1-smoothstep(.15f,.50f,oceanMask.sample(s,uv).r);
-            float3 fixed=terrestrial(n,f)*radius;
-            float footprint=max(length(dfdx(fixed)),length(dfdy(fixed)));
-            base=mix(base,earthGroundMaterial(base,fixed,t*radius,footprint),land);
+            float3 high=f.terrainOriginHigh.w>0?f.terrainOriginHigh.xyz:float3(0);
+            float3 offset=f.terrainOriginHigh.w>0?f.terrainOriginLow.xyz+terrestrial(ray*(t*radius),f):terrestrial(n,f)*radius;
+            float footprint=max(length(dfdx(offset)),length(dfdy(offset)));
+            base=mix(base,earthGroundMaterial(base,high,offset,t*radius,footprint),land);
         }
         float day=smoothstep(-.06f,.06f,dot(n,f.sun.xyz)),light=max(0.0f,dot(n,f.sun.xyz));
         float cloudShade=shadows.sample(s,in.position.xy/f.screen.xy).r;

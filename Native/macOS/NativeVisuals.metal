@@ -41,6 +41,7 @@ kernel void makeCloudNoise(texture3d<float,access::write> output [[texture(0)]],
     output.write(float4(base*.7+worley*.3,worley,periodicNoise(p*4+19,4),1),id);
 }
 float3 terrestrial(float3 p,constant FrameUniforms &f) {
+    if(f.terrainOriginHigh.w>0)return float3(dot(p,f.terrainAxisX.xyz),dot(p,f.pole.xyz),dot(p,f.terrainAxisZ.xyz));
     float3 e=float3(dot(p,f.equatorX.xyz),dot(p,f.pole.xyz),dot(p,f.equatorZ.xyz));
     float a=f.screen.w*(2*M_PI_F),c=cos(a),s=sin(a);
     return float3(c*e.x-s*e.z,e.y,s*e.x+c*e.z);
@@ -49,10 +50,36 @@ float2 terrestrialUV(float3 p,constant FrameUniforms &f) {
     float3 e=normalize(terrestrial(p,f));
     return float2(atan2(e.z,e.x)/(2*M_PI_F)+.5,acos(clamp(e.y,-1.0f,1.0f))/M_PI_F);
 }
+// Nearby geometry never subtracts two rotated, planet-sized floats.
+float3 terrainToWorld(float3 p,constant FrameUniforms &f){
+    if(f.terrainOriginHigh.w>0)return f.terrainAxisX.xyz*p.x+f.pole.xyz*p.y+f.terrainAxisZ.xyz*p.z;
+    float a=f.screen.w*(2*M_PI_F),c=cos(a),s=sin(a);
+    return f.equatorX.xyz*(c*p.x+s*p.z)+f.pole.xyz*p.y+f.equatorZ.xyz*(-s*p.x+c*p.z);
+}
+float3 terrainCameraDirection(constant FrameUniforms &f){
+    return f.terrainOriginHigh.w>0?normalize(f.terrainOriginHigh.xyz+f.terrainOriginLow.xyz):normalize(terrestrial(normalize(f.position.xyz),f));
+}
+float3 terrainRelativePoint(float3 n,float height,constant FrameUniforms &f){
+    if(f.terrainOriginHigh.w>0){
+        float3 relative=fma(n,float3(f.body.x),-f.terrainOriginHigh.xyz)-f.terrainOriginLow.xyz+n*height;
+        return terrainToWorld(relative,f);
+    }
+    float3 world=normalize(terrainToWorld(n,f)),camera=normalize(f.position.xyz);
+    return (world-camera)*f.body.x-camera*f.environment.y+world*height;
+}
 // Procedural elevation is shared with Surface.cpp. The mask uses the same R8
 // texels and linear filtering on both sides so water and coasts agree.
 float terrainCorner(int3 p){return visualRandom(as_type<uint>(p.x)+as_type<uint>(p.y)*157u+as_type<uint>(p.z)*11317u);}
 float terrainNoise(float3 p){int3 i=int3(floor(p));float3 u=fract(p);u=u*u*(3-2*u);float a=mix(terrainCorner(i),terrainCorner(i+int3(1,0,0)),u.x);float b=mix(terrainCorner(i+int3(0,1,0)),terrainCorner(i+int3(1,1,0)),u.x);float c=mix(terrainCorner(i+int3(0,0,1)),terrainCorner(i+int3(1,0,1)),u.x);float d=mix(terrainCorner(i+int3(0,1,1)),terrainCorner(i+int3(1,1,1)),u.x);return mix(mix(a,b,u.y),mix(c,d,u.y),u.z);}
+// Hash integer lattice coordinates separately from the local fraction. A
+// one-metre material must not quantize to half-metre steps on a 6,371 km body.
+float terrainNoiseSplit(float3 high,float3 low,float scale){
+    float3 anchor=floor(high/scale),p=(low+fma(-anchor,float3(scale),high))/scale;
+    int3 i=int3(anchor)+int3(floor(p));float3 u=fract(p);u=u*u*(3-2*u);
+    float a=mix(terrainCorner(i),terrainCorner(i+int3(1,0,0)),u.x),b=mix(terrainCorner(i+int3(0,1,0)),terrainCorner(i+int3(1,1,0)),u.x);
+    float c=mix(terrainCorner(i+int3(0,0,1)),terrainCorner(i+int3(1,0,1)),u.x),d=mix(terrainCorner(i+int3(0,1,1)),terrainCorner(i+int3(1,1,1)),u.x);
+    return mix(mix(a,b,u.y),mix(c,d,u.y),u.z);
+}
 float terrainHeightAt(float3 n,texture2d<float> mask) {
     constexpr sampler smp(filter::linear,s_address::repeat,t_address::clamp_to_edge);
     float2 uv=float2(atan2(n.z,n.x)/(2*M_PI_F)+.5,acos(clamp(n.y,-1.0f,1.0f))/M_PI_F);
@@ -81,7 +108,7 @@ struct EarthScenery {float3 n,east,north,point;float green;uint seed;bool visibl
 EarthScenery sceneryCell(uint instance,int grid,float spacing,constant FrameUniforms &f,
     texture2d<float> ocean,texture2d<float> earth,texture2d<float> heights){
     EarthScenery o;o.visible=false;o.n=float3(0,1,0);o.east=float3(1,0,0);o.north=float3(0,0,1);o.point=0;o.green=0;o.seed=0;
-    float3 camera=normalize(f.position.xyz),fixed=normalize(terrestrial(camera,f));
+    float3 fixed=terrainCameraDirection(f);
     float lat=asin(clamp(fixed.y,-1.0f,1.0f)),lon=atan2(fixed.z,fixed.x);
     if(abs(lat)>1.38f)return o;
     int2 cell=int2(floor(float2(lon,lat)*f.body.x/spacing))+int2(int(instance%grid)-grid/2,int(instance/grid)-grid/2);
@@ -95,10 +122,9 @@ EarthScenery sceneryCell(uint instance,int grid,float spacing,constant FrameUnif
     float2 uv=float2(coord.x/(2*M_PI_F)+.5f,.5f-coord.y/M_PI_F);
     float3 land=earth.sample(s,uv,level(0)).rgb;if(ocean.sample(s,uv,level(0)).r>.25f)return o;
     o.green=saturate((land.g-land.r*.65f)*5.0f)*(1-smoothstep(.4f,.7f,min(land.r,min(land.g,land.b))));
-    float a=f.screen.w*(2*M_PI_F),c=cos(a),sn=sin(a);
-    o.n=normalize(f.equatorX.xyz*(c*sf.x+sn*sf.z)+f.pole.xyz*sf.y+f.equatorZ.xyz*(-sn*sf.x+c*sf.z));
+    o.n=normalize(terrainToWorld(sf,f));
     o.east=normalize(cross(f.pole.xyz,o.n));o.north=normalize(cross(o.n,o.east));
-    o.point=(o.n-camera)*f.body.x-camera*f.environment.y+o.n*terrainHeightAt(sf,heights);
+    o.point=terrainRelativePoint(sf,terrainHeightAt(sf,heights),f);
     o.visible=true;return o;
 }
 TerrainRaster sceneryRaster(float3 local,float3 normal,float3 color,float material,EarthScenery cell,constant FrameUniforms &f){
@@ -213,7 +239,7 @@ struct MarsRockRaster {float4 position [[position]];float3 normal;float3 color;f
 vertex MarsRockRaster marsRockVertex(uint vertexID [[vertex_id]],uint instanceID [[instance_id]],constant FrameUniforms &f [[buffer(0)]]) {
     MarsRockRaster out;out.position=float4(2,2,2,1);out.normal=float3(0,1,0);out.color=0;out.local=0;
     constexpr float spacing=22.0f;constexpr int grid=40;
-    float3 camera=normalize(f.position.xyz),fixed=normalize(terrestrial(camera,f));
+    float3 fixed=terrainCameraDirection(f);
     float lat=asin(clamp(fixed.y,-1.0f,1.0f)),lon=atan2(fixed.z,fixed.x);if(abs(lat)>1.38f)return out;
     int2 center=int2(floor(float2(lon,lat)*f.body.x/spacing));
     int2 cell=center+int2(int(instanceID%grid)-grid/2,int(instanceID/grid)-grid/2);
@@ -225,10 +251,9 @@ vertex MarsRockRaster marsRockVertex(uint vertexID [[vertex_id]],uint instanceID
     if(visualRandom(seed+43)>mix(.28f,.78f,smoothstep(.25f,.75f,coverage)))return out;
     float height=bodyTerrainHeight(sf,5,f.body.x);
     if(visualRandom(seed+47)<smoothstep(450.0f,1100.0f,max(0.0f,f.environment.y-height)))return out;
-    float a=f.screen.w*(2*M_PI_F),c=cos(a),s=sin(a);
-    float3 n=normalize(f.equatorX.xyz*(c*sf.x+s*sf.z)+f.pole.xyz*sf.y+f.equatorZ.xyz*(-s*sf.x+c*sf.z));
+    float3 n=normalize(terrainToWorld(sf,f));
     float3 east=normalize(cross(f.pole.xyz,n)),north=normalize(cross(n,east));
-    float3 centerPoint=(n-camera)*f.body.x-camera*f.environment.y+n*(height-.16f);
+    float3 centerPoint=terrainRelativePoint(sf,height-.16f,f);
     if(visualRandom(seed+51)<smoothstep(350.0f,650.0f,length(centerPoint)))return out;
     float size=mix(.4f,2.8f,pow(visualRandom(seed+17),3.0f));
     float shape=mix(.25f,.53f,visualRandom(seed+19)),orientation=visualRandom(seed+13)*(2*M_PI_F);
@@ -271,12 +296,13 @@ float3 marsGroundMaterial(float3 albedo,float3 worldFixed,float distance,float f
 }
 // Aerial land use and close material share one body-fixed field. The global
 // NASA map supplies regional color; these illustrative fields are not GIS data.
-float3 earthGroundMaterial(float3 albedo,float3 fixed,float distance,float footprint){
+float3 earthGroundMaterial(float3 albedo,float3 high,float3 offset,float distance,float footprint){
+    float3 fixed=high+offset;
     float fade=1-smoothstep(18000.0f,65000.0f,distance);if(fade<=0)return albedo;
     float green=saturate((albedo.g-albedo.r*.65f)*5);
     float snow=smoothstep(.38f,.7f,min(albedo.r,min(albedo.g,albedo.b)));
     float3 n=normalize(fixed);float2 metres=float2(atan2(n.z,n.x)*6371010.0f,asin(clamp(n.y,-1.0f,1.0f))*6371010.0f);
-    float forest=terrainNoise(fixed/1250+float3(13,41,7));
+    float forest=terrainNoiseSplit(high,offset+float3(13,41,7)*1250,1250);
     float2 q=float2(metres.x*.91f+metres.y*.414f,-metres.x*.414f+metres.y*.91f)/240;
     // Irregular rows of narrow parcels resemble cultivated land from the air.
     // Broad woodland interrupts the parcels; most borders remain unmarked.
@@ -294,34 +320,58 @@ float3 earthGroundMaterial(float3 albedo,float3 fixed,float distance,float footp
     vegetation*=1-hedge*.25f;
     float fertility=green*(1-snow);
     float3 regional=mix(albedo,vegetation,fertility*.72f);
-    float patch=terrainNoise(fixed/47),grain=terrainNoise(fixed/1.3f);
+    float patch=terrainNoiseSplit(high,offset,47),grain=terrainNoiseSplit(high,offset,1.3f);
     float grainFade=1-smoothstep(.3f,2.0f,footprint);
     float detail=(patch-.5f)*.25f+(grain-.5f)*.22f*grainFade;
     regional*=1+detail;
     // Fine crop rows disappear before they can shimmer from the air.
-    float rows=sin((metres.x*.7f+metres.y*.3f)*2.2f+crop*20);
+    float3 direction=float3(.7f,.3f,0);
+    float period=2*M_PI_F/2.2f;
+    float phase=fmod(high.x,period/.7f)*.7f+fmod(high.y,period/.3f)*.3f;
+    float rows=sin((phase+dot(offset,direction))*2.2f+crop*20);
     regional*=1+rows*.035f*(1-smoothstep(.3f,1.5f,footprint))*(1-woodland)*fertility;
     return mix(albedo,regional,fade);
 }
 struct GroundRaster {float4 position [[position]];float3 world;float3 normal;float2 uv;float height;};
+int2 groundCenter(float2 metres,float spacing){return int2(floor(metres/(spacing*2)))*2;}
+bool groundTileVisible(int2 tile,float2 metres,float spacing,uint level){
+    if(level==0)return true;
+    int2 fineCenter=groundCenter(metres,spacing*.5f);
+    int2 low=(fineCenter-24)/2,high=(fineCenter+24)/2;
+    return any(tile<low)||any(tile>=high);
+}
+float3 groundPointAt(float2 grid,float spacing,constant FrameUniforms &f,texture2d<float> mask,thread float &height,thread float3 &normal){
+    float2 coord=grid*spacing/f.body.x;float cl=cos(coord.y);
+    float3 fixedPoint=float3(cl*cos(coord.x),sin(coord.y),cl*sin(coord.x));
+    height=int(f.surfaceColor.w)==3?terrainHeightAt(fixedPoint,mask):bodyTerrainHeight(fixedPoint,int(f.surfaceColor.w),f.body.x);
+    normal=normalize(terrainToWorld(fixedPoint,f));return terrainRelativePoint(fixedPoint,height,f);
+}
 vertex GroundRaster groundVertex(uint vid [[vertex_id]],uint instance [[instance_id]],constant FrameUniforms &f [[buffer(0)]],constant uint &levelIndex [[buffer(1)]],texture2d<float> mask [[texture(0)]]) {
     GroundRaster o;o.position=float4(2,2,2,1);o.world=0;o.normal=float3(0,1,0);o.uv=0;o.height=0;
     constexpr int grid=48;float spacing=80.0f*float(1u<<levelIndex);
-    int2 cell=int2(int(instance%grid)-grid/2,int(instance/grid)-grid/2);
-    if(levelIndex>0&&(abs(cell.x)<11&&abs(cell.y)<11))return o;
     if(levelIndex>0&&spacing*24>f.body.x*.3f)return o;
-    float3 camera=normalize(f.position.xyz),fixed=normalize(terrestrial(camera,f));
+    float3 fixed=terrainCameraDirection(f);
     float lat=asin(clamp(fixed.y,-1.0f,1.0f)),lon=atan2(fixed.z,fixed.x);if(abs(lat)>1.45f)return o;
+    float2 metres=float2(lon,lat)*f.body.x;int2 center=groundCenter(metres,spacing);
+    int2 tile=center+int2(int(instance%grid)-grid/2,int(instance/grid)-grid/2);
+    // Adjacent levels meet along exact grid boundaries. Overlapping rings
+    // previously fought for depth and flickered as their tessellations moved.
+    if(!groundTileVisible(tile,metres,spacing,levelIndex))return o;
     uint2 corners[6]={uint2(0,0),uint2(1,0),uint2(1,1),uint2(0,0),uint2(1,1),uint2(0,1)};
-    float2 center=floor(float2(lon,lat)*f.body.x/spacing);
-    float2 coord=(center+float2(cell)+float2(corners[vid]))*spacing/f.body.x;
-    float cl=cos(coord.y);float3 fixedPoint=float3(cl*cos(coord.x),sin(coord.y),cl*sin(coord.x));
-    float a=f.screen.w*(2*M_PI_F),c=cos(a),s=sin(a);
-    float3 n=normalize(f.equatorX.xyz*(c*fixedPoint.x+s*fixedPoint.z)+f.pole.xyz*fixedPoint.y+f.equatorZ.xyz*(-s*fixedPoint.x+c*fixedPoint.z));
-    float h=int(f.surfaceColor.w)==3?terrainHeightAt(fixedPoint,mask):bodyTerrainHeight(fixedPoint,int(f.surfaceColor.w),f.body.x);
-    float3 p=(n-camera)*f.body.x-camera*f.environment.y+n*h;
+    int2 gridVertex=tile+int2(corners[vid]);float3 n;float h;
+    float3 p=groundPointAt(float2(gridVertex),spacing,f,mask,h,n);
+    // Match intermediate boundary vertices to the next coarser edge, so
+    // removing overlap also removes cracks instead of exposing the sphere.
+    int2 local=gridVertex-center;
+    int axis=abs(local.x)==24?1:abs(local.y)==24?0:-1;
+    if(axis>=0&&(gridVertex[axis]&1)!=0){
+        int2 a=gridVertex,b=gridVertex;a[axis]-=1;b[axis]+=1;float ah,bh;float3 an,bn;
+        p=(groundPointAt(float2(a),spacing,f,mask,ah,an)+groundPointAt(float2(b),spacing,f,mask,bh,bn))*.5f;
+        h=(ah+bh)*.5f;n=normalize(an+bn);
+    }
     float3 view=float3(dot(p,f.right.xyz),dot(p,f.up.xyz),-dot(p,f.forward.xyz));
-    o.position=f.projection*float4(view,1);o.world=p;o.normal=n;o.uv=float2(coord.x/(2*M_PI_F)+.5,.5-coord.y/M_PI_F);o.height=h;return o;
+    o.position=f.projection*float4(view,1);o.world=p;o.normal=n;
+    float2 coord=float2(gridVertex)*spacing/f.body.x;o.uv=float2(coord.x/(2*M_PI_F)+.5,.5-coord.y/M_PI_F);o.height=h;return o;
 }
 fragment float4 groundFragment(GroundRaster in [[stage_in]],constant FrameUniforms &f [[buffer(0)]],texture2d<float> earth [[texture(0)]],texture2d<float> shadows [[texture(1)]],texture2d<float> marsDetail [[texture(2)]]) {
     if(in.height<.5)discard_fragment();
@@ -330,12 +380,13 @@ fragment float4 groundFragment(GroundRaster in [[stage_in]],constant FrameUnifor
     bool earthBody=int(f.surfaceColor.w)==3;
     float3 albedo=earthBody?earth.sample(map,in.uv).rgb:planetMaterial(in.normal,in.uv,f.surfaceColor.rgb,int(f.surfaceColor.w),f.equatorX.w>.5,earth);
     if(earthBody){
-        float3 fixedPoint=terrestrial(f.position.xyz*f.body.x+in.world,f);
-        float footprint=max(length(dfdx(fixedPoint)),length(dfdy(fixedPoint)));
-        albedo=earthGroundMaterial(albedo,fixedPoint,length(in.world),footprint);
+        float3 high=f.terrainOriginHigh.w>0?f.terrainOriginHigh.xyz:float3(0);
+        float3 offset=f.terrainOriginHigh.w>0?f.terrainOriginLow.xyz+terrestrial(in.world,f):terrestrial(f.position.xyz*f.body.x+in.world,f);
+        float footprint=max(length(dfdx(offset)),length(dfdy(offset)));
+        albedo=earthGroundMaterial(albedo,high,offset,length(in.world),footprint);
     }
     if(!earthBody){
-        float3 fixedPoint=terrestrial(f.position.xyz*f.body.x+in.world,f);
+        float3 fixedPoint=f.terrainOriginHigh.w>0?f.terrainOriginHigh.xyz+(f.terrainOriginLow.xyz+terrestrial(in.world,f)):terrestrial(f.position.xyz*f.body.x+in.world,f);
         float footprint=max(length(dfdx(fixedPoint)),length(dfdy(fixedPoint)));
         if(int(f.surfaceColor.w)==5)albedo=marsGroundMaterial(albedo,fixedPoint,length(in.world),footprint);
         int bodyId=int(f.surfaceColor.w);

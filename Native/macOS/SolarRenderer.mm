@@ -1,4 +1,5 @@
 #import "SolarRenderer.h"
+#include "TerrainFrame.h"
 #include "SolarSystem.h"
 #include <algorithm>
 #include <vector>
@@ -36,6 +37,8 @@ static simd_float4 solarVector(Vector v,float w=0){return {(float)v.x,(float)v.y
     f->sun=solarVector(sun,visible);f->position=solarVector((flight.position+offset)/b.radius);
     f->sunShape={(float)(body(BodyId::Sun).radius/sunDistance),1,0,(float)solarIrradiance(sunDistance)};
     f->environment.x=(float)((flight.position+offset).length()/b.radius-1);f->screen.w=(float)(b.rotation(date)/Pi2);
+    double angle=b.rotation(date),c=cos(angle),s=sin(angle);
+    setTerrainFrame(*f,flight.position+offset,b.equatorX()*c-b.equatorZ()*s,b.pole(),b.equatorX()*s+b.equatorZ()*c);
     double scale=b.pressure>0&&b.density>0?b.pressure/(b.density*b.mu()/(b.radius*b.radius)):13000;
     scale=std::clamp(scale,1000.,100000.);float atmosphere=b.pressure>100?1:b.pressure>0?(float)(b.pressure/100000.):0;Vector haze(.1,.33,.75);
     if(b.id==BodyId::Earth){atmosphere=1;scale=13000;}
