@@ -37,6 +37,11 @@ int main(){try {
     f.glider.rcsMode=0;check(gliderExhaust(f).empty(),"RCS-off suppresses all jets");
     f.assist=Assist::Normal;check(!gliderExhaust(f).empty(),"RCS navigation jets remain visible with the manual RCS dial off");f.clearAssist();
     f.glider.rcsMode=1;f.rcs=0;f.advance(.01,Input{1,1,1});check(gliderExhaust(f).empty(),"Empty RCS tank suppresses jets");
+    Flight rcsOnly;rcsOnly.glider.rcsMode=1;rcsOnly.glider.rcsRotation={.5,0,0};
+    ExhaustTrail rcsGas;for(int i=0;i<12;++i)rcsGas.update(rcsOnly,.1);
+    check(!rcsGas.puffs().empty()&&!rcsGas.segments(rcsOnly).empty(),"RCS jets produce gas volumes without engine thrust");
+    rcsOnly.glider.rcsRotation={};auto remaining=rcsGas.puffs().size();rcsGas.update(rcsOnly,.1);
+    check(rcsGas.puffs().size()==remaining,"RCS gas stops being emitted when the jets stop");
     auto ground=plumeShape(0,ExhaustKind::Main),space=plumeShape(200000,ExhaustKind::Main);
     check(space.spread>ground.spread,"Exhaust expands in vacuum");check(space.lifetime>ground.lifetime,"Vacuum plume persists longer");
     Flight aircraft;aircraft.position={EarthRadius+5000,0,0};aircraft.velocity={0,0,250};aircraft.glider.mainLevel=1;

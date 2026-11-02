@@ -175,15 +175,18 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
     [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:36 instanceCount:64*64];
 }
 - (void)encodeExhaust:(id<MTLCommandBuffer>)cb frame:(const FrameUniforms &)f flight:(const Flight &)flight offset:(Vector)offset {
-    std::array<EmitterUniforms,32> jets{};NSUInteger count=0;
+    std::array<EmitterUniforms,32> jets{};NSUInteger count=0,emitterCount=0;
     auto world=[&](Vector v){return flight.right*v.x+flight.up*v.y+flight.forward*v.z;};
     for(const auto &jet:gliderExhaust(flight)){
+        ++emitterCount;
+        // RCS jets use the gas trail only; the combustion shader is for engines.
+        if(jet.kind==ExhaustKind::Rcs)continue;
         if(count==jets.size())break;auto shape=plumeShape(flight,jet.kind);int kind=(int)jet.kind;
-        double length=kind==0?12:kind==1?3:kind==2?6:.85;
-        double vacuum=std::clamp((shape.spread-(kind==3?.10:.035))/(kind==3?.3:.10),0.,1.);length*=1+vacuum*1.2;
+        double length=kind==0?12:kind==1?3:6;
+        double vacuum=std::clamp((shape.spread-.035)/.10,0.,1.);length*=1+vacuum*1.2;
         jets[count++]={visualVector(world(jet.position),jet.level),visualVector(world(jet.direction),jet.radius),{(float)kind,(float)length,(float)(shape.speed*.28),(float)shape.spread}};
     }
-    _emitterCount=count;double dt=haveFlight?flight.elapsed-lastElapsed:0;
+    _emitterCount=emitterCount;double dt=haveFlight?flight.elapsed-lastElapsed:0;
     auto weather=flight.currentWeather();double humidity=std::clamp(.25+weather.cloud*.45+weather.storm*.3,0.,1.);
     glassWetness=updateGlassWetness(glassWetness,weather.rain,flight.airRelativeVelocity().length(),dt);
     if(std::isfinite(dt)&&dt>0)glassRunoff+=glassRunoffVelocity(flight.airRelativeVelocity(),flight.position,flight.right,flight.up,flight.forward)*dt;
