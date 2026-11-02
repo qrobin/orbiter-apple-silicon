@@ -24,6 +24,13 @@ int main(){try {
         check(fabs(nozzle.position.z-lip)<.002,"Visual exhaust starts at original nozzle lip, not interior thrust point");
     }
     f.cutEngines();f.glider.hoverControl.levels={.2,.4,.8};e=gliderExhaust(f);check(e.size()==3,"Three independent hover engines");check(e[2].level==.8,"Actual hover mixer output");
+    Flight windy;windy.position={EarthRadius+100,0,0};windy.glider.mainLevel=1;
+    auto mainJet=gliderExhaust(windy).front();Vector axis=windy.right*mainJet.direction.x+windy.up*mainJet.direction.y+windy.forward*mainJet.direction.z;
+    Vector ambient=windy.velocity-windy.airRelativeVelocity();windy.velocity=ambient+windy.right*80;
+    Vector drift=flameWindDrift(windy,mainJet,12);
+    check(dotp(drift,windy.right)<-1&&fabs(dotp(drift,axis))<1e-8,"Atmospheric airflow bends the flame downwind across its axis");
+    windy.velocity=ambient-windy.right*80;check(dotp(flameWindDrift(windy,mainJet,12),windy.right)>1,"Reversing airflow reverses flame drift");
+    windy.position={EarthRadius+400000,0,0};check(flameWindDrift(windy,mainJet,12).length()<.01,"Flame wind drift vanishes in vacuum");
     f.cutEngines();
     for(int axis=0;axis<3;++axis)for(double sign:{-1.,1.}) {
         f.glider.rcsRotation={};f.glider.rcsTranslation={};f.glider.rcsRotation(axis)=sign;

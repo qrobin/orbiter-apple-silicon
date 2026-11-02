@@ -11,6 +11,8 @@ std::vector<ExhaustEmitter> gliderExhaust(const Flight &flight);
 struct PlumeShape { double speed,lifetime,spread; };
 PlumeShape plumeShape(double altitude,ExhaustKind kind);
 PlumeShape plumeShape(const Flight &flight,ExhaustKind kind);
+// Lateral displacement of the flame tip in world metres due to relative airflow.
+Vector flameWindDrift(const Flight &flight,const ExhaustEmitter &emitter,double length);
 struct ExhaustTrailPuff {
     BodyId body; Vector position,velocity;
     double age,lifetime,radius,opacity;

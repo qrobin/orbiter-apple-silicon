@@ -185,7 +185,7 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;bool rcsGas;};
         if(count==jets.size())break;auto shape=plumeShape(flight,jet.kind);int kind=(int)jet.kind;
         double length=kind==0?12:kind==1?3:6;
         double vacuum=std::clamp((shape.spread-.035)/.10,0.,1.);length*=1+vacuum*1.2;
-        jets[count++]={visualVector(world(jet.position),jet.level),visualVector(world(jet.direction),jet.radius),{(float)kind,(float)length,(float)(shape.speed*.28),(float)shape.spread}};
+        jets[count++]={visualVector(world(jet.position),jet.level),visualVector(world(jet.direction),jet.radius),{(float)kind,(float)length,(float)(shape.speed*.28),(float)shape.spread},visualVector(flameWindDrift(flight,jet,length),jet.id*1.73)};
     }
     _emitterCount=emitterCount;double dt=haveFlight?flight.elapsed-lastElapsed:0;
     auto weather=flight.currentWeather();double humidity=std::clamp(.25+weather.cloud*.45+weather.storm*.3,0.,1.);

@@ -30,7 +30,7 @@ struct FrameUniforms {
     VFLOAT4 reflectedLights[4]; // source position in receiver radii, irradiance at receiver center
 };
 struct CelestialUniforms { VFLOAT4 directionRadius,axisX,pole,axisZ,light,material,rings; VFLOAT4 reflectedLights[4]; };
-struct EmitterUniforms { VFLOAT4 positionLevel,directionRadius,style; };
+struct EmitterUniforms { VFLOAT4 positionLevel,directionRadius,style,windPhase; };
 struct TrailSegmentUniforms { VFLOAT4 startRadius,endRadius,opticalAge,noiseMode; };
 struct EffectUniforms {
     VFLOAT4 clock; // simulation delta, visual time, unused, emitter count
@@ -42,5 +42,5 @@ struct SkyRaster { float4 position [[position]]; float2 uv; };
 #undef VFLOAT4
 #undef VMATRIX
 #ifndef __METAL_VERSION__
-static_assert(sizeof(FrameUniforms)==1328 && sizeof(CelestialUniforms)==176 && sizeof(EmitterUniforms)==48 && sizeof(TrailSegmentUniforms)==64 && sizeof(EffectUniforms)==32);
+static_assert(sizeof(FrameUniforms)==1328 && sizeof(CelestialUniforms)==176 && sizeof(EmitterUniforms)==64 && sizeof(TrailSegmentUniforms)==64 && sizeof(EffectUniforms)==32);
 #endif

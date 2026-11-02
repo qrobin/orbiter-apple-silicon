@@ -53,6 +53,17 @@ static PlumeShape pressureShape(double pressure,ExhaustKind kind) {
 }
 PlumeShape plumeShape(double altitude,ExhaustKind kind){return pressureShape(earthAtmosphere(altitude).p,kind);}
 PlumeShape plumeShape(const Flight &f,ExhaustKind kind){return pressureShape(bodyAtmosphere(f.reference,f.altitude()).p,kind);}
+Vector flameWindDrift(const Flight &f,const ExhaustEmitter &jet,double length){
+    auto world=[&](const Vector &v){return f.right*v.x+f.up*v.y+f.forward*v.z;};
+    Vector axis=world(jet.direction),offset=world(jet.position);
+    Vector airflow=-f.airRelativeVelocity()-crossp(world(f.angularVelocity),offset);
+    Vector lateral=airflow-axis*dotp(airflow,axis);
+    double density=std::clamp(bodyAtmosphere(f.reference,f.altitude()).rho/1.225,0.,1.);
+    Vector drift=lateral*(length*sqrt(density)/plumeShape(f,jet.kind).speed*2.);
+    double limit=length*.65,magnitude=drift.length();
+    if(magnitude>limit)drift*=limit/magnitude;
+    return drift;
+}
 ExhaustCameraFrame::ExhaustCameraFrame(const Flight &f,const Vector &offset)
     :reference(f.reference),date(f.mjd+f.elapsed/86400),camera(f.position+offset){}
 bool ExhaustCameraFrame::relative(BodyId id,const Vector &point,Vector &result){

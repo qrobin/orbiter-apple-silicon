@@ -949,7 +949,7 @@ fragment float4 rainGlassFragment(RainRaster in [[stage_in]],constant FrameUnifo
     return float4(refracted*(1-body*.035f-rim*.04f)+float3(.80,.89,1.0)*highlight,1);
 }
 float3 exhaustBasis(float3 d){return normalize(cross(d,abs(d.y)<.9?float3(0,1,0):float3(1,0,0)));}
-struct FlameRaster {float4 position [[position]];float3 ray;float3 origin [[flat]];float3 axis [[flat]];float4 properties [[flat]];float time [[flat]];};
+struct FlameRaster {float4 position [[position]];float3 ray;float3 origin [[flat]];float3 axis [[flat]];float4 properties [[flat]];float4 windPhase [[flat]];float time [[flat]];};
 vertex FlameRaster flameVertex(uint id [[vertex_id]],uint instance [[instance_id]],constant FrameUniforms &f [[buffer(0)]],
                                constant EffectUniforms &e [[buffer(1)]],constant EmitterUniforms *emitters [[buffer(2)]]) {
     EmitterUniforms jet=emitters[instance];float2 quad[6]={float2(-1,-1),float2(1,-1),float2(1,1),float2(-1,-1),float2(1,1),float2(-1,1)};
@@ -957,19 +957,19 @@ vertex FlameRaster flameVertex(uint id [[vertex_id]],uint instance [[instance_id
     float plumeLength=jet.style.y*sqrt(jet.positionLevel.w),radius=jet.directionRadius.w*(.82+.18*sqrt(jet.positionLevel.w));
     float3 center=origin+axis*(plumeLength*.5);float2 projected=float2(dot(axis,f.right.xyz),dot(axis,f.up.xyz));
     float projectedLength=length(projected);float2 along=projectedLength>.001?projected/projectedLength:float2(0,1),across=float2(-along.y,along.x);
-    float maxRadius=radius*(1.8+jet.style.w*3),depth=dot(center,f.forward.xyz);
+    float maxRadius=radius*(2.8+jet.style.w*3)+length(jet.windPhase.xyz),depth=dot(center,f.forward.xyz);
     float nearDepth=depth-abs(dot(axis,f.forward.xyz))*plumeLength*.5-maxRadius;
     float planeDepth=max(depth,.5f);center+=f.forward.xyz*(planeDepth-depth);
     float perspective=clamp(planeDepth/max(.2f,nearDepth),1.0f,4.0f);
     float2 corner=along*quad[id].y*(plumeLength*projectedLength*.5+maxRadius)*perspective+across*quad[id].x*maxRadius*perspective;
     float3 p=center+f.right.xyz*corner.x+f.up.xyz*corner.y;
     float3 view=float3(dot(p,f.right.xyz),dot(p,f.up.xyz),-dot(p,f.forward.xyz));
-    return {f.projection*float4(view,1),p,origin,axis,float4(radius,plumeLength,jet.positionLevel.w,jet.style.w),e.clock.y};
+    return {f.projection*float4(view,1),p,origin,axis,float4(radius,plumeLength,jet.positionLevel.w,jet.style.w),jet.windPhase,e.clock.y};
 }
 fragment float4 flameFragment(FlameRaster in [[stage_in]],constant FrameUniforms &f [[buffer(0)]],
                               texture2d<float,access::read> depth [[texture(0)]],texture3d<float> noise [[texture(1)]],texture2d<float> cloudMap [[texture(2)]]) {
     float3 ray=normalize(in.ray),axis=in.axis,ro=-in.origin;
-    float radialBound=in.properties.x*(1.8+in.properties.w*3),len=in.properties.y;
+    float radialBound=in.properties.x*(2.8+in.properties.w*3)+length(in.windPhase.xyz),len=in.properties.y;
     float rdAxis=dot(ray,axis),roAxis=dot(ro,axis);float3 rd=ray-axis*rdAxis,radial=ro-axis*roAxis;
     float a=dot(rd,rd),b=dot(radial,rd),c=dot(radial,radial)-radialBound*radialBound;
     float nearCylinder=0,farCylinder=1e8;
@@ -984,17 +984,21 @@ fragment float4 flameFragment(FlameRaster in [[stage_in]],constant FrameUniforms
     if(z>0)end=min(end,(.2/z)/max(.001f,dot(ray,f.forward.xyz)));
     if(end<=start)discard_fragment();
     constexpr sampler s(filter::linear,address::repeat);float3 basis=exhaustBasis(axis),second=cross(axis,basis);
-    float stepLength=(end-start)/12,trans=1;float3 radiance=0;
-    for(int i=0;i<12&&trans>.015;++i){
+    float stepLength=(end-start)/16,trans=1;float3 radiance=0;
+    for(int i=0;i<16&&trans>.015;++i){
         float t=start+(float(i)+.5)*stepLength;float3 local=ro+ray*t;
         float along=saturate(dot(local,axis)/len);float3 lateral=local-axis*dot(local,axis);
-        float width=in.properties.x*(.90+along*(.9+in.properties.w*3))*pow(max(.001f,1-along),.45f);
+        float phase=in.windPhase.w,flow=along*11-in.time*10+phase;
+        float sway=along*in.properties.x;
+        lateral-=in.windPhase.xyz*(along*along);
+        lateral-=sway*(basis*(.36*sin(flow)+.18*sin(flow*1.8+phase))+second*(.30*cos(flow*.83+phase)+.16*sin(flow*1.6)));
+        float width=in.properties.x*(.90+along*(1.0+in.properties.w*3))*pow(max(.001f,1-along),.35f);
         float2 crossSection=float2(dot(lateral,basis),dot(lateral,second))/max(.001f,width);
         // Advect the turbulent combustion pattern rapidly away from the nozzle.
-        float3 samplePoint=float3(along*5-fmod(in.time*24,16.0f),crossSection*1.4+fmod(in.time*1.1,16.0f));
+        float3 samplePoint=float3(along*5-fmod(in.time*24,16.0f)+phase,crossSection*1.4+fmod(in.time*1.1,16.0f));
         float n=noise.sample(s,samplePoint).g,detail=noise.sample(s,samplePoint*2.2+float3(3,1,7)).b;
-        float r=length(crossSection),edge=1-smoothstep(.63f,1.10f,r+(n-.5)*.55+(detail-.5)*.18);
-        float density=edge*(.28+.72*smoothstep(.16f,.76f,n*.72+detail*.28))*(1-smoothstep(.90f,1.0f,along));
+        float r=length(crossSection),edge=1-smoothstep(.48f,1.08f,r+(n-.5)*(.65+along*.65)+(detail-.5)*.32);
+        float density=edge*(.18+.82*smoothstep(.20f,.72f,n*.72+detail*.28))*(1-smoothstep(.82f,1.0f,along));
         float core=(1-smoothstep(.08f,.75f,r))*(1-along*.55);
         float shock=.90+.10*cos(along*12*M_PI_F-in.time*12)*(1-saturate(in.properties.w*5));
         float3 hot=mix(float3(7,1.0,.035),float3(12,5.5,.85),core);
