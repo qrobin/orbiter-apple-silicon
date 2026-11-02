@@ -88,41 +88,6 @@ int cockpitNavButton(double u,double v){
     static const int buttons[2][4]={{0,1,3,5},{6,2,4,-1}};
     return buttons[row][column];
 }
-int panelNavButton(double x,double y){
-    if(!std::isfinite(x)||!std::isfinite(y)||x<1124||x>=1272||y<62||y>=110)return -1;
-    int column=int(x-1124)/37,row=int(y-62)/24;
-    static const int buttons[2][4]={{6,2,4,-1},{0,1,3,5}};
-    return buttons[row][column];
-}
-CockpitHit pickPanel2D(double x,double y){
-    if(!std::isfinite(x)||!std::isfinite(y))return {};
-    for(int d=0;d<2;++d){
-        double offset=d?736:173;
-        for(int side=0;side<2;++side){double left=offset+side*348;
-            if(x>=left&&x<left+25&&y>=100&&y<323){
-                int row=int((y-100)/41);if(row<6&&int(y-100)%41<18)return {100+d*12+side*6+row,0,0};
-            }
-        }
-        double left=d?778:216;
-        if(x>=left&&x<left+288&&y>=63&&y<351)return {200+d,(x-left)/288,(y-63)/288};
-    }
-    auto inside=[&](double x0,double y0,double x1,double y1){return x>=x0&&x<x1&&y>=y0&&y<y1;};
-    int navButton=panelNavButton(x,y);if(navButton>=0)return {400+navButton,0,0};
-    if(inside(15,18,122,33)){
-        int column=int(x-15)/29;
-        if(column<=3&&int(x-15)%29<20)return {500+column,0,y-18};
-    }
-    if(inside(4,122,57,297))return {300,0,y};
-    if(inside(4,304,57,444))return {301,0,y};
-    if(inside(93,373,125,572))return {302,0,y};
-    if(inside(1221,359,1260,473))return {303,0,y};
-    if(inside(138,299,158,359))return {304,0,y};
-    if(inside(100,69,140,113))return {305,x,0};
-    if(inside(87,299,107,359))return {306,0,y};
-    if(inside(356,426,396,470))return {307,x,0};
-    if(inside(491,415,533,445))return {308,0,0};
-    return {};
-}
 bool paintMfdButtonLabels(Image &target,const Image &original,const std::array<bool,2>&enabled){
     if(original.width<660||original.height<1024||original.rgba.size()!=size_t(original.width)*original.height*4)return false;
     target=original;

@@ -1,6 +1,6 @@
-# Orbiter Native 0.8.2 — original TransX and 2D panel
+# Orbiter Native 0.8.2 — original TransX and cockpit
 
-A partial native Apple Silicon port of the supplied Orbiter source. It includes the original TransX module, Solar System catalogue, cockpit and 2D panel, hover controls, Earth clouds and GPU exhaust. This remains an experimental native flight target, **not a complete port of Orbiter or every Delta-glider subsystem**.
+A partial native Apple Silicon port of the supplied Orbiter source. It includes the original TransX module, Solar System catalogue, cockpit, hover controls, Earth clouds and GPU exhaust. This remains an experimental native flight target, **not a complete port of Orbiter or every Delta-glider subsystem**.
 
 ## TransX
 
@@ -14,7 +14,7 @@ Choose **Navigation → Route Planner…** or press **Command-Shift-R** for a si
 
 Use **Transfer** to manually set the first TransX ejection date and velocity components; these describe the departure velocity relative to the body being left, not the engine burn. **Hohmann estimate** supplies an approximate prograde starting value for manual tuning. **In 1 h** sets a date relative to simulation time. Dates use `YYYY-MM-DD HH:MM:SS` in UTC; the flight display also shows the current simulation date. TransX date entry also accepts its original numeric MJD values. Velocities use metres per second.
 
-Under **Step burn**, select a TransX stage to edit its own maneuver and choose **Apply burn**. The **BURN** button in the virtual cockpit and 2D panel, **Align with RCS**, and **Navigation → RCS Programs → Align Selected Burn** turn the ship toward the selected maneuver when that stage is the current gravity reference. Fire and stop the main engines yourself. The flight display and planner show an **IGN** countdown and approximate full-thrust duration: ignition is estimated by centering the burn on the TransX maneuver time. A low-fuel warning appears if the estimated burn needs more propellant than remains. Future-step times and fuel estimates use the current vessel state and should be checked again later.
+Under **Step burn**, select a TransX stage to edit its own maneuver and choose **Apply burn**. The **BURN** button in the virtual cockpit, **Align with RCS**, and **Navigation → RCS Programs → Align Selected Burn** turn the ship toward the selected maneuver when that stage is the current gravity reference. Fire and stop the main engines yourself. The flight display and planner show an **IGN** countdown and approximate full-thrust duration: ignition is estimated by centering the burn on the TransX maneuver time. A low-fuel warning appears if the estimated burn needs more propellant than remains. Future-step times and fuel estimates use the current vessel state and should be checked again later.
 
 For any selected step with a future burn, **Skip to 1 day before burn** fast-forwards the flight to one day before estimated ignition, then pauses at 1×. The same action is available in the Navigation menu. Press **Space** in the flight view or use **Cancel skip** to stop early. The simulation keeps running with the existing engine and RCS settings under normal accelerated-flight rules; earlier planned burns are not executed automatically.
 
@@ -24,7 +24,7 @@ For the usual interplanetary setup, select **Select Target → Escape** in the d
 
 **Navigation → TransX on Left/Right MFD** selects its cockpit displays. The Delta-glider’s original twelve side buttons on each display are clickable; their labels use the original `dg_vc4.dds` glyph atlas and their hit areas/spacing come from `MfdSubsys.cpp`. Hold Increase/Decrease for continuous changes. The native window is also available while flying externally.
 
-Drag an orbit graph in the TransX window or directly on a cockpit or 2D-panel MFD to rotate its 3D projection. Double-click the graph or choose **Reset graph** in the TransX window to return to the original projection. Each MFD keeps its own viewpoint. Target-view steering cues and the planned orbit are unchanged.
+Drag an orbit graph in the TransX window or directly on a cockpit MFD to rotate its 3D projection. Double-click the graph or choose **Reset graph** in the TransX window to return to the original projection. Each MFD keeps its own viewpoint. Target-view steering cues and the planned orbit are unchanged.
 
 Optional **Align with RCS** points at the same vector used by the original TransX Target view for a configured manoeuvre in the current gravity reference. It uses the glider’s finite RCS torque and fuel. Main, hover and retro engine levels remain under player control. **N** releases attitude assist. Planning through an escape stage alone does not create an active manoeuvre vector: configure the original **Manoeuvre mode**, velocity components and date first. A disabled alignment button means no applicable manoeuvre is available.
 
@@ -89,9 +89,9 @@ Open `Orbiter Native.app`. Press **M** for the native systems panel, or use **Fl
 
 Choose **Flight → Mechanism Demonstration** to watch gear, nose, retro covers, airbrakes, radiator and escape ladder deploy with the original staged animation timing at 10× simulation time. The ladder waits for the nose cone to finish opening. Press **Command-R** to restart the selected scenario.
 
-Press **C** (or **V**) to cycle through external view, the original 3D cockpit and the original 2D instrument-panel view. The **Camera** menu also selects each view and marks the active one. In the 3D cockpit, drag to look around and scroll up to zoom toward the cursor; scroll down to zoom out. The pilot body, head and visor are hidden from the pilot's camera. Original quadrilateral and spherical click regions operate supported switches, gear/nose/airbrake levers, main and hover throttles, RCS selector, trim and gimbal controls. The switch handles rotate about their original pivots; the original main/hover throttle, gear and nose lever animations are connected. The original hover dial, spring switches, hold/mode buttons, balance pointers and small numeric hover readout are also connected. Click-and-drag the main or hover throttle to adjust it. **M** provides larger accessible controls for the same systems.
+Press **C** (or **V**) to switch between external view and the original 3D cockpit. The **Camera** menu also selects each view and marks the active one. In the 3D cockpit, drag to look around and scroll up to zoom toward the cursor; scroll down to zoom out. The pilot body, head and visor are hidden from the pilot's camera. Original quadrilateral and spherical click regions operate supported switches, gear/nose/airbrake levers, main and hover throttles, RCS selector, trim and gimbal controls. The switch handles rotate about their original pivots; the original main/hover throttle, gear and nose lever animations are connected. The original hover dial, spring switches, hold/mode buttons, balance pointers and small numeric hover readout are also connected. Click-and-drag the main or hover throttle to adjust it. **M** provides larger accessible controls for the same systems.
 
-The 2D view uses the original `dg_panel.dds` main-panel artwork and original MFD/button positions. Both displays mirror their cockpit counterparts; their TransX buttons and graph dragging work in either view. Main/retro and hover throttles, gear, nose, airbrake, trim, RCS mode, hover attitude and hover hold are connected. The main levers control both engines together in the native flight model. The attitude and heading underlays show live flight data; other original panel instruments and switches are not all connected yet.
+
 
 On supported Apple GPUs, **Graphics → Ray-Traced Glider Shadows** tests sunlight against the static exterior hull in both exterior and virtual cockpit views. Animated parts and interior geometry are not yet included in the acceleration structure, and this path does not provide ray-traced reflections. Unsupported devices use the regular lighting path.
 
@@ -182,7 +182,7 @@ The native animation registry contains **63 components extracted from upstream s
 | [ / ] | Decrease / increase hover throttle |
 | , / . | Hold left / right wheel brake; hold both to stop |
 | Option-W | Toggle parking brake |
-| C / V | Cycle external / 3D cockpit / 2D instrument panel |
+| C / V | Switch between external and 3D cockpit views |
 | Drag / scroll | Orbit external camera or look around cockpit; scroll to zoom |
 | Drag / double-click TransX graph | Rotate its projection / reset it |
 | Shift / Control | Increase / decrease main throttle while held |
@@ -247,7 +247,7 @@ For a bounded rendering run:
   --capture /absolute/path/frame.png --report /absolute/path/performance.json
 ```
 
-Use `--hover-demo` for a repeatable hover capture (the practice flight advances 60 simulation seconds before rendering), `--surface` for the bundled parked Cape start, `--cockpit` for the 3D cockpit, `--panel2d` for the 2D panel, and `--scenario /absolute/path/file.scn` for a supported scenario. `--glider-demo` starts with selected mechanisms deployed for a repeatable render capture; the menu demonstration runs their actual transitions. Bounded frame runs ignore manual keyboard/camera input.
+Use `--hover-demo` for a repeatable hover capture (the practice flight advances 60 simulation seconds before rendering), `--surface` for the bundled parked Cape start, `--cockpit` for the 3D cockpit, and `--scenario /absolute/path/file.scn` for a supported scenario. `--glider-demo` starts with selected mechanisms deployed for a repeatable render capture; the menu demonstration runs their actual transitions. Bounded frame runs ignore manual keyboard/camera input.
 
 Animation and cockpit geometry data can be regenerated from the included upstream sources with:
 

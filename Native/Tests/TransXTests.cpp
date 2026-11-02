@@ -84,9 +84,6 @@ int main(){try{
         check(pickCockpit(eye,(center-eye).unit()).action==zone.action,"Original MFD cockpit button ray hit");}
     for(const auto &screen:cockpitMfdScreens()){Vector center=(screen.corners[0]+screen.corners[3])*.5,eye(0,1.467,6.782);
         check(pickCockpit(eye,(center-eye).unit()).action==screen.action,"Cockpit MFD screen can receive graph drag");}
-    check(pickPanel2D(180,101).action==100&&pickPanel2D(1090,306).action==123,"2D panel uses original TransX button regions");
-    check(pickPanel2D(360,207).action==200&&pickPanel2D(920,207).action==201,"2D MFD displays use original mesh positions");
-    check(pickPanel2D(20,200).action==300&&pickPanel2D(20,350).action==301,"2D panel uses original throttle regions");
     auto cockpit=loadMesh(std::filesystem::path(ORBITER_TEST_DATA)/"Src/Vessel/DeltaGlider/Meshes/deltaglider_vc.msh");
     check(cockpit.groups[62].texture==8&&!visibleCockpitGroup(62)&&!visibleCockpitGroup(83)&&!visibleCockpitGroup(84),"Pilot body, head and visor are hidden in the cockpit");
     check(visibleCockpitGroup(88)&&visibleCockpitGroup(89),"Cockpit MFDs remain visible");

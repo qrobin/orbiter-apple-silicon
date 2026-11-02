@@ -67,15 +67,13 @@ int main(){try{
     Flight accelerated=orbit();accelerated.toggleAssist(Assist::Retrograde);accelerated.warp=10;old=accelerated.forward;fuel=accelerated.rcs;run(accelerated,1);
     check(accelerated.forward.dist(old)<1e-12&&accelerated.rcs==fuel,"Time acceleration does not teleport attitude or consume phantom RCS");
     const double vcX[]={.119,.373,.373,.627,.627,.881},vcY[]={.24,.24,.76,.24,.76,.24};
-    const double panelX[]={1142,1179,1179,1216,1216,1253},panelY[]={98,98,74,98,74,98};
     for(int i=0;i<6;++i){
         check(cockpitNavButton(vcX[i],vcY[i])==i,"3D cockpit nav hit targets map to the original buttons");
-        check(panelNavButton(panelX[i],panelY[i])==i&&pickPanel2D(panelX[i],panelY[i]).action==400+i,"2D panel nav targets match the 3D cockpit");
         Vector eye{0,1.467,6.782},point{.10191+vcX[i]*.07618,1.25710+vcY[i]*.02930,7.26800};auto hit=pickCockpit(eye,(point-eye).unit());
         check(hit.action==60&&cockpitNavButton(hit.u,hit.v)==i,"Pilot's ray reaches the corresponding original VC button");
     }
-    check(cockpitNavButton(.1,.8)==6&&panelNavButton(1140,74)==6,"Both panels expose the planned-burn RCS button");
-    check(cockpitNavButton(.9,.8)==-1&&panelNavButton(1250,74)==-1,"The remaining empty cells do not activate navigation programs");
+    check(cockpitNavButton(.1,.8)==6,"Cockpit exposes the planned-burn RCS button");
+    check(cockpitNavButton(.9,.8)==-1,"The remaining empty cells do not activate navigation programs");
     auto burnButton=maneuverButtonArtwork(false),litBurnButton=maneuverButtonArtwork(true);
     check(burnButton.width==128&&burnButton.height==64&&burnButton.rgba!=litBurnButton.rgba,"The burn button has visible inactive and active artwork");
     check(cockpitNavButton(42./169,.2)==-1,"The gaps between 3D buttons are inactive");
