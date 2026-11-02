@@ -210,7 +210,17 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;bool rcsGas;};
         constexpr double noiseScale=64.;
         Vector phase{std::remainder(p.start.position.x,noiseScale)/noiseScale,std::remainder(p.start.position.y,noiseScale)/noiseScale,std::remainder(p.start.position.z,noiseScale)/noiseScale};
         TrailSegmentUniforms u{visualVector(start,r0),visualVector(end,r1),{(float)o0,(float)o1,(float)p.start.age,(float)p.end.age},visualVector(phase,p.vacuum?1:0)};
-        visibleSmoke.push_back({u,(float)z,p.kind==ExhaustKind::Rcs});
+        visibleSmoke.push_back({u,(float)z,false});
+    }
+    for(const auto &p:exhaustTrail.puffs())if(p.kind==ExhaustKind::Rcs){
+        Vector center;if(!cameraFrame.relative(p.body,p.position,center))continue;
+        double radius=exhaustTrailRadius(p),z=dotp(center,cameraForward);
+        if(z+radius*2<.2||fabs(dotp(center,cameraRight))>std::max(0.,z)*f.screen.z*aspect+radius*2||fabs(dotp(center,cameraUp))>std::max(0.,z)*f.screen.z+radius*2)continue;
+        double footprint=std::max(0.,z)*f.screen.z*1.2/std::max(1.f,f.screen.y),drawRadius=std::max(radius,footprint);
+        double opacity=exhaustTrailOpacity(p)*std::min(1.,radius/drawRadius);
+        double phase=std::fmod(double(p.sequence)*.61803398875+double(p.nozzle)*.127,1.);
+        TrailSegmentUniforms u{visualVector(center,drawRadius),{}, {(float)opacity,0,(float)p.age,0}, {(float)phase,(float)std::fmod(phase*1.7,1.),(float)std::fmod(phase*2.3,1.),p.vacuum?1.f:0.f}};
+        visibleSmoke.push_back({u,(float)z,true});
     }
     if(!count&&visibleSmoke.empty())return;
     if(!visibleSmoke.empty()){

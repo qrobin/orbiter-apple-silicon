@@ -60,8 +60,9 @@ int main(){@autoreleasepool{
         EffectUniforms effects{};effects.clock={.016f,time,time-.016f,1};
         TrailSegmentUniforms volume{{-6,0,32,2},{6,0,32,2},{smokeOpacity,smokeOpacity,3,3},{0,0,0,0}};
         if(endOnTrail){volume.startRadius={0,0,25,2};volume.endRadius={0,0,35,2};}
+        if(drawGas)volume.startRadius={0,0,endOnTrail?25.f:32.f,2};
         TrailSegmentUniforms volumes[2]={volume,volume};
-        if(splitGas){volumes[0].endRadius={0,0,32,2};volumes[1].startRadius={0,0,32,2};volumes[1].noiseMode={6.f/64,0,0,0};}
+        if(splitGas){volumes[0].startRadius={-1,0,32,2};volumes[1].startRadius={1,0,32,2};volumes[1].noiseMode={.13f,.2f,.3f,0};}
         id<MTLBuffer> puffBuffer=[device newBufferWithBytes:volumes length:sizeof(volumes) options:MTLResourceStorageModeShared];
         id<MTLCommandBuffer> cb=[queue commandBuffer];MTLRenderPassDescriptor *clearDepth=[MTLRenderPassDescriptor renderPassDescriptor];
         clearDepth.depthAttachment.texture=depth;clearDepth.depthAttachment.loadAction=MTLLoadActionClear;clearDepth.depthAttachment.storeAction=MTLStoreActionStore;clearDepth.depthAttachment.clearDepth=depthClear;
@@ -113,7 +114,7 @@ int main(){@autoreleasepool{
     require(red<=green*1.1&&red<=blue*1.1,"RCS gas has no orange combustion glow");
     auto joined=render(side,30,0,true,.3f,false,false,true,true);
     auto brightness=[&](int x,int y){size_t i=(y*width+x)*4;return int(joined[i])+joined[i+1]+joined[i+2];};
-    require(brightness(160,90)>std::max(brightness(150,90),brightness(170,90))*.35,"Adjacent RCS gas samples have no visible gap at the join");
+    require(brightness(160,90)>std::max(brightness(150,90),brightness(170,90))*.35,"Overlapping RCS clouds have no gap between them");
     // Exercise the half-resolution volume pass and the production upsampling blend.
     MTLTextureDescriptor *halfDesc=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm width:width/2 height:height/2 mipmapped:NO];
     halfDesc.storageMode=MTLStorageModePrivate;halfDesc.usage=MTLTextureUsageRenderTarget|MTLTextureUsageShaderRead;id<MTLTexture> half=[device newTextureWithDescriptor:halfDesc];
