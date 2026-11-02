@@ -22,6 +22,11 @@ Europa uses the USGS Voyager/Galileo 500 m global mosaic, reduced to
 pole are filled from the previous map. The mosaic contains visible boundaries
 between images and uneven resolution: https://astrogeology.usgs.gov/search/map/europa_voyager_galileo_ssi_global_mosaic_500m.
 
+Ganymede uses the USGS Voyager/Galileo color mosaic, reduced to 8192 × 4096
+and shifted in longitude. Small gaps near the poles use the previous map;
+the original mosaic has uneven resolution and visible image joins:
+https://astrogeology.usgs.gov/search/map/ganymede_voyager_galileo_ssi_color_global_mosaic_1_4km.
+
 Phobos uses Philip Stooke's Cornell-controlled multi-mission photomosaic,
 based on the Cornell mosaic by Peter Thomas and colleagues, from the NASA
 PDS small-body maps archive. The 14400 × 7200 source is reduced to 8192 × 4096,
@@ -53,9 +58,15 @@ Iapetus uses the enhanced-color Cassini mosaic PIA18436, reduced to
 Credit: NASA/JPL-Caltech/Space Science Institute/Lunar and Planetary Institute;
 https://science.nasa.gov/photojournal/color-maps-of-iapetus-2014/.
 
-Moon textures for Io, Ganymede, Callisto,
-Ariel, Umbriel, Titania, Oberon,
-Miranda and Triton derive from NASA/JPL/Caltech/USGS Solar System Simulator
+Triton uses Paul Schenk's grid-free Voyager 2 color mosaic, reduced to
+8192 × 4096. The unobserved northern area uses a blurred extrapolation of
+nearby image colors and is not observed geography. Credit: NASA/JPL-Caltech,
+Lunar and Planetary Institute and Paul Schenk:
+https://commons.wikimedia.org/wiki/File:Triton_map_no_grid.jpg.
+
+Moon textures for Io, Callisto,
+Ariel, Umbriel, Titania, Oberon and Miranda derive from
+NASA/JPL/Caltech/USGS Solar System Simulator
 mosaics: https://maps.jpl.nasa.gov/tmaps/. Original mosaics are generally
 1440 × 720, based on Voyager and in some cases Galileo imagery. They were
 resampled to 2048 × 1024 and tinted for display. Large missing areas in some
