@@ -120,6 +120,7 @@ struct GpuGroup { id<MTLBuffer> vertices,indices; NSUInteger count; size_t mater
 - (void)startSurface:(id)sender;
 - (void)startAtmosphericFlight:(NSMenuItem *)sender;
 - (void)startOrbit:(id)sender;
+- (void)startEarthOrbit:(NSMenuItem *)sender;
 - (void)startISSApproach:(id)sender;
 - (void)undockISS:(id)sender;
 - (void)selectISSPort:(NSMenuItem *)sender;
@@ -963,7 +964,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     externalCamera.setMode(ExternalCameraMode::OrbitalChase,flight,flight.reference);externalCamera.yaw=-.55;externalCamera.pitch=.22;externalCamera.distance=43;[self setViewMode:0];
 }
 - (void)startAtmosphericFlight:(NSMenuItem *)sender {
-    NSArray<NSString *> *files=@[@"Atlantic Ocean flight.scn",@"Hawaii sunset.scn",@"Gulf of Mexico storm.scn",@"Mediterranean clear flight.scn",@"France low flight.scn",@"Mars low flight.scn"];
+    NSArray<NSString *> *files=@[@"Earth 1 km flight.scn",@"Mars low flight.scn"];
     if(sender.tag<0||sender.tag>=(NSInteger)files.count)return;
     restartBody=-1;restartScenario=resource([@"Scenarios/" stringByAppendingString:files[sender.tag]]);
     [self resetFlight:nil];[self setViewMode:1];status=[sender.title stringByAppendingString:@" · Press M for flight stabilization"];
@@ -978,6 +979,11 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     self.hud.needsDisplay=YES;[self.window makeFirstResponder:self];
 }
 - (void)startOrbit:(id)sender {restartBody=-1;restartScenario=resource(@"Scenarios/DG Mk4 in orbit.scn");[self resetFlight:nil];}
+- (void)startEarthOrbit:(NSMenuItem *)sender {
+    NSArray<NSString *> *files=@[@"DG Mk4 in orbit.scn",@"Earth high orbit.scn",@"Earth geostationary.scn"];
+    if(sender.tag<0||sender.tag>=(NSInteger)files.count)return;
+    restartBody=-1;restartScenario=resource([@"Scenarios/" stringByAppendingString:files[sender.tag]]);[self resetFlight:nil];
+}
 - (void)startISSApproach:(id)sender {
     restartBody=-2;[self resetFlight:nil];cockpitYaw=cockpitPitch=0;[self setViewMode:1];
     status=@"ISS approach · matched velocity · 50 m between vessel centres · RCS translation enabled";
@@ -1297,17 +1303,8 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         NSMenuItem *reset=[fm addItemWithTitle:@"Restart Flight" action:@selector(resetFlight:) keyEquivalent:@"r"];reset.target=self.view;
         NSMenuItem *systems=[fm addItemWithTitle:@"Glider Systems… (M)" action:@selector(showSystems:) keyEquivalent:@""];systems.target=self.view;
         [fm addItem:NSMenuItem.separatorItem];
-        NSMenuItem *atmospheric=[fm addItemWithTitle:@"Atmospheric Flight" action:nil keyEquivalent:@""];NSMenu *flights=[NSMenu new];atmospheric.submenu=flights;
-        NSArray<NSString *> *flightNames=@[@"Atlantic Ocean — Regional Weather",@"Hawaii — Sunset",@"Gulf of Mexico — Storm",@"Mediterranean — Clear Day",@"France — Low Flight (400 m)",@"Mars — Low Flight (400 m)"];
-        for(int i=0;i<(int)flightNames.count;++i){NSMenuItem *item=[flights addItemWithTitle:flightNames[i] action:@selector(startAtmosphericFlight:) keyEquivalent:@""];item.target=self.view;item.tag=i;}
-        NSMenuItem *orbit=[fm addItemWithTitle:@"Earth Orbit" action:@selector(startOrbit:) keyEquivalent:@""];orbit.target=self.view;
-        NSMenuItem *issApproach=[fm addItemWithTitle:@"ISS — 50 m Approach" action:@selector(startISSApproach:) keyEquivalent:@""];issApproach.target=self.view;
         NSMenuItem *undock=[fm addItemWithTitle:@"Undock from ISS (Control-D)" action:@selector(undockISS:) keyEquivalent:@""];undock.target=self.view;
-        NSMenuItem *surface=[fm addItemWithTitle:@"Cape Canaveral — Surface Flight" action:@selector(startSurface:) keyEquivalent:@""];surface.target=self.view;
-        NSMenuItem *practice=[fm addItemWithTitle:@"Cape Canaveral — Hover Practice" action:@selector(startHoverPractice:) keyEquivalent:@""];practice.target=self.view;
-        NSMenuItem *landing=[fm addItemWithTitle:@"Landing Practice" action:nil keyEquivalent:@""];NSMenu *landingMenu=[NSMenu new];landing.submenu=landingMenu;
-        for(NSString *title in @[@"Land — Gentle Hover Descent",@"Water — Gentle Ditching"]){NSMenuItem *item=[landingMenu addItemWithTitle:title action:@selector(startLandingPractice:) keyEquivalent:@""];item.target=self.view;item.tag=landingMenu.numberOfItems-1;}
-        NSMenuItem *demo=[fm addItemWithTitle:@"Mechanism Demonstration" action:@selector(demonstrateGlider:) keyEquivalent:@""];demo.target=self.view;
+        NSMenuItem *rotation=[fm addItemWithTitle:@"Pause Body Rotation (F10)" action:@selector(toggleBodyRotation:) keyEquivalent:@""];rotation.target=self.view;
         [fm addItem:NSMenuItem.separatorItem];
         NSMenuItem *hoverItem=[fm addItemWithTitle:@"Hover Controls" action:nil keyEquivalent:@""];NSMenu *hover=[NSMenu new];hoverItem.submenu=hover;
         NSMenuItem *hoverAtt=[hover addItemWithTitle:@"Auto Attitude (F5)" action:@selector(toggleHoverAttitude:) keyEquivalent:@""];hoverAtt.target=self.view;
@@ -1351,11 +1348,23 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         NSMenuItem *weatherItem=[NSMenuItem new];weatherItem.title=@"Weather";[main addItem:weatherItem];NSMenu *weather=[NSMenu new];weatherItem.submenu=weather;
         NSArray<NSString *> *presets=@[@"Clear",@"Scattered",@"Overcast",@"Storm",@"Regional"];
         for(int i:{4,0,1,2,3}){NSMenuItem *item=[weather addItemWithTitle:presets[i] action:@selector(setWeather:) keyEquivalent:@""];item.target=self.view;item.tag=i;}
-        NSMenuItem *solarItem=[NSMenuItem new];solarItem.title=@"Solar System";[main addItem:solarItem];NSMenu *system=[NSMenu new];solarItem.submenu=system;
-        NSMenuItem *rotation=[system addItemWithTitle:@"Pause Body Rotation (F10)" action:@selector(toggleBodyRotation:) keyEquivalent:@""];rotation.target=self.view;[system addItem:NSMenuItem.separatorItem];
+        NSMenuItem *scenarioItem=[NSMenuItem new];scenarioItem.title=@"Scenarios";[main addItem:scenarioItem];NSMenu *scenarios=[NSMenu new];scenarioItem.submenu=scenarios;
+        NSMenuItem *earthItem=[scenarios addItemWithTitle:@"Earth" action:nil keyEquivalent:@""];NSMenu *earth=[NSMenu new];earthItem.submenu=earth;
+        NSMenuItem *surface=[earth addItemWithTitle:@"Surface — Cape Canaveral" action:@selector(startSurface:) keyEquivalent:@""];surface.target=self.view;
+        NSMenuItem *flight1km=[earth addItemWithTitle:@"Flight — 1 km over France" action:@selector(startAtmosphericFlight:) keyEquivalent:@""];flight1km.target=self.view;flight1km.tag=0;
+        NSArray<NSString *> *orbits=@[@"Low Orbit — about 168 km",@"High Orbit — 20,000 km",@"Geostationary Orbit — about 35,800 km"];
+        for(int i=0;i<(int)orbits.count;++i){NSMenuItem *item=[earth addItemWithTitle:orbits[i] action:@selector(startEarthOrbit:) keyEquivalent:@""];item.target=self.view;item.tag=i;}
+        [earth addItem:NSMenuItem.separatorItem];
+        NSMenuItem *issApproach=[earth addItemWithTitle:@"ISS — 50 m Approach" action:@selector(startISSApproach:) keyEquivalent:@""];issApproach.target=self.view;
+        NSMenuItem *practiceItem=[scenarios addItemWithTitle:@"Practice" action:nil keyEquivalent:@""];NSMenu *practice=[NSMenu new];practiceItem.submenu=practice;
+        NSMenuItem *hoverPractice=[practice addItemWithTitle:@"Cape Canaveral — Hover" action:@selector(startHoverPractice:) keyEquivalent:@""];hoverPractice.target=self.view;
+        for(NSString *title in @[@"Land — Gentle Hover Descent",@"Water — Gentle Ditching"]){NSMenuItem *item=[practice addItemWithTitle:title action:@selector(startLandingPractice:) keyEquivalent:@""];item.target=self.view;item.tag=practice.numberOfItems-2;}
+        NSMenuItem *demo=[practice addItemWithTitle:@"Mechanism Demonstration" action:@selector(demonstrateGlider:) keyEquivalent:@""];demo.target=self.view;
+        NSMenuItem *otherItem=[scenarios addItemWithTitle:@"Other Bodies" action:nil keyEquivalent:@""];NSMenu *system=[NSMenu new];otherItem.submenu=system;
         for(const auto &b:bodies())if(b.id==BodyId::Sun||b.parent==BodyId::Sun){
             NSMenuItem *parent=[system addItemWithTitle:[NSString stringWithUTF8String:b.name] action:nil keyEquivalent:@""];NSMenu *children=[NSMenu new];parent.submenu=children;
-            NSMenuItem *orbit=[children addItemWithTitle:[NSString stringWithFormat:@"%s Orbit",b.name] action:@selector(startBodyOrbit:) keyEquivalent:@""];orbit.target=self.view;orbit.tag=(NSInteger)b.id;
+            if(b.id!=BodyId::Earth){NSMenuItem *orbit=[children addItemWithTitle:[NSString stringWithFormat:@"%s Orbit",b.name] action:@selector(startBodyOrbit:) keyEquivalent:@""];orbit.target=self.view;orbit.tag=(NSInteger)b.id;}
+            if(b.id==BodyId::Mars){NSMenuItem *low=[children addItemWithTitle:@"Mars — Low Flight (400 m)" action:@selector(startAtmosphericFlight:) keyEquivalent:@""];low.target=self.view;low.tag=1;}
             for(const auto &moon:bodies())if(b.id!=BodyId::Sun&&moon.id!=b.id&&moon.parent==b.id){NSMenuItem *item=[children addItemWithTitle:[NSString stringWithFormat:@"%s Orbit",moon.name] action:@selector(startBodyOrbit:) keyEquivalent:@""];item.target=self.view;item.tag=(NSInteger)moon.id;}
         }
         NSMenuItem *helpItem=[NSMenuItem new];helpItem.title=@"Help";[main addItem:helpItem];NSMenu *helpMenu=[NSMenu new];helpItem.submenu=helpMenu;

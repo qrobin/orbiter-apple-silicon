@@ -18,7 +18,7 @@ cd orbiter-apple-silicon
 
 The script builds `build/macos-arm64/Native/Orbiter Native.app`, runs the native tests and applies a local ad-hoc signature. Developer ID signing and notarization are not yet provided.
 
-Start with **M** for the glider systems panel, **C** (or **V**) to switch between external and 3D cockpit views, **Shift / Control** for main throttle, **X** to cut engines, **Space** to pause, and **T / R** to change time acceleration. W/S pitch the nose down/up; A/D control yaw. **F1** shows the controls. The **Flight** menu includes a mechanism demonstration.
+Start with **M** for the glider systems panel, **C** (or **V**) to switch between external and 3D cockpit views, **Shift / Control** for main throttle, **X** to cut engines, **Space** to pause, and **T / R** to change time acceleration. W/S pitch the nose down/up; A/D control yaw. **F1** shows the controls. **Scenarios → Practice** includes a mechanism demonstration.
 
 See the [native guide](Native/README.md) for all controls, supported scenarios, capture options and implementation details.
 
@@ -28,15 +28,15 @@ See the [native guide](Native/README.md) for all controls, supported scenarios, 
 
 ## Planets and moons
 
-Use **Solar System** in the menu bar to start an orbit around any of the original catalogue's 33 bodies: the Sun, all eight planets, Vesta and 23 moons. Body-specific gravity, rotation, scenario references, native ephemerides, sunlit phases and Saturn's rings are connected. The flight model uses patched conics with continuous sphere-of-influence transitions. See the [Solar System guide](Native/README.md#solar-system-in-07) for the body list and precision/visual limits.
+Use **Scenarios → Earth** for surface, 1 km flight, low orbit, high orbit and geostationary starts. **Scenarios → Other Bodies** offers orbits around the rest of the original catalogue: the Sun, all eight planets, Vesta and 23 moons. Body-specific gravity, rotation, scenario references, native ephemerides, sunlit phases and Saturn's rings are connected. The flight model uses patched conics with continuous sphere-of-influence transitions. See the [Solar System guide](Native/README.md#solar-system-in-07) for the body list and precision/visual limits.
 
 ## Native graphics
 
-**Flight → Atmospheric Flight** offers starts over the Atlantic, Hawaii at sunset, the stormy Gulf of Mexico and the Mediterranean. Press **M** for altitude, airspeed, bank and heading holds, plus the glider's other systems.
+**Scenarios → Earth → Flight — 1 km over France** starts in stabilized atmospheric flight. Press **M** for altitude, airspeed, bank and heading holds, plus the glider's other systems.
 
 Earth uses the credited 8K NASA Blue Marble map. Metal renders spherical volumetric cloud layers, sun attenuation and cloud shadows with temporal reconstruction. **Weather** in the menu bar or **F3** selects regional, clear, scattered, overcast or storm conditions. Regional cloud coverage uses historical satellite imagery; wind, rain and lightning are procedural and affect atmospheric flight, not live meteorological data. Animated ocean shading follows the geographic water mask and intensifies in storms.
 
-**Flight → Landing Practice** offers gentle land and water descents using the existing hover controller. Wheel and hull contacts can settle safely; gentle water landings use experimental buoyancy and drag and show **AFLOAT**. Time acceleration returns to 1× near touchdown. Earth scenery includes branched trees with leaf sprays, individual grass blades, rounded rocks, and aerial fields/woodland detail. The scenery is procedural and does not represent mapped local geography; see the [native guide](Native/README.md) for controls and limits.
+**Scenarios → Practice** offers gentle land and water descents using the existing hover controller. Wheel and hull contacts can settle safely; gentle water landings use experimental buoyancy and drag and show **AFLOAT**. Time acceleration returns to 1× near touchdown. Earth scenery includes branched trees with leaf sprays, individual grass blades, rounded rocks, and aerial fields/woodland detail. The scenery is procedural and does not represent mapped local geography; see the [native guide](Native/README.md) for controls and limits.
 
 Main, retro, hover and RCS engines have nozzle-aligned 3D flame cores and GPU particles driven by applied thrust. The renderer uses an FP16 scene, bloom, tone mapping and depth-aware compositing, while retaining the native cockpit, instruments and camera controls. See the [native guide](Native/README.md#native-graphics-in-06) for rendering details and limits.
 

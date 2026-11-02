@@ -14,6 +14,16 @@ int main() { try {
     check(ocean.reference==BodyId::Earth&&fabs(ocean.altitude()-5000)<1&&!ocean.groundContact,"Atlantic scenario starts airborne at 5 km");
     check(fabs(ocean.airRelativeVelocity().length()-250)<.1,"Atlantic scenario starts at 250 m/s relative to the air");
     check(dotp(ocean.forward,ocean.airRelativeVelocity().unit())>.999,"Atlantic scenario points into the airflow");
+    Flight surface;surface.load(root/"Native/Assets/Scenarios/Cape Canaveral native.scn");
+    check(surface.reference==BodyId::Earth&&surface.groundContact&&surface.glider.parkingBrake,"Earth surface start is parked");
+    check((surface.velocity-crossp(surface.centralBody().spin(),surface.position)).length()<.01,"Earth surface start is at rest relative to the ground");
+    Flight high;high.load(root/"Native/Assets/Scenarios/Earth high orbit.scn");
+    check(high.reference==BodyId::Earth&&fabs(high.altitude()-20000000)<1,"High Earth orbit starts at 20,000 km");
+    check(fabs(dotp(high.position,high.velocity))<1&&fabs(high.velocity.length()-sqrt(high.centralBody().mu()/high.position.length()))<.01,"High Earth orbit is circular");
+    Flight geo;geo.load(root/"Native/Assets/Scenarios/Earth geostationary.scn");
+    check(geo.reference==BodyId::Earth&&fabs(geo.altitude()-35790000)<10000,"Geostationary scenario starts at the intended altitude");
+    check((geo.velocity-crossp(geo.centralBody().spin(),geo.position)).length()<.01,"Geostationary start remains nearly fixed over Earth");
+    check(fabs(geo.orbit().OrbitT()-geo.centralBody().period)<.01,"Geostationary orbital period matches Earth's rotation");
     Flight flight; flight.load(root/"Scenarios/Delta-glider/DG Mk4 in orbit.scn");
     check(flight.name=="GL-01","scenario focus"); check(flight.altitude()>100000&&flight.altitude()<800000,"scenario altitude");
     auto energy=[](const Flight &s){ return .5*s.velocity.length2()-Mu/s.position.length(); };

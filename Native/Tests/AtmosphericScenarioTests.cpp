@@ -18,7 +18,8 @@ int main(){try{
         {"Hawaii sunset.scn",20.5,-156.5,400,1},
         {"Gulf of Mexico storm.scn",25,-90,2500,3},
         {"Mediterranean clear flight.scn",35,18,5000,0},
-        {"France low flight.scn",46,2,400,0}
+        {"France low flight.scn",46,2,400,0},
+        {"Earth 1 km flight.scn",46,2,1000,0}
     };
     for(auto &scenario:cases){
         Flight f;f.load(root/"Native/Assets/Scenarios"/scenario.file);
