@@ -103,7 +103,7 @@ static void advect(ExhaustTrailPuff &p,double dt,const Vector &earthWind,bool ro
 }
 double exhaustTrailRadius(const ExhaustTrailPuff &p){
     double age=std::max(0.,p.age);
-    if(p.kind==ExhaustKind::Rcs)return p.radius+.08+sqrt(age)*1.7;
+    if(p.kind==ExhaustKind::Rcs)return p.radius+.02+sqrt(age)*.38;
     return p.radius+(p.vacuum?age*130:sqrt(age)*2.4+age*.28);
 }
 double exhaustTrailOpacity(const ExhaustTrailPuff &p){
@@ -137,7 +137,7 @@ void ExhaustTrail::update(const Flight &f,double dt,double humidity){
         if(!h.active){h.position=position;h.direction=direction;h.velocity=nozzleVelocity;h.remainder=0;h.active=true;}
         bool medium[2]={ambient>0,rarefied>0};
         for(int i=0;i<2;++i){if(medium[i]&&!h.mediumActive[i]){h.stream[i]=++nextStream;h.sequence[i]=0;}h.mediumActive[i]=medium[i];}
-        double interval=jet.kind==ExhaustKind::Rcs?.015:.15;
+        double interval=jet.kind==ExhaustKind::Rcs?.006:.15;
         double pending=h.remainder+dt;int emitted=0;
         while(pending>=interval&&emitted<256){
             pending-=interval;++emitted;double fraction=std::clamp((dt-pending)/dt,0.,1.);
@@ -147,7 +147,7 @@ void ExhaustTrail::update(const Flight &f,double dt,double humidity){
             Vector firingVelocity=h.velocity+(nozzleVelocity-h.velocity)*fraction;
             auto append=[&](bool vacuum,double weight){
                 bool rcs=jet.kind==ExhaustKind::Rcs;
-                double exhaustSpeed=vacuum?(rcs?22:1600):(rcs?18:120);
+                double exhaustSpeed=vacuum?(rcs?55:1600):(rcs?45:120);
                 double life=rcs?(vacuum?.40:.33):vacuum?24:(jet.kind==ExhaustKind::Main?240:180)*(.7+.6*humidity);
                 double opacity=weight*(rcs?(vacuum?.10:ambient*.16)*sqrt(jet.level):vacuum?sqrt(jet.level)*.12:ambient*(.72+.28*humidity)*.78*sqrt(jet.level));
                 int mediumIndex=vacuum?1:0;
@@ -157,7 +157,7 @@ void ExhaustTrail::update(const Flight &f,double dt,double humidity){
                     Vector basis=crossp(firingDirection,fabs(firingDirection.y)<.9?Vector(0,1,0):Vector(1,0,0)).unit();
                     Vector second=crossp(firingDirection,basis);
                     double phase=sequence*2.399963229728653+jet.id*1.71;
-                    velocity+=(basis*cos(phase)+second*sin(phase))*(vacuum?3.5:2.5);
+                    velocity+=(basis*cos(phase)+second*sin(phase))*(vacuum?1.2:.8);
                 }
                 ExhaustTrailPuff puff{f.reference,origin,velocity,0,life,jet.radius,opacity,h.stream[mediumIndex],sequence,jet.id,vacuum,jet.kind};
                 advect(puff,pending,earthWind,rotating);if(puff.age<puff.lifetime)particles.push_back(puff);

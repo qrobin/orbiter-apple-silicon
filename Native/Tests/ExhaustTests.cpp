@@ -45,6 +45,17 @@ int main(){try {
     check(std::abs(int(rcsGas.puffs().size())-int(rcsFine.puffs().size()))<=4,"RCS cloud emission is independent of frame rate");
     auto firstRcsPuff=rcsGas.puffs().front();auto expanded=firstRcsPuff;expanded.age=std::min(firstRcsPuff.lifetime*.8,firstRcsPuff.age+.5);
     check(exhaustTrailRadius(expanded)>exhaustTrailRadius(firstRcsPuff)&&exhaustTrailOpacity(expanded)<exhaustTrailOpacity(firstRcsPuff),"RCS gas expands and fades after release");
+    for(double altitude:{5000.,400000.}){
+        Flight jetFlight;jetFlight.position={EarthRadius+altitude,0,0};jetFlight.velocity={};jetFlight.glider.rcsMode=1;jetFlight.glider.rcsRotation={.5,0,0};
+        ExhaustTrail jetTrail;jetTrail.update(jetFlight,.006);auto nozzles=gliderExhaust(jetFlight);
+        check(!jetTrail.puffs().empty(),"RCS emits at both atmospheric and vacuum altitudes");
+        const auto &p=jetTrail.puffs().front();auto nozzle=std::find_if(nozzles.begin(),nozzles.end(),[&](const auto &j){return j.id==p.nozzle;});
+        check(nozzle!=nozzles.end(),"RCS puff retains its nozzle");
+        Vector direction=jetFlight.right*nozzle->direction.x+jetFlight.up*nozzle->direction.y+jetFlight.forward*nozzle->direction.z;
+        double axial=dotp(p.velocity,direction);Vector sideways=p.velocity-direction*axial;
+        check(axial>40&&sideways.length()<1.3,"RCS gas leaves quickly in a focused stream");
+        auto aged=p;aged.age=.25;check(exhaustTrailRadius(aged)<.3,"RCS gas stays narrow while it disperses");
+    }
     rcsOnly.glider.rcsRotation={};auto remaining=rcsGas.puffs().size();rcsGas.update(rcsOnly,.1);
     check(rcsGas.puffs().size()<=remaining,"RCS gas stops being emitted when the jets stop");
     rcsGas.update(rcsOnly,1);check(rcsGas.puffs().empty(),"RCS gas disperses after shutdown");
