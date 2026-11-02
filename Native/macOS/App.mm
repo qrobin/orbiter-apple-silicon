@@ -715,6 +715,10 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
             [reflectionEncoder setFragmentBytes:&reflectedFrame length:sizeof(reflectedFrame) atIndex:1];
             for(const auto &g:groups)if(g.mesh==vessel.mesh&&materials[g.material].diffuse[3]>=.99f){
                 const auto &mat=materials[g.material];ObjectUniforms reflectedObject={};reflectedObject.model=vesselGroupModel(vessel,g.index);
+            // Reflection reverses winding. The glider mesh already provides
+            // separate front and back faces for its doors and other panels.
+            [reflectionEncoder setCullMode:vessel.mesh==0?MTLCullModeFront:MTLCullModeNone];
+            [reflectionEncoder setFrontFacingWinding:MTLWindingClockwise];
                 reflectedObject.color={mat.diffuse[0],mat.diffuse[1],mat.diffuse[2],mat.diffuse[3]};
                 [reflectionEncoder setVertexBuffer:g.vertices offset:0 atIndex:0];[reflectionEncoder setVertexBytes:&reflectedObject length:sizeof(reflectedObject) atIndex:2];
                 [reflectionEncoder setFragmentBytes:&reflectedObject length:sizeof(reflectedObject) atIndex:2];[reflectionEncoder setFragmentTexture:textures[g.texture] atIndex:0];
@@ -818,6 +822,10 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         object.model=vesselModel;
         auto transforms=flight.glider.transforms(meshCounts[cockpit?1:0],cockpit?1:0);
         bool usePrepass=cockpit||rayShadows.enabled;
+        // The original exterior mesh contains coincident, oppositely wound
+        // faces with different materials. Draw only the camera-facing side.
+        [encoder setFrontFacingWinding:MTLWindingClockwise];
+        [encoder setCullMode:cockpit?MTLCullModeNone:MTLCullModeBack];
         std::vector<bool> movingGroups(meshCounts[0]);
         if(!cockpit&&usePrepass)for(const auto &a:Glider::animations())if(a.mesh==0)for(size_t index:a.groups)if(index<movingGroups.size())movingGroups[index]=true;
         auto depthEligible=[&](const GpuGroup &g){
@@ -891,6 +899,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         }
         // The upstream logical HUD quad (group 132) is attached to the
         // cockpit combiner. Only glyph pixels write depth, so the rest stays clear.
+        [encoder setCullMode:MTLCullModeNone];
         if(cockpit&&flight.hud.brightness>0){
             const float colors[4][3]={{0,1,0},{1,.27f,0},{1,1,.5f},{0,.64f,.8f}};
             const auto &c=colors[flight.hud.colour];float intensity=1.8f*flight.hud.brightness;

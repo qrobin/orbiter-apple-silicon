@@ -96,6 +96,28 @@ int main(){@autoreleasepool{try{
     check(originalRayLayers==prepassedRayLayers,"The depth prepass preserves ray-traced surfaces");
     size_t mixedPixels=0;for(size_t i=0;i<originalLayers.size();i+=4)if(originalLayers[i]>20&&originalLayers[i+1]>20&&originalLayers[i+2]<10)++mixedPixels;
     check(mixedPixels>100,"The test includes visible partially transparent layers");
+    // Doors in the original mesh have coincident faces with opposite winding.
+    // Small motion must not let the rear material compete with the front one.
+    std::vector<uint32_t> frontIndices={0,2,1,0,3,2};
+    id<MTLBuffer> frontBuffer=[gpu newBufferWithBytes:frontIndices.data() length:frontIndices.size()*sizeof(uint32_t) options:MTLResourceStorageModeShared];
+    auto doorPixel=[&](double angle,bool reverseOrder){
+        id<MTLCommandBuffer> cb=[queue commandBuffer];MTLRenderPassDescriptor *pass=[MTLRenderPassDescriptor renderPassDescriptor];
+        pass.colorAttachments[0].texture=image;pass.colorAttachments[0].loadAction=MTLLoadActionClear;pass.colorAttachments[0].storeAction=MTLStoreActionStore;
+        pass.depthAttachment.texture=depth;pass.depthAttachment.loadAction=MTLLoadActionClear;pass.depthAttachment.clearDepth=0;
+        id<MTLRenderCommandEncoder> e=[cb renderCommandEncoderWithDescriptor:pass];[e setRenderPipelineState:blended];[e setDepthStencilState:depthState];
+        [e setFrontFacingWinding:MTLWindingClockwise];[e setCullMode:MTLCullModeBack];
+        [e setVertexBuffer:centerVertices offset:0 atIndex:0];[e setVertexBytes:&f length:sizeof(f) atIndex:1];[e setFragmentBytes:&f length:sizeof(f) atIndex:1];
+        float dummy[12]={};[e setVertexBytes:dummy length:sizeof(dummy) atIndex:3];for(int i=0;i<5;++i)[e setFragmentTexture:white atIndex:i];[e setFragmentTexture:noise atIndex:5];
+        Object o{};float c=cos(angle),s=sin(angle);o.model.columns[0]={c,0,-s,0};o.model.columns[1]={0,1,0,0};o.model.columns[2]={s,0,c,0};o.model.columns[3]={-3*s,0,3-3*c,1};
+        auto face=[&](bool front){o.color=front?simd_make_float4(1,0,0,1):simd_make_float4(0,0,1,1);[e setVertexBytes:&o length:sizeof(o) atIndex:2];[e setFragmentBytes:&o length:sizeof(o) atIndex:2];[e drawIndexedPrimitives:MTLPrimitiveTypeTriangle indexCount:6 indexType:MTLIndexTypeUInt32 indexBuffer:front?frontBuffer:indexBuffer indexBufferOffset:0];};
+        face(!reverseOrder);face(reverseOrder);[e endEncoding];[cb commit];[cb waitUntilCompleted];check(cb.error==nil,"Door face render failed");
+        uint8_t result[4];[image getBytes:result bytesPerRow:4 fromRegion:MTLRegionMake2D(width/2,height/2,1,1) mipmapLevel:0];return std::vector<uint8_t>(result,result+4);
+    };
+    for(double angle:{-.08,0.,.08,3.141592653589793-.08,3.141592653589793,3.141592653589793+.08}){
+        auto first=doorPixel(angle,false),second=doorPixel(angle,true);
+        check(first==second,"Coincident door faces remain stable regardless of draw order");
+        check(angle<1?first[0]>first[2]+20:first[2]>first[0]+20,"The visible side of the door is rendered");
+    }
     auto hull=loadMesh(std::filesystem::path(ORBITER_TEST_DATA)/"Src/Vessel/DeltaGlider/Meshes/deltaglider_ns.msh");std::vector<bool> moving(hull.groups.size());
     for(const auto &a:Glider::animations())if(a.mesh==0)for(size_t index:a.groups)if(index<moving.size())moving[index]=true;
     NSMutableArray<MTLAccelerationStructureGeometryDescriptor *> *parts=[NSMutableArray new];size_t triangles=0;
