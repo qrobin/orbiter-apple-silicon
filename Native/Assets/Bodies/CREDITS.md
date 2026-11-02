@@ -17,7 +17,12 @@ Jupiter uses NASA's Goddard Space Flight Center's 6000 × 3000 visible
 surface map, shifted by half a turn to match the previous map's orientation:
 https://svs.gsfc.nasa.gov/13007/. Its clouds are a snapshot, not live weather.
 
-Moon textures for Phobos, Deimos, Io, Europa, Ganymede, Callisto, Mimas,
+Europa uses the USGS Voyager/Galileo 500 m global mosaic, reduced to
+8192 × 4096, shifted half a turn, and tinted. Missing pixels near the south
+pole are filled from the previous map. The mosaic contains visible boundaries
+between images and uneven resolution: https://astrogeology.usgs.gov/search/map/europa_voyager_galileo_ssi_global_mosaic_500m.
+
+Moon textures for Phobos, Deimos, Io, Ganymede, Callisto, Mimas,
 Enceladus, Tethys, Dione, Rhea, Iapetus, Ariel, Umbriel, Titania, Oberon,
 Miranda and Triton derive from NASA/JPL/Caltech/USGS Solar System Simulator
 mosaics: https://maps.jpl.nasa.gov/tmaps/. Original mosaics are generally
