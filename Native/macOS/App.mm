@@ -1050,7 +1050,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     externalCamera.setMode(ExternalCameraMode::OrbitalChase,flight,flight.reference);externalCamera.yaw=-.55;externalCamera.pitch=.22;externalCamera.distance=43;[self setViewMode:0];
 }
 - (void)startAtmosphericFlight:(NSMenuItem *)sender {
-    NSArray<NSString *> *files=@[@"Earth 1 km flight.scn",@"Mars low flight.scn"];
+    NSArray<NSString *> *files=@[@"Earth 1 km flight.scn",@"Mars low flight.scn",@"Hawaii sunset.scn"];
     if(sender.tag<0||sender.tag>=(NSInteger)files.count)return;
     restartBody=-1;restartScenario=resource([@"Scenarios/" stringByAppendingString:files[sender.tag]]);
     [self resetFlight:nil];[self setViewMode:1];status=[sender.title stringByAppendingString:@" · Press M for flight stabilization"];
@@ -1438,6 +1438,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         NSMenuItem *earthItem=[scenarios addItemWithTitle:@"Earth" action:nil keyEquivalent:@""];NSMenu *earth=[NSMenu new];earthItem.submenu=earth;
         NSMenuItem *surface=[earth addItemWithTitle:@"Surface — Cape Canaveral" action:@selector(startSurface:) keyEquivalent:@""];surface.target=self.view;
         NSMenuItem *flight1km=[earth addItemWithTitle:@"Flight — 1 km over France" action:@selector(startAtmosphericFlight:) keyEquivalent:@""];flight1km.target=self.view;flight1km.tag=0;
+        NSMenuItem *hawaii=[earth addItemWithTitle:@"Hawaii — Sunset Flight" action:@selector(startAtmosphericFlight:) keyEquivalent:@""];hawaii.target=self.view;hawaii.tag=2;
         NSArray<NSString *> *orbits=@[@"Low Orbit — about 168 km",@"High Orbit — 20,000 km",@"Geostationary Orbit — about 35,800 km"];
         for(int i=0;i<(int)orbits.count;++i){NSMenuItem *item=[earth addItemWithTitle:orbits[i] action:@selector(startEarthOrbit:) keyEquivalent:@""];item.target=self.view;item.tag=i;}
         [earth addItem:NSMenuItem.separatorItem];
