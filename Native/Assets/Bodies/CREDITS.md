@@ -1,17 +1,21 @@
 # Planetary maps
 
-The Sun, Mercury, Venus atmosphere and surface, Moon, Mars, Jupiter, Saturn,
+The Sun, Mercury, Venus atmosphere and surface, Moon, Mars, Saturn,
 Uranus, Neptune and Saturn-ring maps are by **Solar System Scope / INOVE**,
 used under **Creative Commons Attribution 4.0 International (CC BY 4.0)**:
 https://www.solarsystemscope.com/textures/ and
 https://creativecommons.org/licenses/by/4.0/. Earth uses the separately
 credited NASA 8K image. Mercury, Venus surface, Moon and Mars use the
 8192 × 4096 originals; the Saturn rings use the 8192 × 500 original. Sun,
-Venus atmosphere, Jupiter and Saturn are 4096 × 2048, and Uranus and
+Venus atmosphere and Saturn are 4096 × 2048, and Uranus and
 Neptune are 2048 × 1024. The source's files labelled 8K for the Sun,
 Jupiter and Saturn actually have 4096 × 2048 pixels.
 Solar System Scope notes that its maps contain enhanced color and invented
 fill where observations are incomplete.
+
+Jupiter uses NASA's Goddard Space Flight Center's 6000 × 3000 visible
+surface map, shifted by half a turn to match the previous map's orientation:
+https://svs.gsfc.nasa.gov/13007/. Its clouds are a snapshot, not live weather.
 
 Moon textures for Phobos, Deimos, Io, Europa, Ganymede, Callisto, Mimas,
 Enceladus, Tethys, Dione, Rhea, Iapetus, Ariel, Umbriel, Titania, Oberon,
