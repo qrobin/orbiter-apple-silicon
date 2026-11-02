@@ -85,14 +85,16 @@ int main(){try {
     check(space.spread>ground.spread,"Exhaust expands in vacuum");check(space.lifetime>ground.lifetime,"Vacuum plume persists longer");
     Flight aircraft;aircraft.position={EarthRadius+5000,0,0};aircraft.velocity={0,0,250};aircraft.glider.mainLevel=1;
     ExhaustTrail trail;for(int i=0;i<1200;++i){aircraft.position+=aircraft.velocity*.1;trail.update(aircraft,.1);}
-    check(trail.puffs().size()>1000&&trail.puffs().size()<ExhaustTrail::capacity,"Atmospheric engines leave a bounded continuous trail");
+    check(trail.puffs().size()>100&&trail.puffs().size()<ExhaustTrail::capacity,"Atmospheric engines leave a bounded continuous trail");
     double length=0;for(const auto &p:trail.puffs())length=std::max(length,p.position.dist(aircraft.position));
-    check(length>20000,"A moving craft leaves many kilometres of world-anchored trail");
-    auto segments=trail.segments(aircraft);check(segments.size()>1000,"Exhaust samples form continuous per-nozzle volumes");
+    check(length>3000,"A moving craft leaves kilometres of world-anchored trail");
+    auto segments=trail.segments(aircraft);check(segments.size()>100,"Exhaust samples form continuous per-nozzle volumes");
     for(const auto &s:segments)check(s.stream>0&&s.nozzle<2&&s.start.radius>0&&s.end.radius>0,"Every segment retains its nozzle and valid physical volume");
-    check(trail.puffs().front().age>100&&trail.puffs().back().age<1,"Old puffs persist and new puffs are emitted");
-    auto young=trail.puffs().front();young.age=0;auto old=young;old.age=120;
+    check(trail.puffs().front().age>20&&trail.puffs().back().age<1,"Old puffs persist and new puffs are emitted");
+    auto young=trail.puffs().front();young.age=0;auto old=young;old.age=12;
     check(exhaustTrailRadius(old)>exhaustTrailRadius(young)+20,"Smoke broadens as it disperses in the atmosphere");
+    check(fabs(exhaustTrailRadius(young)-8)<1e-9&&fabs(exhaustTrailRadius(old)-56)<1e-9,"Atmospheric contrails use the original source size and growth rate");
+    check(exhaustTrailOpacity(old)<exhaustTrailOpacity(young)*.1,"Contrails fade as they disperse");
     aircraft.glider.mainLevel=0;size_t beforeCut=trail.puffs().size();Vector oldPuff=trail.puffs().front().position;aircraft.position+=Vector(10000,0,0);trail.update(aircraft,.1);
     check(!trail.puffs().empty()&&trail.puffs().size()<=beforeCut&&trail.puffs().front().position.dist(oldPuff)<100,"Engine cutoff retains the existing world-anchored trail");
     loadEphemerides(std::filesystem::path(ORBITER_TEST_DATA)/"Src/Celbody");aircraft.changeReference(BodyId::Sun);trail.update(aircraft,.1);
@@ -120,8 +122,8 @@ int main(){try {
     check(directions.size()>=2&&dotp(directions[0],directions[1])<.98,"Emissions interpolate the nozzle direction as the spacecraft turns");
     aircraft.glider.mainLevel=0;trail.update(aircraft,25);check(trail.puffs().empty(),"The vacuum plume fades after engine shutdown");
     aircraft.glider.mainLevel=1;
-    double low=0,high=150000;for(int i=0;i<40;++i){double mid=(low+high)*.5;if(earthAtmosphere(mid).p/101325.>3e-4)low=mid;else high=mid;}
-    aircraft.position={EarthRadius+(low+high)*.5,0,0};trail.reset();trail.update(aircraft,.2);
+    double low=0,high=150000;for(int i=0;i<40;++i){double mid=(low+high)*.5;if(earthAtmosphere(mid).rho>3e-4)low=mid;else high=mid;}
+    aircraft.position={EarthRadius+(low+high)*.5,0,0};trail.reset();trail.update(aircraft,.3);
     bool hasAir=false,hasGas=false;for(const auto &p:trail.puffs()){hasGas|=p.vacuum;hasAir|=!p.vacuum;}
     check(hasAir&&hasGas,"Atmospheric and rarefied plumes overlap smoothly during ascent");
     aircraft.position={EarthRadius+5000,0,0};trail.reset();ExhaustTrail fine;
@@ -134,7 +136,25 @@ int main(){try {
     Flight weather;weather.position={EarthRadius+5000,0,0};weather.velocity={0,0,250};weather.glider.mainLevel=1;
     ExhaustTrail changing;for(int i=0;i<200;++i){weather.position+=weather.velocity;changing.update(weather,1,i>=20&&i<30?0:1);}
     double widest=0;for(const auto &s:changing.segments(weather))widest=std::max(widest,s.start.position.dist(s.end.position));
-    check(widest<200,"Expired samples cannot create a false bridge across a gap in the trail");
+    check(widest<400,"Expired samples cannot create a false bridge across a gap in the trail");
+    Flight landing;landing.position={EarthRadius+6,0,0};landing.up={1,0,0};landing.right={0,1,0};landing.forward={0,0,1};
+    landing.velocity=crossp(landing.centralBody().spin(),landing.position);landing.glider.hoverControl.levels={1,0,0};
+    ExhaustTrail groundTrail;groundTrail.update(landing,.25);landing.glider.hoverControl.levels={0,0,0};groundTrail.update(landing,.3);
+    check(!groundTrail.puffs().empty(),"Hover exhaust survives ground impact");
+    const auto &impact=groundTrail.puffs().front();Vector normal=impact.position.unit();Vector relativeImpact=impact.velocity-crossp(landing.centralBody().spin(),impact.position);
+    check(impact.position.length()>=EarthRadius+.49&&dotp(relativeImpact,normal)>=0,"Ground prevents exhaust penetrating the surface and redirects its downward motion");
+    check((relativeImpact-normal*dotp(relativeImpact,normal)).length()>1,"Vertical hover exhaust spreads sideways on impact");
+    Flight lower;lower.position={EarthRadius+1000,0,0};lower.velocity={0,0,0};lower.weatherPreset=1;lower.glider.mainLevel=1;
+    Flight upper=lower;upper.position={EarthRadius+16000,0,0};ExhaustTrail lowTrail,highTrail;
+    lowTrail.update(lower,.25);highTrail.update(upper,.25);lower.glider.mainLevel=upper.glider.mainLevel=0;
+    for(int i=0;i<40;++i){lowTrail.update(lower,.1);highTrail.update(upper,.1);}
+    check(!lowTrail.puffs().empty()&&!highTrail.puffs().empty(),"Contrails remain visible while mixing in the atmosphere");
+    auto lowPuff=lowTrail.puffs().front(),highPuff=highTrail.puffs().front();
+    Vector lowAir=lowPuff.velocity-crossp(lower.centralBody().spin(),lowPuff.position),highAir=highPuff.velocity-crossp(upper.centralBody().spin(),highPuff.position);
+    check(lowAir.dist(highAir)>1,"Altitude-dependent wind and density produce different trail motion");
+    ExhaustTrail localWeather=lowTrail,localControl=lowTrail;Flight distant=lower;distant.position={0,0,EarthRadius+20000};
+    localWeather.update(distant,.1);localControl.update(lower,.1);
+    check(localWeather.puffs().front().position.dist(localControl.puffs().front().position)<1e-8,"Released smoke samples weather at its own location even when the vessel moves away");
     Flight io;io.reference=BodyId::Io;io.position={io.centralBody().radius+113000,0,0};io.velocity={0,0,1487};io.align(io.velocity);io.clearAssist();io.throttle=1;
     ExhaustTrail ioTrail;for(int i=0;i<250;++i){io.advance(.1);ioTrail.update(io,.1);}
     auto ioSegments=ioTrail.segments(io);check(ioSegments.size()>100,"An Io engine burn creates connected vacuum volumes");

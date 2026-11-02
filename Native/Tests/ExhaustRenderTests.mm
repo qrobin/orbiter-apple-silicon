@@ -56,11 +56,11 @@ int main(){@autoreleasepool{
     id<MTLCommandBuffer> prepare=[queue commandBuffer];id<MTLComputeCommandEncoder> compute=[prepare computeCommandEncoder];
     [compute setComputePipelineState:noiseKernel];[compute setTexture:noise atIndex:0];
     [compute dispatchThreads:MTLSizeMake(32,32,32) threadsPerThreadgroup:MTLSizeMake(4,4,4)];[compute endEncoding];[prepare commit];[prepare waitUntilCompleted];require(prepare.error==nil,"Noise generation failed");
-    auto render=[&](EmitterUniforms jet,float time,float depthClear,bool drawSmoke,float smokeOpacity,bool endOnTrail=false,bool skyBackground=false,bool drawGas=false,bool splitGas=false,float gasAge=0){
+    auto render=[&](EmitterUniforms jet,float time,float depthClear,bool drawSmoke,float smokeOpacity,bool endOnTrail=false,bool skyBackground=false,bool drawGas=false,bool splitGas=false,float gasAge=0,bool atmosphericSmoke=false){
         EffectUniforms effects{};effects.clock={.016f,time,time-.016f,1};
         TrailSegmentUniforms volume{{-6,0,32,2},{6,0,32,2},{smokeOpacity,smokeOpacity,3,3},{0,0,0,0}};
         if(endOnTrail){volume.startRadius={0,0,25,2};volume.endRadius={0,0,35,2};}
-        if(drawGas){volume.startRadius={0,0,endOnTrail?25.f:32.f,2};volume.opticalAge.z=gasAge;}
+        if(drawGas){volume.startRadius={0,0,endOnTrail?25.f:32.f,2};volume.opticalAge.z=gasAge;if(atmosphericSmoke)volume.noiseMode.w=-1;}
         TrailSegmentUniforms volumes[2]={volume,volume};
         if(splitGas){volumes[0].startRadius={-1,0,32,2};volumes[1].startRadius={1,0,32,2};volumes[1].noiseMode={.13f,.2f,.3f,0};}
         id<MTLBuffer> puffBuffer=[device newBufferWithBytes:volumes length:sizeof(volumes) options:MTLResourceStorageModeShared];
@@ -112,6 +112,12 @@ int main(){@autoreleasepool{
     require(energy(render(side,30,.04,true,.3f))==0,"Foreground geometry must occlude the exhaust volume");
     auto rcs=render(side,30,0,true,.3f,false,false,true);
     require(energy(rcs)>100,"RCS gas is visible without a flame");
+    auto newSmoke=energy(render(side,30,0,true,.3f,false,false,true,false,0,true));
+    auto risingSmoke=energy(render(side,30,0,true,.3f,false,false,true,false,.15f,true));
+    auto matureSmoke=energy(render(side,30,0,true,.3f,false,false,true,false,.5f,true));
+    auto nextSmoke=energy(render(side,30,0,true,.3f,false,false,true,false,.52f,true));
+    require(newSmoke==0&&risingSmoke>0&&matureSmoke>risingSmoke,"Atmospheric smoke fades in instead of flashing at emission");
+    require(std::abs(double(nextSmoke)-double(matureSmoke))<matureSmoke*.15,"Mature smoke changes slowly between adjacent frames");
     auto mixedRcs=render(side,30,0,true,.3f,false,false,true,false,.65f);
     size_t mixedChanges=0;for(size_t i=0;i<rcs.size();i+=4)if(rcs[i]!=mixedRcs[i]||rcs[i+1]!=mixedRcs[i+1]||rcs[i+2]!=mixedRcs[i+2])++mixedChanges;
     require(energy(mixedRcs)>100&&mixedChanges>20,"Atmospheric RCS gas visibly breaks up as it mixes");

@@ -3,6 +3,7 @@
 #include "Exhaust.h"
 #include "Aerodynamics.h"
 #include "SolarSystem.h"
+#include "Surface.h"
 #include <algorithm>
 #include <cmath>
 namespace native {
@@ -95,11 +96,11 @@ bool ExhaustCameraFrame::relative(BodyId id,const Vector &point,Vector &result){
     result=center+point-camera;return true;
 }
 
-static Vector atmosphericVelocity(BodyId id,const Vector &position,const Vector &earthWind,bool rotating){
+static Vector atmosphericVelocity(BodyId id,const Vector &position,double date,int weatherPreset,bool rotating){
     struct AirFrame{Vector pole,spin,equatorZ;double radius;};
     static const auto frames=[](){std::array<AirFrame,BodyCount> result{};for(const auto &b:bodies())result[(size_t)b.id]={b.pole(),b.period?b.pole()*(Pi2/b.period):Vector(),b.equatorZ(),b.radius};return result;}();
     const auto &b=frames[(size_t)id];Vector spin=rotating?b.spin:Vector();
-    if(id==BodyId::Earth)return crossp(spin,position)+earthWind;
+    if(id==BodyId::Earth)return crossp(spin,position)+earthWeather(position,date,weatherPreset,false).wind;
     Vector radial=position.unit(),east=crossp(b.pole,radial);
     if(east.length2()<1e-12)east=b.equatorZ;else east.unify();
     Vector north=crossp(radial,east).unit();
@@ -107,7 +108,7 @@ static Vector atmosphericVelocity(BodyId id,const Vector &position,const Vector 
     double altitude=std::max(0.,position.length()-b.radius);
     return crossp(spin,position)+east*(7+4*sqrt(std::min(altitude,50000.)/10000))+north*(3+2*sin(altitude/6500));
 }
-static void advect(ExhaustTrailPuff &p,double dt,const Vector &earthWind,bool rotating){
+static void advect(ExhaustTrailPuff &p,double dt,double date,int weatherPreset,bool rotating){
     if(dt<=0)return;
     if(p.age+dt>=p.lifetime){p.age=p.lifetime;return;}
     const auto &b=body(p.body);
@@ -116,14 +117,31 @@ static void advect(ExhaustTrailPuff &p,double dt,const Vector &earthWind,bool ro
         p.position+=p.velocity*dt+gravity*(dt*dt*.5);p.velocity+=gravity*dt;p.age+=dt;return;
     }
     Vector radial=p.position.unit();
-    Vector air=atmosphericVelocity(p.body,p.position,earthWind,rotating)+radial*(2.5*exp(-p.age/15));
-    // Hot exhaust rapidly mixes into ambient air, then drifts with the atmosphere.
-    double damping=exp(-2*dt);Vector relative=p.velocity-air;
-    p.position+=air*dt+relative*((1-damping)*.5);
+    double density=std::max(0.,bodyAtmosphere(p.body,p.position.length()-b.radius).rho);
+    Vector ambient=atmosphericVelocity(p.body,p.position,date,weatherPreset,rotating);
+    Vector air=ambient+radial*(2.5*exp(-p.age/15));
+    // D3D9's exhaust stream uses atmslowdown * sqrt(rho) / 1.1371.
+    double rate=2*sqrt(density)/1.1371,damping=exp(-rate*dt);Vector relative=p.velocity-air;
+    p.position+=air*dt+relative*(rate>1e-8?(1-damping)/rate:dt);
     p.velocity=air+relative*damping;p.age+=dt;
-    if(b.solid&&p.position.length()<b.radius+.5){
-        Vector radial=p.position.unit();p.position=radial*(b.radius+.5);
-        double down=dotp(p.velocity,radial);if(down<0)p.velocity-=radial*down;
+    // Only evaluate detailed terrain near the surface; redirect impact into a
+    // stable, per-puff lateral direction when the incoming jet is vertical.
+    if(b.solid&&p.position.length()<b.radius+2000){
+        double surface=b.radius+terrainElevation(p.body,p.position,date)+.5;
+        if(p.position.length()<surface){
+            radial=p.position.unit();p.position=radial*surface;
+            Vector normal=terrainNormal(p.body,p.position,date),v=p.velocity-ambient;
+            double down=dotp(v,normal);
+            if(down<0){
+                Vector lateral=v-normal*down;
+                if(lateral.length2()<1e-8){
+                    Vector basis=crossp(normal,fabs(normal.y)<.9?Vector(0,1,0):Vector(1,0,0)).unit();
+                    double angle=p.sequence*2.399963229728653+p.nozzle*1.71;
+                    lateral=(basis*cos(angle)+crossp(normal,basis)*sin(angle))*(-down*.5);
+                }else lateral+=lateral.unit()*(-down*.5);
+                p.velocity=ambient+lateral+normal*(-down*.12);
+            }
+        }
     }
 }
 double exhaustTrailRadius(const ExhaustTrailPuff &p){
@@ -133,7 +151,7 @@ double exhaustTrailRadius(const ExhaustTrailPuff &p){
         // A narrow initial jet entrains ambient air and broadens downstream.
         return p.radius+.02+.22*sqrt(age)+1.4*pow(std::max(0.,age-.08),1.25);
     }
-    return p.radius+(p.vacuum?age*130:sqrt(age)*2.4+age*.28);
+    return p.radius+(p.vacuum?age*130:4*age);
 }
 double exhaustTrailOpacity(const ExhaustTrailPuff &p){
     double age=std::clamp(p.age/p.lifetime,0.,1.),growth=exhaustTrailRadius(p);
@@ -141,23 +159,24 @@ double exhaustTrailOpacity(const ExhaustTrailPuff &p){
         double dilution=sqrt(p.radius/growth);
         return p.vacuum?p.opacity*pow(1-age,2)*(.65+.35*dilution):p.opacity*pow(1-age,1.3)*dilution;
     }
-    double dilution=p.vacuum?sqrt(p.radius/growth)/sqrt(1+p.age*.03):.65+.35*sqrt(p.radius/growth);
+    if(!p.vacuum)return p.opacity*exp(-p.age/(p.lifetime/8))*sqrt(p.radius/growth);
+    double dilution=sqrt(p.radius/growth)/sqrt(1+p.age*.03);
     return p.opacity*pow(1-age,1.35)*dilution;
 }
 void ExhaustTrail::reset(){particles.clear();history={};haveBody=false;nextStream=0;}
 void ExhaustTrail::update(const Flight &f,double dt,double humidity){
     if(!std::isfinite(dt)||dt<=0)return;
     humidity=std::isfinite(humidity)?std::clamp(humidity,0.,1.):.5;
-    Vector earthWind=f.reference==BodyId::Earth?f.currentWeather().wind:Vector();
+    double date=f.mjd+f.elapsed/86400.;
     bool rotating=!bodyRotationsPaused();
-    for(auto &p:particles)advect(p,dt,earthWind,rotating);
+    for(auto &p:particles)advect(p,dt,date,f.weatherPreset,rotating);
     particles.erase(std::remove_if(particles.begin(),particles.end(),[](const auto &p){return p.age>=p.lifetime;}),particles.end());
     if(!haveBody||previousBody!=f.reference){history={};previousBody=f.reference;haveBody=true;}
     auto atmosphere=bodyAtmosphere(f.reference,f.altitude());
-    double pressure=std::max(0.,atmosphere.p)/101325.;
+    double density=std::max(0.,atmosphere.rho);
     // Original DG contrails are atmosphere-dependent; vacuum has no smoke trail.
-    double ambient=pressure>1e-4?std::clamp((log10(pressure)+4)/3,0.,1.):0;
-    double rarefied=pressure<=1e-4?1:pressure>=1e-3?0:1-(log10(pressure)+4);
+    double ambient=density>1e-4?std::clamp(log(density/1e-4)/log(1e4),0.,1.):0;
+    double rarefied=density<=1e-4?1:density>=1e-3?0:1-log10(density/1e-4);
     std::array<bool,32> active{};
     auto world=[&](const Vector &v){return f.right*v.x+f.up*v.y+f.forward*v.z;};
     for(const auto &jet:gliderExhaust(f)){
@@ -169,7 +188,8 @@ void ExhaustTrail::update(const Flight &f,double dt,double humidity){
         if(!h.active){h.position=position;h.direction=direction;h.velocity=nozzleVelocity;h.remainder=0;h.active=true;}
         bool medium[2]={ambient>0,rarefied>0};
         for(int i=0;i<2;++i){if(medium[i]&&!h.mediumActive[i]){h.stream[i]=++nextStream;h.sequence[i]=0;}h.mediumActive[i]=medium[i];}
-        double interval=jet.kind==ExhaustKind::Rcs?.006:.15;
+        // D3D9's source-rate formula increases sampling as airspeed rises.
+        double interval=jet.kind==ExhaustKind::Rcs?.006:(ambient>0?std::max(.015,8./(4*(.1*f.airRelativeVelocity().length()+8))):.15);
         double pending=h.remainder+dt;int emitted=0;
         while(pending>=interval&&emitted<256){
             pending-=interval;++emitted;double fraction=std::clamp((dt-pending)/dt,0.,1.);
@@ -179,9 +199,11 @@ void ExhaustTrail::update(const Flight &f,double dt,double humidity){
             Vector firingVelocity=h.velocity+(nozzleVelocity-h.velocity)*fraction;
             auto append=[&](bool vacuum,double weight){
                 bool rcs=jet.kind==ExhaustKind::Rcs;
-                double exhaustSpeed=vacuum?(rcs?55:1600):(rcs?45:120);
-                double life=rcs?(vacuum?.40:.9):vacuum?24:(jet.kind==ExhaustKind::Main?240:180)*(.7+.6*humidity);
-                double opacity=weight*(rcs?(vacuum?.10:ambient*.16)*sqrt(jet.level):vacuum?sqrt(jet.level)*.12:ambient*(.72+.28*humidity)*.78*sqrt(jet.level));
+                double exhaustSpeed=vacuum?(rcs?55:1600):(rcs?45:150);
+                // Orbiter specifies a 3 s average life; retain eight e-folds so
+                // fading is smooth. Humidity is an approximate visual modifier.
+                double life=rcs?(vacuum?.40:.9):vacuum?24:24*(.7+.6*humidity);
+                double opacity=weight*(rcs?(vacuum?.10:ambient*.16)*sqrt(jet.level):vacuum?sqrt(jet.level)*.12:ambient*sqrt(jet.level/2)*(.72+.28*humidity));
                 int mediumIndex=vacuum?1:0;
                 uint64_t sequence=h.sequence[mediumIndex]++;
                 Vector velocity=firingVelocity+firingDirection*exhaustSpeed;
@@ -190,9 +212,13 @@ void ExhaustTrail::update(const Flight &f,double dt,double humidity){
                     Vector second=crossp(firingDirection,basis);
                     double phase=sequence*2.399963229728653+jet.id*1.71;
                     velocity+=(basis*cos(phase)+second*sin(phase))*(vacuum?1.2:.8);
+                }else if(!vacuum){
+                    // Original contrail srcspread is 0.25 of the emission speed.
+                    auto sample=[&](double offset){double x=sin((sequence+1)*12.9898+jet.id*78.233+offset)*43758.5453;return x-floor(x)-.5;};
+                    velocity+=Vector(sample(0),sample(19.19),sample(47.47))*(exhaustSpeed*.25);
                 }
-                ExhaustTrailPuff puff{f.reference,origin,velocity,0,life,jet.radius,opacity,h.stream[mediumIndex],sequence,jet.id,vacuum,jet.kind};
-                advect(puff,pending,earthWind,rotating);if(puff.age<puff.lifetime)particles.push_back(puff);
+                ExhaustTrailPuff puff{f.reference,origin,velocity,0,life,rcs||vacuum?jet.radius:8.,opacity,h.stream[mediumIndex],sequence,jet.id,vacuum,jet.kind};
+                advect(puff,pending,date,f.weatherPreset,rotating);if(puff.age<puff.lifetime)particles.push_back(puff);
             };
             if(ambient>0)append(false,1);
             if(rarefied>0)append(true,rarefied);

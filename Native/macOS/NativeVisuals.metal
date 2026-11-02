@@ -1106,26 +1106,29 @@ fragment float4 rcsGasFragment(GasRaster in [[stage_in]],constant FrameUniforms 
     float z=depth.read(pixel).r,scene=z>0?.2/z:1e9,viewDepth=dot(in.ray,f.forward.xyz);
     float depthFade=saturate((scene-viewDepth)/max(.5f,viewDepth*f.screen.z/max(1.0f,f.screen.y)));
     constexpr sampler s(filter::linear,address::repeat);
+    bool smoke=in.vacuum<-.5;
     float mixing=in.vacuum>.5?0.0f:smoothstep(.06f,.65f,in.age);
-    float3 uv=in.phase+float3(in.coords*1.25,in.age*.4);
+    float3 uv=in.phase+float3(in.coords*1.25,in.age*(smoke?.025f:.4f));
     float n=noise.sample(s,uv).g,detail=noise.sample(s,uv*2+float3(.19,.43,.07)).r;
     float radius=length(in.coords)+(n-.5)*mix(.22f,.65f,mixing);
     float profile=exp(-radius*radius*2.0f)*(1-smoothstep(.65f,1.0f,radius));
     float turbulence=n*.65+detail*.35;
     float breakup=mix(1.0f,smoothstep(.28f,.65f,turbulence),mixing*.8);
     float alpha=clamp(in.opacity,0.0f,.98f)*profile*(.50+.8*turbulence)*breakup*depthFade;
+    if(smoke)alpha*=smoothstep(0.0f,.35f,in.age);
     if(f.environment.x*f.body.x<f.clouds.y+1000&&f.clouds.z>0){
         float distance=length(in.ray);float3 midpoint=f.position.xyz*f.body.x+in.ray*.5;
         alpha*=exp(-sampleCloudDensity(midpoint,f,noise,cloudMap)*distance);
     }
     if(alpha<.00002)discard_fragment();
     float3 color=in.vacuum>.5?float3(.58,.67,.76):float3(.82,.84,.84);
-    color*=.35+.65*clamp(f.sun.w,0.0f,1.0f);
+    float shade=smoke?mix(.65f,1.0f,detail)*exp(-in.opacity*turbulence):1.0f;
+    color*=shade*(.35+.65*clamp(f.sun.w,0.0f,1.0f));
     return float4(color,alpha);
 }
 
-// Continuous world-space tube segments follow the emitted exhaust; the material
-// adds moving, translucent turbulence without marching every pixel through a volume.
+// Connected segments carry a multiscale, world-space billow field. This remains
+// a surface approximation, avoiding a full volume march for long trails.
 struct TrailRaster {
     float4 position [[position]]; float3 ray,normal,local; float2 opacityAge;
     float edge;float3 phase [[flat]]; float vacuum [[flat]];float cap [[flat]];
@@ -1143,7 +1146,9 @@ vertex TrailRaster trailVolumeVertex(uint id [[vertex_id]],uint instance [[insta
     float3 first=exhaustBasis(axis),second=cross(axis,first),radial=first*cos(angle)+second*sin(angle);
     float3 center=mix(seg.startRadius.xyz,seg.endRadius.xyz,t);float radius=mix(seg.startRadius.w,seg.endRadius.w,t);
     float3 uv=seg.noiseMode.xyz+(center-seg.startRadius.xyz+radial*radius)/64.0f+float3(f.environment.w*.009,f.environment.w*.006,-f.environment.w*.007);
-    float irregularity=noise.sample(sampler3d,uv,level(0)).g;radius*=.65+.70*irregularity;
+    float4 billow=noise.sample(sampler3d,uv,level(0));
+    float fine=noise.sample(sampler3d,uv*2.7+float3(.31,.17,.49),level(0)).r;
+    radius*=clamp(.48+1.05*billow.g+.28*(fine-.5),.4,1.65);
     float3 p=center+radial*radius*edge;float3 view=float3(dot(p,f.right.xyz),dot(p,f.up.xyz),-dot(p,f.forward.xyz));
     return {f.projection*float4(view,1),p,cap?axis*(t>0?1.0f:-1.0f):radial,p-seg.startRadius.xyz,
             float2(mix(seg.opticalAge.x,seg.opticalAge.y,t),mix(seg.opticalAge.z,seg.opticalAge.w,t)),edge,seg.noiseMode.xyz,seg.noiseMode.w,cap?1.0f:0.0f};
@@ -1158,15 +1163,15 @@ fragment float4 trailVolumeFragment(TrailRaster in [[stage_in]],constant FrameUn
     if(fade<=0)discard_fragment();
     float3 uv=in.phase+in.local/64.0f+float3(f.environment.w*.009,f.environment.w*.006,-f.environment.w*.007);
     float4 coarse=noise.sample(sampler3d,uv);float detail=noise.sample(sampler3d,uv*2+float3(.19,.43,.07)).r;
-    float turbulence=coarse.g*.64+detail*.36,billows=smoothstep(.36f,.72f,turbulence);
+    float turbulence=coarse.g*.72+detail*.28,billows=smoothstep(.28f,.74f,turbulence);
     float3 ray=normalize(in.ray),normal=normalize(in.normal);float facing=pow(abs(dot(ray,normal)),1.2f);
-    float material=.24+2.15*billows*billows,optical=clamp(in.opacityAge.x,0.0f,.98f);
+    float material=.10+1.65*billows*billows,optical=clamp(in.opacityAge.x,0.0f,.98f);
     float extinction=in.vacuum>.5f?.5f:4.0f;
-    float alpha=(1-pow(max(.001f,1-optical),material*extinction))*facing*fade;
+    float alpha=(1-pow(max(.001f,1-optical),material*extinction))*mix(facing,sqrt(facing),.35f)*fade;
     if(in.cap>.5)alpha*=.75*smoothstep(.72f,.95f,abs(dot(ray,normal)))*(1-smoothstep(.20f,1.0f,in.edge));
     if(alpha<.00002)discard_fragment();
     float sunPhase=clamp(.55f*(1-.45f*.45f)/pow(max(.05f,1+.45f*.45f-.9f*dot(ray,f.sun.xyz)),1.5f),.25f,2.0f);
-    float light=f.sun.w*sunPhase*(.35+.65*abs(dot(normal,f.sun.xyz)))*exp(-optical*coarse.g*.8);
+    float light=f.sun.w*sunPhase*(.25+.75*max(0.0f,dot(normal,f.sun.xyz)))*exp(-optical*(.35+coarse.g)*1.2);
     float hot=exp(-in.opacityAge.y*(in.vacuum>.5?1.6f:2.5f));
     float3 color=in.vacuum>.5?float3(.46,.59,.76):float3(.84,.83,.78);
     color*=(in.vacuum>.5f?.16f:.25f)+.84f*light;color+=hot*(in.vacuum>.5?float3(.60,.38,.18):float3(.50,.28,.12));
