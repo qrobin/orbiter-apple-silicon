@@ -1009,7 +1009,7 @@ fragment float4 flameFragment(FlameRaster in [[stage_in]],constant FrameUniforms
 }
 // Individual expanding gas clouds overlap without being joined by geometry.
 struct GasRaster {
-    float4 position [[position]];float3 ray;float2 coords;float opacity;float3 phase [[flat]];float vacuum [[flat]];
+    float4 position [[position]];float3 ray;float2 coords;float opacity,age;float3 phase [[flat]];float vacuum [[flat]];
 };
 vertex GasRaster rcsGasVertex(uint id [[vertex_id]],uint instance [[instance_id]],constant FrameUniforms &f [[buffer(0)]],
                              const device TrailSegmentUniforms *segments [[buffer(1)]]){
@@ -1018,7 +1018,7 @@ vertex GasRaster rcsGasVertex(uint id [[vertex_id]],uint instance [[instance_id]
     float2 c=corners[id];
     float3 p=seg.startRadius.xyz+(f.right.xyz*c.x+f.up.xyz*c.y)*seg.startRadius.w*1.8;
     float3 view=float3(dot(p,f.right.xyz),dot(p,f.up.xyz),-dot(p,f.forward.xyz));
-    return {f.projection*float4(view,1),p,c,seg.opticalAge.x,seg.noiseMode.xyz,seg.noiseMode.w};
+    return {f.projection*float4(view,1),p,c,seg.opticalAge.x,seg.opticalAge.z,seg.noiseMode.xyz,seg.noiseMode.w};
 }
 fragment float4 rcsGasFragment(GasRaster in [[stage_in]],constant FrameUniforms &f [[buffer(0)]],
                                texture2d<float,access::read> depth [[texture(0)]],texture3d<float> noise [[texture(1)]],texture2d<float> cloudMap [[texture(2)]]){
@@ -1027,11 +1027,14 @@ fragment float4 rcsGasFragment(GasRaster in [[stage_in]],constant FrameUniforms 
     float z=depth.read(pixel).r,scene=z>0?.2/z:1e9,viewDepth=dot(in.ray,f.forward.xyz);
     float depthFade=saturate((scene-viewDepth)/max(.5f,viewDepth*f.screen.z/max(1.0f,f.screen.y)));
     constexpr sampler s(filter::linear,address::repeat);
-    float3 uv=in.phase+float3(in.coords*1.25,f.environment.w*.08);
+    float mixing=in.vacuum>.5?0.0f:smoothstep(.06f,.65f,in.age);
+    float3 uv=in.phase+float3(in.coords*1.25,in.age*.4);
     float n=noise.sample(s,uv).g,detail=noise.sample(s,uv*2+float3(.19,.43,.07)).r;
-    float radius=length(in.coords)+(n-.5)*.22;
+    float radius=length(in.coords)+(n-.5)*mix(.22f,.65f,mixing);
     float profile=exp(-radius*radius*2.0f)*(1-smoothstep(.65f,1.0f,radius));
-    float alpha=clamp(in.opacity,0.0f,.98f)*profile*(.50+.8*(n*.65+detail*.35))*depthFade;
+    float turbulence=n*.65+detail*.35;
+    float breakup=mix(1.0f,smoothstep(.28f,.65f,turbulence),mixing*.8);
+    float alpha=clamp(in.opacity,0.0f,.98f)*profile*(.50+.8*turbulence)*breakup*depthFade;
     if(f.environment.x*f.body.x<f.clouds.y+1000&&f.clouds.z>0){
         float distance=length(in.ray);float3 midpoint=f.position.xyz*f.body.x+in.ray*.5;
         alpha*=exp(-sampleCloudDensity(midpoint,f,noise,cloudMap)*distance);

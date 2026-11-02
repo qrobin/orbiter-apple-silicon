@@ -103,12 +103,19 @@ static void advect(ExhaustTrailPuff &p,double dt,const Vector &earthWind,bool ro
 }
 double exhaustTrailRadius(const ExhaustTrailPuff &p){
     double age=std::max(0.,p.age);
-    if(p.kind==ExhaustKind::Rcs)return p.radius+.02+sqrt(age)*.38;
+    if(p.kind==ExhaustKind::Rcs){
+        if(p.vacuum)return p.radius+.02+sqrt(age)*.38;
+        // A narrow initial jet entrains ambient air and broadens downstream.
+        return p.radius+.02+.22*sqrt(age)+1.4*pow(std::max(0.,age-.08),1.25);
+    }
     return p.radius+(p.vacuum?age*130:sqrt(age)*2.4+age*.28);
 }
 double exhaustTrailOpacity(const ExhaustTrailPuff &p){
     double age=std::clamp(p.age/p.lifetime,0.,1.),growth=exhaustTrailRadius(p);
-    if(p.kind==ExhaustKind::Rcs)return p.opacity*pow(1-age,2)*(.65+.35*sqrt(p.radius/growth));
+    if(p.kind==ExhaustKind::Rcs){
+        double dilution=sqrt(p.radius/growth);
+        return p.vacuum?p.opacity*pow(1-age,2)*(.65+.35*dilution):p.opacity*pow(1-age,1.3)*dilution;
+    }
     double dilution=p.vacuum?sqrt(p.radius/growth)/sqrt(1+p.age*.03):.65+.35*sqrt(p.radius/growth);
     return p.opacity*pow(1-age,1.35)*dilution;
 }
@@ -148,7 +155,7 @@ void ExhaustTrail::update(const Flight &f,double dt,double humidity){
             auto append=[&](bool vacuum,double weight){
                 bool rcs=jet.kind==ExhaustKind::Rcs;
                 double exhaustSpeed=vacuum?(rcs?55:1600):(rcs?45:120);
-                double life=rcs?(vacuum?.40:.33):vacuum?24:(jet.kind==ExhaustKind::Main?240:180)*(.7+.6*humidity);
+                double life=rcs?(vacuum?.40:.9):vacuum?24:(jet.kind==ExhaustKind::Main?240:180)*(.7+.6*humidity);
                 double opacity=weight*(rcs?(vacuum?.10:ambient*.16)*sqrt(jet.level):vacuum?sqrt(jet.level)*.12:ambient*(.72+.28*humidity)*.78*sqrt(jet.level));
                 int mediumIndex=vacuum?1:0;
                 uint64_t sequence=h.sequence[mediumIndex]++;
