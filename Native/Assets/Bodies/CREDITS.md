@@ -5,9 +5,11 @@ Uranus, Neptune and Saturn-ring maps are by **Solar System Scope / INOVE**,
 used under **Creative Commons Attribution 4.0 International (CC BY 4.0)**:
 https://www.solarsystemscope.com/textures/ and
 https://creativecommons.org/licenses/by/4.0/. Earth uses the separately
-credited NASA 8K image. The 8K Sun, Mercury, Moon, Mars, Jupiter and Saturn
-maps were resized to 4096 × 2048 to limit GPU memory use; Venus atmosphere
-is 4096 × 2048, its surface 2048 × 1024, and Uranus and Neptune are 2K.
+credited NASA 8K image. Mercury, Venus surface, Moon and Mars use the
+8192 × 4096 originals; the Saturn rings use the 8192 × 500 original. Sun,
+Venus atmosphere, Jupiter and Saturn are 4096 × 2048, and Uranus and
+Neptune are 2048 × 1024. The source's files labelled 8K for the Sun,
+Jupiter and Saturn actually have 4096 × 2048 pixels.
 Solar System Scope notes that its maps contain enhanced color and invented
 fill where observations are incomplete.
 
