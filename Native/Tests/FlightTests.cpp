@@ -66,7 +66,7 @@ int main() { try {
     auto cockpitSkin=loadDDS(root/"Src/Vessel/DeltaGlider/Textures2/dgmk4_2.dds");
     check(cockpitSkin.width==1024&&cockpitSkin.height==1024,"high-resolution original cockpit skin loads");
     auto enhancedSkin=loadDDS(root/"Native/GliderTextures/dgmk4_2.dds");
-    check(enhancedSkin.width==1254&&enhancedSkin.height==1254&&enhancedSkin.rgba.size()==size_t(1254)*1254*4,"generated glider texture loads");
+    check(enhancedSkin.width==2508&&enhancedSkin.height==2508&&enhancedSkin.rgba.size()==size_t(2508)*2508*4,"generated glider texture loads");
     size_t triangles=0; for(const auto &g:mesh.groups) triangles+=g.indices.size()/3;
     check(triangles>10000,"complete mesh topology");
     for(auto &name:mesh.textures) {
