@@ -11,6 +11,7 @@ int main(){@autoreleasepool{try{
         NSString *part=[NSString stringWithContentsOfFile:[root stringByAppendingPathComponent:name] encoding:NSUTF8StringEncoding error:&error];check(part!=nil,"missing shader source");[source appendFormat:@"%@\n",part];
     }
     [source appendString:@"kernel void testLights(constant FrameUniforms &f [[buffer(0)]],device float4 *out [[buffer(1)]],uint i [[thread_position_in_grid]]) { float3 p=i==1?float3(0,0,20):i==2?float3(5,0,1):float3(0,0,1); float3 n=float3(0,0,-1); out[i]=float4(vesselIllumination(f,p,n,i==3),1); }"];
+    [source appendString:@"kernel void testSpecular(constant FrameUniforms &f [[buffer(0)]],device float4 *out [[buffer(1)]],uint i [[thread_position_in_grid]]) { float3 n=float3(0,0,-1); float3 v=i==1?float3(1,0,0):float3(0,0,-1); out[i]=float4(vesselSpecular(f,float3(0,0,1),n,v,24,i==3),1); }"];
     id<MTLLibrary> lib=[gpu newLibraryWithSource:source options:nil error:&error];if(!lib)std::cerr<<error.localizedDescription.UTF8String<<'\n';check(lib!=nil,"lighting shaders compile");
     id<MTLComputePipelineState> pipeline=[gpu newComputePipelineStateWithFunction:[lib newFunctionWithName:@"testLights"] error:&error];check(pipeline!=nil,"lighting test pipeline");
     FrameUniforms frame{};frame.vesselLights[0].positionRange={0,0,0,10};frame.vesselLights[0].directionOuter={0,0,1,.8};frame.vesselLights[0].colorIntensity={1,.5,.25,1};frame.vesselLights[0].attenuationInner={1,1,.95,0};
@@ -23,6 +24,13 @@ int main(){@autoreleasepool{try{
     frame.vesselLights[0].attenuationInner.w=1;run();
     check(values[0].x==0&&values[3].x>.4f,"cabin floodlight illuminates cockpit only");
     frame.vesselLights[0].colorIntensity.w=0;run();check(values[3].x==0,"switched-off cabin light emits no illumination");
+    frame.vesselLights[0].colorIntensity.w=1;
+    id<MTLComputePipelineState> specPipeline=[gpu newComputePipelineStateWithFunction:[lib newFunctionWithName:@"testSpecular"] error:&error];check(specPipeline!=nil,"specular lighting pipeline");
+    auto runSpec=[&](){id<MTLCommandBuffer> cb=[[gpu newCommandQueue] commandBuffer];id<MTLComputeCommandEncoder> enc=[cb computeCommandEncoder];[enc setComputePipelineState:specPipeline];[enc setBytes:&frame length:sizeof(frame) atIndex:0];[enc setBuffer:out offset:0 atIndex:1];[enc dispatchThreads:MTLSizeMake(4,1,1) threadsPerThreadgroup:MTLSizeMake(4,1,1)];[enc endEncoding];[cb commit];[cb waitUntilCompleted];check(cb.error==nil,"GPU specular evaluation failed");};
+    runSpec();check(values[3].x>.4f&&values[0].x==0,"Cabin light produces cockpit-only specular highlights");
+    frame.vesselLights[0].attenuationInner.w=0;runSpec();check(values[0].x>.4f&&values[1].x<values[0].x*.05f&&values[3].x==0,"Specular highlights follow viewing angle and light isolation");
+    frame.vesselLights[0].colorIntensity.w=0;runSpec();check(values[0].x==0,"Switched-off light produces no specular highlight");
+
     // Flame sources share this lighting path for hull and ground and coexist with all marker lights.
     frame.vesselLights[19].positionRange={0,0,0,32};frame.vesselLights[19].directionOuter={0,0,0,-1};
     frame.vesselLights[19].colorIntensity={1,.48,.18,1.3};frame.vesselLights[19].attenuationInner={.25,.025,0,0};run();

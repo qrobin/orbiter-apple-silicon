@@ -151,6 +151,24 @@ float4 shadeMesh(Raster in,constant Frame &f,constant Object &o,texture2d<float>
     float3 color=albedo.rgb*(.006f+max(0.0f,o.options.y)+skylight+o.emission.rgb)+albedo.rgb*sunlight*lit*.8f+albedo.rgb*float3(.76,.84,1.0)*bounce*solarIntensity(f)+spec*sunlight;
     color+=albedo.rgb*reflectedBodyLight(f.reflectedLights,f.position.xyz+in.world/f.body.x,normal);
     color+=albedo.rgb*vesselIllumination(f,in.world,normal,o.emission.w>0.5f);
+    if(o.emission.w>0.5f&&o.specular.w>0){
+        color+=o.specular.rgb*vesselSpecular(f,in.world,normal,view,o.specular.w,true)*.65f;
+        // Low-cost ambient reflection through the canopy. It approximates the
+        // outside sky and planet rather than tracing the full cloud volume for
+        // every interior fragment; dark interior surfaces remain subdued.
+        float3 reflectedRay=reflect(-view,normal);
+        float up=dot(reflectedRay,radial);
+        float skyWeight=smoothstep(-.12f,.12f,up);
+        float altitude=max(0.0f,f.environment.y);
+        float atmospheric=exp(-altitude/18000.0f)*f.body.y*planetDay;
+        float3 sky=stars.sample(s,skyCoordinates(reflectedRay),level(4)).rgb*.5f;
+        sky+=float3(.22f,.34f,.52f)*atmospheric*solarIntensity(f);
+        float3 ground=f.equatorX.w>.5f?planet.sample(s,terrestrialUV(radial,f),level(5)).rgb:f.surfaceColor.rgb;
+        ground*=planetDay*solarIntensity(f)*.5f;
+        float fresnel=pow(1-max(0.0f,dot(normal,view)),5.0f);
+        float gloss=saturate(max(o.specular.r,max(o.specular.g,o.specular.b)));
+        color+=mix(ground,sky,skyWeight)*(.025f+.08f*fresnel)*gloss;
+    }
     // A low-cost hemispheric fill approximates sunlight scattered back down
     // by cloud cover; it softens shadows without making clouds emit at night.
     if(int(f.surfaceColor.w)==3&&f.clouds.z>0){

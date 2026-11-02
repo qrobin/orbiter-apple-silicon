@@ -289,6 +289,7 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;bool rcsGas;};
     [r setVertexBuffer:vertices offset:0 atIndex:0];[r setVertexBytes:&wetFrame length:sizeof(wetFrame) atIndex:1];[r setVertexBytes:&model length:sizeof(model) atIndex:2];
     [r setFragmentBytes:&wetFrame length:sizeof(wetFrame) atIndex:1];[r setFragmentBytes:&model length:sizeof(model) atIndex:2];[r setFragmentBytes:&runoff length:sizeof(runoff) atIndex:3];[r setFragmentTexture:lit atIndex:0];
     uint32_t hasTexture=hasCockpitGlassTexture?1:0;[r setFragmentBytes:&hasTexture length:sizeof(hasTexture) atIndex:4];[r setFragmentTexture:cockpitGlassTexture atIndex:1];
+    float thickness=.04f;[r setFragmentBytes:&thickness length:sizeof(thickness) atIndex:5];
     [r drawIndexedPrimitives:MTLPrimitiveTypeTriangle indexCount:count indexType:MTLIndexTypeUInt32 indexBuffer:indices indexBufferOffset:0];[r endEncoding];
     id<MTLTexture> previous=lit;lit=hdr;hdr=previous;
 }

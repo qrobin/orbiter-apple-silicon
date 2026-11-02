@@ -52,6 +52,24 @@ float3 vesselIllumination(constant FrameUniforms &f,float3 point,float3 normal,b
     }
     return result;
 }
+// Specular response from the same local emitters, with the same range and cone.
+float3 vesselSpecular(constant FrameUniforms &f,float3 point,float3 normal,float3 view,float power,bool cockpit){
+    float3 result=0;
+    for(int i=0;i<20;++i){
+        VesselLight l=f.vesselLights[i];
+        if(l.colorIntensity.w<=0||((l.attenuationInner.w>0.5f)!=cockpit))continue;
+        float3 delta=l.positionRange.xyz-point;float distance=length(delta);
+        if(distance>=l.positionRange.w||distance<.001f)continue;
+        float3 toward=delta/distance;float ndotl=max(0.0f,dot(normal,toward));
+        float3 halfVector=normalize(toward+view+float3(1e-6f));
+        float highlight=pow(max(0.0f,dot(normal,halfVector)),max(1.0f,power))*ndotl;
+        float cone=l.directionOuter.w>-1.0f?smoothstep(l.directionOuter.w,l.attenuationInner.z,dot(-toward,l.directionOuter.xyz)):1.0f;
+        float falloff=1-smoothstep(l.positionRange.w*.85f,l.positionRange.w,distance);
+        float attenuation=max(.001f,l.attenuationInner.x+l.attenuationInner.y*distance*distance);
+        result+=l.colorIntensity.rgb*l.colorIntensity.w*highlight*cone*falloff/attenuation;
+    }
+    return result;
+}
 // An artistic apparent-size boost: strongest through dense air near the
 // horizon, and smoothly absent above the atmosphere.
 float atmosphericDiscScale(constant FrameUniforms &f,float3 direction){
@@ -925,9 +943,18 @@ float4 rainBead(float2 uv,float probability,uint salt,float stretch){
     float2 slope=delta/max(radius,.001f)*body;
     return float4(body,slope,rim);
 }
+// Lateral displacement through a parallel glass slab, from Snell's law.
+// The outgoing ray is parallel to the incoming one after the second interface.
+float3 glassSlabDisplacement(float3 ray,float3 normal,float thickness,float ior){
+    if(dot(ray,normal)>0)normal=-normal;
+    float cosIncident=max(.08f,-dot(ray,normal));
+    float3 inside=refract(ray,normal,1.0f/ior);
+    float cosInside=max(.08f,-dot(inside,normal));
+    return thickness*(inside/cosInside-ray/cosIncident);
+}
 fragment float4 rainGlassFragment(RainRaster in [[stage_in]],constant FrameUniforms &f [[buffer(1)]],
                                    constant float4x4 &model [[buffer(2)]],constant float4 &runoff [[buffer(3)]],
-                                   constant uint &hasScratchTexture [[buffer(4)]],texture2d<float> scene [[texture(0)]],
+                                   constant uint &hasScratchTexture [[buffer(4)]],constant float &glassThickness [[buffer(5)]],texture2d<float> scene [[texture(0)]],
                                    texture2d<float> scratches [[texture(1)]]){
     float3 localNormal=normalize(in.normal);float side=smoothstep(.38f,.76f,abs(localNormal.x));
     float sideSign=in.local.x<0?-1.0f:1.0f;
@@ -940,15 +967,30 @@ fragment float4 rainGlassFragment(RainRaster in [[stage_in]],constant FrameUnifo
     float2 offset=float2(visualRandom(scratchSeed+13)-.5f,visualRandom(scratchSeed+29)-.5f)*.65f;
     float2 q=scratchLocal-offset;float lengthwise=abs(dot(q,along)),width=abs(dot(q,perp));
     float scratch=step(visualRandom(scratchSeed+47),.45f)*(1-smoothstep(.006f,.025f,width))*(1-smoothstep(.20f,.43f,lengthwise));
+    float2 scratchSlope=0;
     if(hasScratchTexture){
-        // Project in vessel space so the marks remain fixed as the pilot looks around.
+        // The photograph contains dust and broad smudges as well as scratches.
+        // A local high-pass retains fine features without painting its bright
+        // patches onto the glass. Sampling follows the projected pixel footprint.
         constexpr sampler scratchSampler(filter::linear,mip_filter::linear,address::repeat);
-        float3 photo=scratches.sample(scratchSampler,surface*.55f+float2(.5f,.1f)).rgb;
-        scratch=smoothstep(.07f,.5f,dot(photo,float3(.2126f,.7152f,.0722f)));
+        float2 texUV=surface*1.35f+float2(.5f,.1f);
+        float2 texel=1.0f/float2(scratches.get_width(),scratches.get_height());
+        float2 radius=max(texel*2.0f,fwidth(texUV)*1.2f);
+        float3 weights=float3(.2126f,.7152f,.0722f);
+        float c=dot(scratches.sample(scratchSampler,texUV).rgb,weights);
+        float l=dot(scratches.sample(scratchSampler,texUV-float2(radius.x,0)).rgb,weights);
+        float r=dot(scratches.sample(scratchSampler,texUV+float2(radius.x,0)).rgb,weights);
+        float d=dot(scratches.sample(scratchSampler,texUV-float2(0,radius.y)).rgb,weights);
+        float u=dot(scratches.sample(scratchSampler,texUV+float2(0,radius.y)).rgb,weights);
+        scratchSlope=clamp(float2(r-l,u-d)*2.2f,-1.0f,1.0f);
+        scratch=saturate(abs(c-(l+r+d+u)*.25f)*2.0f);
     }
     float3 worldNormal=normalize((model*float4(localNormal,0)).xyz),viewDirection=normalize(-in.world);
-    float sunGlint=pow(max(0.0f,dot(reflect(-f.sun.xyz,worldNormal),viewDirection)),3.0f)*f.sun.w;
-    float scratchLight=scratch*sunGlint*.55f*solarIntensity(f);
+    float3 axisX=mix(model[0].xyz,model[2].xyz*sideSign,side);
+    float3 axisY=model[1].xyz+model[2].xyz*.35f;
+    float3 scratchNormal=normalize(worldNormal-(normalize(axisX)*scratchSlope.x+normalize(axisY)*scratchSlope.y)*.22f);
+    float sunGlint=pow(max(0.0f,dot(reflect(-f.sun.xyz,scratchNormal),viewDirection)),3.0f)*f.sun.w;
+    float scratchLight=scratch*sunGlint*(hasScratchTexture?.10f:.55f)*solarIntensity(f);
     float4 beads=rainBead(surface*78.0f,f.weather.z*mix(.58f,.22f,airflow),101u,1.0f);
     // Integrate motion on the CPU: multiplying absolute time by the current
     // speed makes droplets jump backwards whenever the aircraft slows down.
@@ -957,12 +999,20 @@ fragment float4 rainGlassFragment(RainRaster in [[stage_in]],constant FrameUnifo
     float2 moving=(surface-drift)*60.0f;
     float4 running=rainBead(moving,f.weather.z*mix(.10f,.35f,airflow),809u,mix(1.0f,.68f,airflow));
     float body=max(beads.x,running.x),rim=max(beads.w,running.w);
-    if(body<.004f&&rim<.004f&&scratchLight<.0001f)discard_fragment();
+    float3 slab=glassSlabDisplacement(normalize(in.world),worldNormal,glassThickness,1.5f);
+    if(body<.004f&&rim<.004f&&scratchLight<.0001f&&dot(scratchSlope,scratchSlope)<.00001f&&dot(slab,slab)<1e-12f)discard_fragment();
     float2 gradient=beads.yz+running.yz;
-    float3 axisX=mix(model[0].xyz,model[2].xyz*sideSign,side);
-    float3 axisY=model[1].xyz+model[2].xyz*.35f;
     float3 displacement=axisX*gradient.x+axisY*gradient.y;
     float2 shift=float2(dot(displacement,f.right.xyz),-dot(displacement,f.up.xyz))*.0022f;
+    // A shallow micro-surface bends transmitted light by a sub-pixel amount.
+    // The scene is already rendered, so this is screen-space refraction.
+    float3 scratchDirection=axisX*scratchSlope.x+axisY*scratchSlope.y;
+    shift+=float2(dot(scratchDirection,f.right.xyz),-dot(scratchDirection,f.up.xyz))*.8f/f.screen.xy;
+    // Convert the slab's lateral displacement to a scene UV shift. The
+    // already-rendered scene has no per-object ray intersection here, so a
+    // representative 20 m background distance bounds this approximation.
+    float invBackgroundDistance=1.0f/20.0f;
+    shift+=float2(dot(slab,f.right.xyz)*f.projection[0][0],-dot(slab,f.up.xyz)*f.projection[1][1])*(.5f*invBackgroundDistance);
     float2 uv=in.position.xy/f.screen.xy;
     constexpr sampler s(filter::linear,address::clamp_to_edge);
     float3 refracted=scene.sample(s,clamp(uv+shift,0.0f,1.0f)).rgb;
