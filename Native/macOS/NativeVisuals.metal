@@ -18,6 +18,23 @@ float reflectedBodyLight(constant float4 *sources,float3 point,float3 normal){
     }
     return result;
 }
+// The mask contains the exterior mesh projected onto a plane facing the Sun.
+// Sampling from each surface point follows the sunlight ray back to the vessel.
+float vesselSunVisibility(constant FrameUniforms &f,float3 point,texture2d<float> mask){
+    if(f.shadowOrigin.w<.5f)return 1;
+    float3 relative=point-f.shadowOrigin.xyz;
+    float distance=-dot(relative,f.sun.xyz);
+    if(distance<=0)return 1;
+    float2 uv=float2(dot(relative,f.shadowAxisX.xyz),-dot(relative,f.shadowAxisY.xyz))/64.0f+.5f;
+    constexpr sampler s(filter::linear,address::clamp_to_zero);
+    // Solar angular radius widens the penumbra with distance.
+    float r=distance*max(0.0f,f.sunShape.x)/64.0f;
+    if(any(uv < -r-.002f)||any(uv > 1+r+.002f))return 1;
+    float coverage=0;
+    for(int y=-1;y<=1;++y)for(int x=-1;x<=1;++x)
+        coverage+=mask.sample(s,uv+float2(x,y)*r).r;
+    return 1-coverage/9.0f;
+}
 // Local vessel emitters illuminate surfaces in camera-relative metres. The
 // final component distinguishes the cabin floodlight from exterior lights.
 float3 vesselIllumination(constant FrameUniforms &f,float3 point,float3 normal,bool cockpit){
@@ -240,7 +257,7 @@ vertex TerrainRaster grassVertex(uint vid [[vertex_id]],uint instance [[instance
     color*=corner==2?1.2f:.65f;
     return sceneryRaster(p,float3(-sin(a),.35f,cos(a)),color,3,cell,f);
 }
-fragment float4 terrainFragment(TerrainRaster in [[stage_in]],constant FrameUniforms &f [[buffer(0)]],texture2d<float> shadows [[texture(0)]]) {
+fragment float4 terrainFragment(TerrainRaster in [[stage_in]],constant FrameUniforms &f [[buffer(0)]],texture2d<float> shadows [[texture(0)]],texture2d<float> vesselShadow [[texture(1)]]) {
     if(in.material>.5f&&in.material<1.5f){
         // A branch spray: five pairs of lance-shaped leaves and a thin stem.
         // Analytic coverage avoids downloaded model/texture dependencies.
@@ -256,7 +273,7 @@ fragment float4 terrainFragment(TerrainRaster in [[stage_in]],constant FrameUnif
     float day=smoothstep(-.08f,.12f,dot(normalize(f.position.xyz),f.sun.xyz))*f.sun.w;
     float shadow=shadows.sample(s,in.position.xy/f.screen.xy).r;
     float3 normal=normalize(in.normal);float diffuse=dot(normal,f.sun.xyz);if(in.material>.5f&&in.material<1.5f)diffuse=abs(diffuse)*.65f+.15f;
-    float light=max(0.0f,diffuse)*f.sun.w*shadow*solarIntensity(f);
+    float light=max(0.0f,diffuse)*f.sun.w*shadow*vesselSunVisibility(f,in.world,vesselShadow)*solarIntensity(f);
     float footprint=max(length(dfdx(in.local)),length(dfdy(in.local)));
     float grain=mix(.5f,terrainNoise(in.local*(in.material<.5f?float3(18,1.8,18):float3(9))),1-smoothstep(.15f,.7f,footprint));
     float bounce=reflectedBodyLight(f.reflectedLights,f.position.xyz+in.world/f.body.x,normal);
@@ -419,7 +436,7 @@ vertex GroundRaster groundVertex(uint vid [[vertex_id]],uint instance [[instance
     o.position=f.projection*float4(view,1);o.world=p;o.normal=n;
     float2 coord=float2(gridVertex)*spacing/f.body.x;o.uv=float2(coord.x/(2*M_PI_F)+.5,.5-coord.y/M_PI_F);o.height=h;return o;
 }
-fragment float4 groundFragment(GroundRaster in [[stage_in]],constant FrameUniforms &f [[buffer(0)]],texture2d<float> earth [[texture(0)]],texture2d<float> shadows [[texture(1)]],texture2d<float> marsDetail [[texture(2)]]) {
+fragment float4 groundFragment(GroundRaster in [[stage_in]],constant FrameUniforms &f [[buffer(0)]],texture2d<float> earth [[texture(0)]],texture2d<float> shadows [[texture(1)]],texture2d<float> marsDetail [[texture(2)]],texture2d<float> vesselShadow [[texture(3)]]) {
     if(in.height<.5)discard_fragment();
     constexpr sampler map(filter::linear,s_address::repeat,t_address::clamp_to_edge);constexpr sampler screen(filter::linear,address::clamp_to_edge);
     float3 n=normalize(cross(dfdx(in.world),dfdy(in.world)));if(dot(n,in.normal)<0)n=-n;
@@ -459,7 +476,7 @@ fragment float4 groundFragment(GroundRaster in [[stage_in]],constant FrameUnifor
     if(earthBody)albedo=mix(albedo,float3(.75,.76,.72),smoothstep(850.0f,1250.0f,in.height)*.55);
     float day=smoothstep(-.08f,.12f,dot(in.normal,f.sun.xyz))*f.sun.w;
     float shadow=earthBody?shadows.sample(screen,in.position.xy/f.screen.xy).r:1.0f;
-    float light=max(0.0f,dot(n,f.sun.xyz))*f.sun.w*shadow*solarIntensity(f);
+    float light=max(0.0f,dot(n,f.sun.xyz))*f.sun.w*shadow*vesselSunVisibility(f,in.world,vesselShadow)*solarIntensity(f);
     float bounce=reflectedBodyLight(f.reflectedLights,f.position.xyz+in.world/f.body.x,n);
     float3 color=albedo*(.012+day*.15+light*.85+bounce)+albedo*vesselIllumination(f,in.world,n,false);
     if(earthBody){float distance=length(in.world);AirLight air=earthAirLight(f,normalize(in.world),distance);color=color*air.transmission+air.scattering;}

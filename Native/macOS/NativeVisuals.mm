@@ -157,11 +157,11 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;bool rcsGas;};
     id<MTLRenderCommandEncoder> r=[cb renderCommandEncoderWithDescriptor:pass];r.label=@"Depth-aware cloud composite";[r setRenderPipelineState:compositePipeline];[r setFragmentBytes:&f length:sizeof(f) atIndex:0];[r setFragmentTexture:hdr atIndex:0];[r setFragmentTexture:cloudHistory[index] atIndex:1];[r setFragmentTexture:cloudData[index] atIndex:2];[r setFragmentTexture:depth atIndex:3];[r setFragmentTexture:earthCloudMap atIndex:4];[r setFragmentTexture:_cloudNoise atIndex:5];[r drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];[r endEncoding];
     ++historyIndex;lastFrame=f;historyValid=YES;
 }
-- (void)encodeTerrain:(id<MTLRenderCommandEncoder>)encoder frame:(const FrameUniforms &)f earth:(id<MTLTexture>)earth {
+- (void)encodeTerrain:(id<MTLRenderCommandEncoder>)encoder frame:(const FrameUniforms &)f earth:(id<MTLTexture>)earth vesselShadow:(id<MTLTexture>)vesselShadow {
     if(f.body.w!=0||f.environment.y>100000||f.environment.y<0)return;
     [encoder setRenderPipelineState:groundPipeline];[encoder setCullMode:MTLCullModeNone];
     [encoder setVertexBytes:&f length:sizeof(f) atIndex:0];[encoder setVertexTexture:earthTerrainMask atIndex:0];
-    [encoder setFragmentBytes:&f length:sizeof(f) atIndex:0];[encoder setFragmentTexture:(int)f.surfaceColor.w==(int)BodyId::Venus?venusSurface:earth atIndex:0];[encoder setFragmentTexture:_cloudShadows atIndex:1];[encoder setFragmentTexture:marsRegolith atIndex:2];
+    [encoder setFragmentBytes:&f length:sizeof(f) atIndex:0];[encoder setFragmentTexture:(int)f.surfaceColor.w==(int)BodyId::Venus?venusSurface:earth atIndex:0];[encoder setFragmentTexture:_cloudShadows atIndex:1];[encoder setFragmentTexture:marsRegolith atIndex:2];[encoder setFragmentTexture:vesselShadow atIndex:3];
     for(uint32_t level=0;level<7;++level){[encoder setVertexBytes:&level length:sizeof(level) atIndex:1];[encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6 instanceCount:48*48];}
     if((int)f.surfaceColor.w==(int)BodyId::Mars&&f.environment.y<2100){
         [encoder setRenderPipelineState:marsRockPipeline];[encoder setVertexBytes:&f length:sizeof(f) atIndex:0];[encoder setFragmentBytes:&f length:sizeof(f) atIndex:0];[encoder setFragmentTexture:marsRegolith atIndex:0];
@@ -170,7 +170,7 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;bool rcsGas;};
     if((int)f.surfaceColor.w!=(int)BodyId::Earth||f.environment.y>3000)return;
     [encoder setRenderPipelineState:terrainPipeline];[encoder setCullMode:MTLCullModeNone];
     [encoder setVertexBytes:&f length:sizeof(f) atIndex:0];[encoder setVertexTexture:earthOceanMask atIndex:0];[encoder setVertexTexture:earth atIndex:1];[encoder setVertexTexture:earthTerrainMask atIndex:2];
-    [encoder setFragmentBytes:&f length:sizeof(f) atIndex:0];[encoder setFragmentTexture:_cloudShadows atIndex:0];
+    [encoder setFragmentBytes:&f length:sizeof(f) atIndex:0];[encoder setFragmentTexture:_cloudShadows atIndex:0];[encoder setFragmentTexture:vesselShadow atIndex:1];
     [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:828 instanceCount:64*64];
     [encoder setRenderPipelineState:grassPipeline];
     [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:36 instanceCount:64*64];

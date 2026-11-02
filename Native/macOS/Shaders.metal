@@ -29,6 +29,12 @@ vertex Raster meshVertex(uint id [[vertex_id]],const device Vertex *vertices [[b
     out.normal=(o.model*float4(normal,0)).xyz;
     out.world=p; out.uv=uv; out.local=local;return out;
 }
+vertex float4 vesselShadowVertex(uint id [[vertex_id]],const device Vertex *vertices [[buffer(0)]],
+    constant Frame &f [[buffer(1)]],constant Object &o [[buffer(2)]]) {
+    float3 p=(o.model*float4(float3(vertices[id].position),1)).xyz-f.shadowOrigin.xyz;
+    return float4(dot(p,f.shadowAxisX.xyz)/32.0f,dot(p,f.shadowAxisY.xyz)/32.0f,.5f,1);
+}
+fragment float vesselShadowFragment(){return 1;}
 // Only fully opaque vessel groups use this pass; alpha-tested and transparent
 // geometry retains its original depth and blending behaviour.
 fragment void meshDepthFragment() {}
@@ -246,7 +252,7 @@ AirLight earthAirLight(constant Frame &f,float3 ray,float maximumDistance){
 }
 fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buffer(1)]],
     texture2d<float> map [[texture(0)]],texture2d<float> shadows [[texture(1)]],texture2d<float> rings [[texture(2)]],
-    texture2d<float> oceanMask [[texture(3)]],texture2d<float> cloudMap [[texture(4)]],texture2d<float> oceanWaves [[texture(5)]],texture2d<float> oceanDetail [[texture(6)]],texture2d<float> starMap [[texture(7)]],texture3d<float> cloudNoise [[texture(8)]]) {
+    texture2d<float> oceanMask [[texture(3)]],texture2d<float> cloudMap [[texture(4)]],texture2d<float> oceanWaves [[texture(5)]],texture2d<float> oceanDetail [[texture(6)]],texture2d<float> starMap [[texture(7)]],texture3d<float> cloudNoise [[texture(8)]],texture2d<float> vesselShadow [[texture(9)]]) {
     constexpr sampler s(filter::linear,mip_filter::linear,s_address::repeat,t_address::clamp_to_edge);
     float2 xy=in.uv*2-1;float3 ray=normalize(f.forward.xyz+f.right.xyz*xy.x*f.screen.z*(f.screen.x/f.screen.y)+f.up.xyz*xy.y*f.screen.z);
     float3 origin=f.position.xyz;float height=f.environment.x,radius=f.body.x;
@@ -275,8 +281,9 @@ fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buf
         }
         float day=smoothstep(-.06f,.06f,dot(n,f.sun.xyz)),light=max(0.0f,dot(n,f.sun.xyz));
         float cloudShade=shadows.sample(s,in.position.xy/f.screen.xy).r;
+        float vesselShade=vesselSunVisibility(f,ray*(t*radius),vesselShadow);
         if(f.pole.w>0){float den=dot(f.sun.xyz,f.pole.xyz);float ts=-dot(n,f.pole.xyz)/(abs(den)>.0001?den:.0001f);float3 point=n+f.sun.xyz*ts;float r=length(point);if(ts>0&&r>f.pole.w&&r<f.equatorZ.w)cloudShade*=1-ringMaterial(point,ray,f.pole.xyz,f.pole.w,f.equatorZ.w,f.sun.xyz,rings).a*.85;}
-        color=base*(.025+light*cloudShade*solarIntensity(f))*day+base*.008*(1-day);
+        color=base*(.025+light*cloudShade*vesselShade*solarIntensity(f))*day+base*.008*(1-day);
         if(earth&&f.clouds.z>0){
             float cloudFill=f.clouds.z*day*f.sun.w*(.025f+.07f*(1-cloudShade));
             float3 tint=mix(float3(1,.58,.35),float3(.8,.87,1),smoothstep(.02f,.3f,dot(n,f.sun.xyz)));
@@ -313,7 +320,7 @@ fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buf
                 float3 halfVector=normalize(f.sun.xyz-ray);
                 float fresnelWater=pow(1-max(0.0f,dot(waveNormal,-ray)),5.0f);
                 float waveLight=max(0.0f,dot(waveNormal,f.sun.xyz));
-                float3 ocean=base*(.025+waveLight*cloudShade*solarIntensity(f))*day+base*.008*(1-day);
+                float3 ocean=base*(.025+waveLight*cloudShade*vesselShade*solarIntensity(f))*day+base*.008*(1-day);
                 // The source globe's open-ocean pixels are almost black;
                 // add a subtle blue contribution from the sky at low altitude.
                 ocean+=float3(.001,.006,.018)*(.25f+.75f*day);
@@ -345,7 +352,7 @@ fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buf
                 float visibility=(ndv/(ndv*(1-k)+k))*(ndl/(ndl*(1-k)+k));
                 float fresnel=.02f+.98f*pow(1-vdh,5.0f);
                 float solarGlint=min(5.0f,distribution*visibility*fresnel/(4*ndv));
-                ocean+=earthSunTransmission(f)*solarGlint*f.sun.w*day*cloudShade*solarIntensity(f)*1.4f;
+                ocean+=earthSunTransmission(f)*solarGlint*f.sun.w*day*cloudShade*vesselShade*solarIntensity(f)*1.4f;
                 float crest=swell.b*.35f+waves.b*.25f+chop.b*.25f+ripples.b*.15f;
                 float foam=smoothstep(.60f,.78f,crest)*smoothstep(.04f,.17f,length(slope))*storm*.08f;
                 ocean=mix(ocean,float3(.5,.57,.58)*(.12+.88*day)*cloudShade,foam);

@@ -82,14 +82,14 @@ struct GpuGroup { id<MTLBuffer> vertices,indices; NSUInteger count; size_t mater
     bool rcsDemo;
     NSPoint lastDragPoint;
     bool haveDragPoint;
-    id<MTLRenderPipelineState> meshPipeline,meshDepthPipeline,skyPipeline;
+    id<MTLRenderPipelineState> meshPipeline,meshDepthPipeline,skyPipeline,vesselShadowPipeline;
     id<MTLDepthStencilState> depthState,meshShadeDepth,skyDepth,transparentDepth;
     std::array<size_t,2> meshCounts;
     std::vector<GpuGroup> groups;
     std::vector<Material> materials;
     std::vector<bool> opaqueTextures;
     NSMutableArray<id<MTLTexture>> *textures;
-    id<MTLTexture> earthTexture,starTexture,whiteTexture;
+    id<MTLTexture> earthTexture,starTexture,whiteTexture,vesselShadowMask;
     id<MTLTexture> hoverReadoutTexture,mfdLabelTexture;
     std::array<id<MTLTexture>,2> maneuverButtonTextures;
     Image mfdLabelImage,mfdLabelOriginal;
@@ -385,7 +385,14 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     meshPipeline=[device newRenderPipelineStateWithDescriptor:pd error:&error];
     pd.fragmentFunction=[library newFunctionWithName:@"meshDepthFragment"];pd.colorAttachments[0].blendingEnabled=NO;pd.colorAttachments[0].writeMask=MTLColorWriteMaskNone;
     meshDepthPipeline=[device newRenderPipelineStateWithDescriptor:pd error:&error];
-    if(!meshPipeline||!meshDepthPipeline||!skyPipeline) @throw [NSException exceptionWithName:@"Metal pipeline error" reason:error.localizedDescription userInfo:nil];
+    MTLRenderPipelineDescriptor *shadowDescriptor=[MTLRenderPipelineDescriptor new];
+    shadowDescriptor.vertexFunction=[library newFunctionWithName:@"vesselShadowVertex"];shadowDescriptor.fragmentFunction=[library newFunctionWithName:@"vesselShadowFragment"];
+    shadowDescriptor.colorAttachments[0].pixelFormat=MTLPixelFormatR8Unorm;
+    vesselShadowPipeline=[device newRenderPipelineStateWithDescriptor:shadowDescriptor error:&error];
+    MTLTextureDescriptor *shadowTexture=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatR8Unorm width:512 height:512 mipmapped:NO];
+    shadowTexture.storageMode=MTLStorageModePrivate;shadowTexture.usage=MTLTextureUsageRenderTarget|MTLTextureUsageShaderRead;
+    vesselShadowMask=[device newTextureWithDescriptor:shadowTexture];
+    if(!vesselShadowPipeline||!vesselShadowMask||!meshPipeline||!meshDepthPipeline||!skyPipeline) @throw [NSException exceptionWithName:@"Metal pipeline error" reason:error.localizedDescription userInfo:nil];
     MTLDepthStencilDescriptor *dd=[MTLDepthStencilDescriptor new]; dd.depthCompareFunction=MTLCompareFunctionGreater; dd.depthWriteEnabled=YES;
     depthState=[device newDepthStencilStateWithDescriptor:dd]; dd.depthCompareFunction=MTLCompareFunctionAlways; dd.depthWriteEnabled=NO;
     dd.depthWriteEnabled=YES;skyDepth=[device newDepthStencilStateWithDescriptor:dd];
@@ -594,22 +601,44 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         Vector color=lights.cabinLightMode==1?Vector(1,1,1):Vector(.6,.05,0);
         addLight({0,1.65,6.68},{},3,color,(float)(.2+.8*lights.cabinLightBrightness),0,3,0,-1,true);
     }
+    // Use a stable orthonormal basis perpendicular to the direction toward the Sun.
+    Vector sun(uniforms.sun.x,uniforms.sun.y,uniforms.sun.z);
+    Vector helper=fabs(sun.y)<.9?Vector(0,1,0):Vector(1,0,0);
+    Vector shadowX=crossp(helper,sun).unit(),shadowY=crossp(sun,shadowX).unit();
+    uniforms.shadowOrigin=f4(-offset,flight.centralBody().solid?1.f:0.f);
+    uniforms.shadowAxisX=f4(shadowX);uniforms.shadowAxisY=f4(shadowY);
     [visuals prepare:&uniforms width:drawable.texture.width height:drawable.texture.height];
     ObjectUniforms object={};
     object.model.columns[0]=f4(flight.right); object.model.columns[1]=f4(flight.up); object.model.columns[2]=f4(flight.forward); object.model.columns[3]=f4(-offset,1);
     id<MTLCommandBuffer> cb=[queue commandBuffer]; cb.label=@"Orbiter native flight";
     [visuals encodeShadows:cb frame:uniforms vesselPosition:flight.position];
+    MTLRenderPassDescriptor *shadowPass=[MTLRenderPassDescriptor renderPassDescriptor];
+    shadowPass.colorAttachments[0].texture=vesselShadowMask;shadowPass.colorAttachments[0].loadAction=MTLLoadActionClear;
+    shadowPass.colorAttachments[0].storeAction=MTLStoreActionStore;shadowPass.colorAttachments[0].clearColor=MTLClearColorMake(0,0,0,0);
+    id<MTLRenderCommandEncoder> shadowEncoder=[cb renderCommandEncoderWithDescriptor:shadowPass];
+    shadowEncoder.label=@"Sunlit vessel silhouette";[shadowEncoder setRenderPipelineState:vesselShadowPipeline];
+    [shadowEncoder setVertexBytes:&uniforms length:sizeof(uniforms) atIndex:1];[shadowEncoder setCullMode:MTLCullModeNone];
+    auto shadowTransforms=flight.glider.transforms(meshCounts[0],0);
+    for(const auto &g:groups)if(g.mesh==0&&materials[g.material].diffuse[3]>=.99f){
+        const auto &t=shadowTransforms[g.index];simd_float4x4 local;
+        local.columns[0]=f4({t.rotation.m11,t.rotation.m21,t.rotation.m31});local.columns[1]=f4({t.rotation.m12,t.rotation.m22,t.rotation.m32});
+        local.columns[2]=f4({t.rotation.m13,t.rotation.m23,t.rotation.m33});local.columns[3]=f4(t.translation,1);
+        ObjectUniforms shadowObject={};shadowObject.model=simd_mul(object.model,local);
+        [shadowEncoder setVertexBuffer:g.vertices offset:0 atIndex:0];[shadowEncoder setVertexBytes:&shadowObject length:sizeof(shadowObject) atIndex:2];
+        [shadowEncoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle indexCount:g.count indexType:MTLIndexTypeUInt32 indexBuffer:g.indices indexBufferOffset:0];
+    }
+    [shadowEncoder endEncoding];
     id<MTLRenderCommandEncoder> encoder=[cb renderCommandEncoderWithDescriptor:visuals.scenePass];
     [encoder setRenderPipelineState:skyPipeline]; [encoder setDepthStencilState:skyDepth];
     [encoder setFragmentBytes:&uniforms length:sizeof(uniforms) atIndex:1]; [encoder setFragmentTexture:[solar textureForBody:flight.reference] atIndex:0];
     [encoder setFragmentTexture:solar.rings atIndex:2];
     [encoder setFragmentTexture:visuals.cloudShadows atIndex:1];
     [encoder setFragmentTexture:[visuals oceanMask] atIndex:3];[encoder setFragmentTexture:[visuals satelliteClouds] atIndex:4];[encoder setFragmentTexture:[visuals oceanWaves] atIndex:5];[encoder setFragmentTexture:[visuals oceanWaveDetail] atIndex:6];
-    [encoder setFragmentTexture:starTexture atIndex:7];[encoder setFragmentTexture:visuals.cloudNoise atIndex:8];
+    [encoder setFragmentTexture:starTexture atIndex:7];[encoder setFragmentTexture:visuals.cloudNoise atIndex:8];[encoder setFragmentTexture:vesselShadowMask atIndex:9];
     [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
     [encoder setDepthStencilState:depthState];
     if(flight.centralBody().solid)
-        [visuals encodeTerrain:encoder frame:uniforms earth:[solar textureForBody:flight.reference]];
+        [visuals encodeTerrain:encoder frame:uniforms earth:[solar textureForBody:flight.reference] vesselShadow:vesselShadowMask];
     [solar encodeBodies:encoder frame:uniforms flight:flight offset:offset];
     [encoder setFragmentBytes:&uniforms length:sizeof(uniforms) atIndex:1];
     [encoder setFragmentTexture:visuals.cloudShadows atIndex:1];
