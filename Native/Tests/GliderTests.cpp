@@ -19,6 +19,7 @@ int main() {try {
     check(pickCockpit(center-normal*.01,normal).action==0,"ray picks original gear lever quadrilateral");
     check(pickCockpit({100,100,100},{1,0,0}).action==-1,"missed cockpit ray has no action");
     check(!visibleCockpitGroup(130)&&!visibleCockpitGroup(98)&&!visibleCockpitGroup(99),"HUD glass pane is hidden while HUD glyphs render separately");
+    check(!visibleCockpitGroup(78)&&!visibleCockpitGroup(96),"Pilot visor pane and unused SCRAM display are hidden");
     Glider g;
     check(Glider::animations().size()==63,"all extracted animation components present");
     for(const auto &c:Glider::animations()) {

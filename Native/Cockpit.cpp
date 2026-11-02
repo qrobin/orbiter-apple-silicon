@@ -62,8 +62,9 @@ const std::vector<CockpitZone> &cockpitMfdScreens(){
     };return screens;
 }
 bool visibleCockpitGroup(size_t group){
-    // Hide the pilot model and HUD glass assembly; glyphs use group 132 separately.
-    return group!=62&&group!=83&&group!=84&&group!=98&&group!=99&&group!=130&&group!=132;
+    // Hide the pilot model, its visor pane, the unused SCRAM display, and the
+    // HUD glass assembly; glyphs use group 132 separately.
+    return group!=62&&group!=78&&group!=83&&group!=84&&group!=96&&group!=98&&group!=99&&group!=130&&group!=132;
 }
 Image maneuverButtonArtwork(bool active){
     Image image{128,64,std::vector<uint8_t>(128*64*4)};
