@@ -10,6 +10,8 @@ file(COPY "${src}/Src/Vessel/DeltaGlider/Textures2/dgmk4_1.dds" "${src}/Src/Vess
 foreach(name dgip_01.dds dgip_03.dds dgip_04.dds dgip_05.dds)
     configure_file("${src}/Native/GliderTextures/${name}" "${dst}/Textures/DG/${name}" COPYONLY)
 endforeach()
+configure_file("${src}/Native/GliderTextures/dgmk4_1_ai.dds" "${dst}/Textures/DG/dgmk4_1.dds" COPYONLY)
+configure_file("${src}/Native/GliderTextures/dgmk4_4_ai.dds" "${dst}/Textures/DG/dgmk4_4.dds" COPYONLY)
 configure_file("${src}/Native/GliderTextures/dgmk4_2.dds" "${dst}/Textures/DG/dgmk4_2.dds" COPYONLY)
 configure_file("${src}/Native/GliderTextures/dgmk4_2.dds" "${dst}/Textures/DG/dgmk4_2_ns.dds" COPYONLY)
 file(COPY "${src}/Scenarios/Delta-glider/DG Mk4 in orbit.scn" DESTINATION "${dst}/Scenarios")

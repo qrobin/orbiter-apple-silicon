@@ -78,6 +78,18 @@ int main() { try {
     check(cockpitSkin.width==1024&&cockpitSkin.height==1024,"high-resolution original cockpit skin loads");
     auto enhancedSkin=loadDDS(root/"Native/GliderTextures/dgmk4_2.dds");
     check(enhancedSkin.width==2508&&enhancedSkin.height==2508&&enhancedSkin.rgba.size()==size_t(2508)*2508*4,"generated glider texture loads");
+    for(const auto &pair: {std::pair<const char *,const char *>{"Src/Vessel/DeltaGlider/Textures2/dgmk4_1.dds","Native/GliderTextures/dgmk4_1_ai.dds"},
+                           {"Src/Vessel/DeltaGlider/Textures/dgmk4_4.dds","Native/GliderTextures/dgmk4_4_ai.dds"}}) {
+        auto original=loadDDS(root/pair.first), enhanced=loadDDS(root/pair.second);
+        check(original.width==1024&&original.height==1024&&enhanced.width==2048&&enhanced.height==2048,"AI-detailed atlas loads at twice the original dimensions");
+        // Downsampling should recover the original layout and colors closely.
+        double difference=0;
+        for(size_t y=0;y<original.height;++y)for(size_t x=0;x<original.width;++x)for(size_t c=0;c<3;++c) {
+            int sum=0;for(size_t dy=0;dy<2;++dy)for(size_t dx=0;dx<2;++dx)sum+=enhanced.rgba[((2*y+dy)*enhanced.width+2*x+dx)*4+c];
+            difference+=std::abs(sum/4.0-original.rgba[(y*original.width+x)*4+c]);
+        }
+        check(difference/(original.width*original.height*3)<2.0,"enhanced atlas preserves original layout and colors");
+    }
     for(const char *name:{"dgip_01.dds","dgip_03.dds","dgip_04.dds","dgip_05.dds"}) {
         auto original=loadDDS(root/"Src/Vessel/DeltaGlider/Textures"/name);
         auto enlarged=loadDDS(root/"Native/GliderTextures"/name);
