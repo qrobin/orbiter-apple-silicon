@@ -148,7 +148,7 @@ void ExhaustTrail::update(const Flight &f,double dt,double humidity){
                 double life=vacuum?(jet.kind==ExhaustKind::Rcs?8:24):(jet.kind==ExhaustKind::Rcs?35:jet.kind==ExhaustKind::Main?240:180)*(.7+.6*humidity);
                 double opacity=weight*(vacuum?sqrt(jet.level)*(jet.kind==ExhaustKind::Rcs?.025:.12):ambient*(.72+.28*humidity)*(jet.kind==ExhaustKind::Rcs?.12:.78)*sqrt(jet.level));
                 int mediumIndex=vacuum?1:0;
-                ExhaustTrailPuff puff{f.reference,origin,firingVelocity+firingDirection*exhaustSpeed,0,life,jet.radius,opacity,h.stream[mediumIndex],h.sequence[mediumIndex]++,jet.id,vacuum};
+                ExhaustTrailPuff puff{f.reference,origin,firingVelocity+firingDirection*exhaustSpeed,0,life,jet.radius,opacity,h.stream[mediumIndex],h.sequence[mediumIndex]++,jet.id,vacuum,jet.kind};
                 advect(puff,pending,earthWind,rotating);if(puff.age<puff.lifetime)particles.push_back(puff);
             };
             if(ambient>0)append(false,1);
@@ -167,14 +167,14 @@ std::vector<ExhaustTrailSegment> ExhaustTrail::segments(const Flight &f)const{
         size_t index=p.nozzle*2+(p.vacuum?1:0);if(index>=last.size())continue;
         auto prior=last[index];
         if(prior&&prior->stream==p.stream&&prior->sequence+1==p.sequence&&prior->body==p.body&&prior->position.dist(p.position)>.001)
-            result.push_back({p.body,point(*prior),point(p),p.stream,p.nozzle,p.vacuum});
+            result.push_back({p.body,point(*prior),point(p),p.stream,p.nozzle,p.vacuum,p.kind});
         last[index]=&p;
     }
     for(const auto &jet:gliderExhaust(f))if(jet.id<history.size()){
         const auto &h=history[jet.id];if(!h.active)continue;
         for(int medium=0;medium<2;++medium){
             auto p=last[jet.id*2+medium];if(!p||!h.mediumActive[medium]||p->stream!=h.stream[medium]||p->sequence+1!=h.sequence[medium]||p->body!=f.reference||p->position.dist(h.position)<=.001)continue;
-            result.push_back({p->body,point(*p),{h.position,jet.radius,p->opacity,0},p->stream,p->nozzle,p->vacuum});
+            result.push_back({p->body,point(*p),{h.position,jet.radius,p->opacity,0},p->stream,p->nozzle,p->vacuum,p->kind});
         }
     }
     return result;

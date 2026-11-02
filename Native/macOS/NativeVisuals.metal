@@ -1007,6 +1007,48 @@ fragment float4 flameFragment(FlameRaster in [[stage_in]],constant FrameUniforms
         for(int i=0;i<4;++i)optical+=sampleCloudDensity(origin+ray*distance*((i+.5)/4.0f),f,noise,cloudMap)*distance*.25;alpha*=exp(-optical);}
     return float4(radiance/max(.001f,1-trans),alpha);
 }
+// RCS gas is a soft, translucent volume rather than an opaque tube surface.
+struct GasRaster {
+    float4 position [[position]];float3 ray,local;float2 coords;float opacity;float3 phase [[flat]];float vacuum [[flat]];
+};
+vertex GasRaster rcsGasVertex(uint id [[vertex_id]],uint instance [[instance_id]],constant FrameUniforms &f [[buffer(0)]],
+                             const device TrailSegmentUniforms *segments [[buffer(1)]]){
+    TrailSegmentUniforms seg=segments[instance];
+    float2 corners[6]={float2(-1,-.08),float2(1,-.08),float2(1,1.08),float2(-1,-.08),float2(1,1.08),float2(-1,1.08)};
+    float2 c=corners[id];float t=clamp(c.y,0.0f,1.0f);
+    float3 delta=seg.endRadius.xyz-seg.startRadius.xyz;
+    float2 projected=float2(dot(delta,f.right.xyz),dot(delta,f.up.xyz));
+    float2 across=length(projected)>.001?normalize(float2(-projected.y,projected.x)):float2(1,0);
+    float2 along=float2(across.y,-across.x);
+    float radius=mix(seg.startRadius.w,seg.endRadius.w,t);
+    float faceOn=1-smoothstep(0.0f,max(.001f,(seg.startRadius.w+seg.endRadius.w)*.5f),length(projected));
+    float3 center=seg.startRadius.xyz+delta*c.y+(f.right.xyz*along.x+f.up.xyz*along.y)*(c.y-.5f)*radius*2*faceOn;
+    float3 p=center+(f.right.xyz*across.x+f.up.xyz*across.y)*c.x*radius*1.7;
+    float3 view=float3(dot(p,f.right.xyz),dot(p,f.up.xyz),-dot(p,f.forward.xyz));
+    return {f.projection*float4(view,1),p,p-seg.startRadius.xyz,c,mix(seg.opticalAge.x,seg.opticalAge.y,t),seg.noiseMode.xyz,seg.noiseMode.w};
+}
+fragment float4 rcsGasFragment(GasRaster in [[stage_in]],constant FrameUniforms &f [[buffer(0)]],
+                               texture2d<float,access::read> depth [[texture(0)]],texture3d<float> noise [[texture(1)]],texture2d<float> cloudMap [[texture(2)]]){
+    float2 depthScale=float2(depth.get_width(),depth.get_height())/f.screen.xy;
+    uint2 pixel=min(uint2(in.position.xy*depthScale),uint2(depth.get_width()-1,depth.get_height()-1));
+    float z=depth.read(pixel).r,scene=z>0?.2/z:1e9,viewDepth=dot(in.ray,f.forward.xyz);
+    float depthFade=saturate((scene-viewDepth)/max(.5f,viewDepth*f.screen.z/max(1.0f,f.screen.y)));
+    constexpr sampler s(filter::linear,address::repeat);
+    float3 uv=in.phase+in.local/64.0f+float3(f.environment.w*.009,f.environment.w*.006,-f.environment.w*.007);
+    float n=noise.sample(s,uv).g,detail=noise.sample(s,uv*2+float3(.19,.43,.07)).r;
+    float profile=exp(-in.coords.x*in.coords.x*3.0f)*(1-smoothstep(.75f,1.0f,abs(in.coords.x)));
+    float ends=smoothstep(-.08f,.08f,in.coords.y)*(1-smoothstep(.92f,1.08f,in.coords.y));
+    float alpha=clamp(in.opacity,0.0f,.98f)*profile*ends*(.55+.7*(n*.65+detail*.35))*depthFade;
+    if(f.environment.x*f.body.x<f.clouds.y+1000&&f.clouds.z>0){
+        float distance=length(in.ray);float3 midpoint=f.position.xyz*f.body.x+in.ray*.5;
+        alpha*=exp(-sampleCloudDensity(midpoint,f,noise,cloudMap)*distance);
+    }
+    if(alpha<.00002)discard_fragment();
+    float3 color=in.vacuum>.5?float3(.58,.67,.76):float3(.82,.84,.84);
+    color*=.35+.65*clamp(f.sun.w,0.0f,1.0f);
+    return float4(color,alpha);
+}
+
 // Continuous world-space tube segments follow the emitted exhaust; the material
 // adds moving, translucent turbulence without marching every pixel through a volume.
 struct TrailRaster {

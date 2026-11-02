@@ -40,6 +40,7 @@ int main(){try {
     Flight rcsOnly;rcsOnly.glider.rcsMode=1;rcsOnly.glider.rcsRotation={.5,0,0};
     ExhaustTrail rcsGas;for(int i=0;i<12;++i)rcsGas.update(rcsOnly,.1);
     check(!rcsGas.puffs().empty()&&!rcsGas.segments(rcsOnly).empty(),"RCS jets produce gas volumes without engine thrust");
+    for(const auto &segment:rcsGas.segments(rcsOnly))check(segment.kind==ExhaustKind::Rcs,"Released RCS gas retains its rendering type");
     rcsOnly.glider.rcsRotation={};auto remaining=rcsGas.puffs().size();rcsGas.update(rcsOnly,.1);
     check(rcsGas.puffs().size()==remaining,"RCS gas stops being emitted when the jets stop");
     auto ground=plumeShape(0,ExhaustKind::Main),space=plumeShape(200000,ExhaustKind::Main);

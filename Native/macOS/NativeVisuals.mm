@@ -7,7 +7,7 @@
 using namespace native;
 static simd_float4 visualVector(Vector v,float w=0){return {(float)v.x,(float)v.y,(float)v.z,w};}
 static void visualCheck(id object,NSError *error){if(!object)@throw [NSException exceptionWithName:@"Metal visual pipeline error" reason:error.localizedDescription?:@"Unable to allocate a Metal resource" userInfo:nil];}
-struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
+struct SmokeDraw {TrailSegmentUniforms segment;float depth;bool rcsGas;};
 @interface NativeVisuals () {
     id<MTLDevice> gpu;
     NSUInteger samples,width,height,trailWidth,trailHeight,historyIndex,frameIndex;
@@ -23,7 +23,7 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
     ExhaustTrail exhaustTrail;
     std::vector<SmokeDraw> visibleSmoke;
     id<MTLComputePipelineState> noiseKernel,shadowKernel,vesselShadowKernel,cloudKernel,extractKernel,blurKernel,exposureKernel;
-    id<MTLRenderPipelineState> compositePipeline,flamePipeline,smokePipeline,trailCompositePipeline,presentPipeline,rainGlassPipeline,terrainPipeline,grassPipeline,groundPipeline,marsRockPipeline;
+    id<MTLRenderPipelineState> compositePipeline,flamePipeline,smokePipeline,rcsGasPipeline,trailCompositePipeline,presentPipeline,rainGlassPipeline,terrainPipeline,grassPipeline,groundPipeline,marsRockPipeline;
     id<MTLDepthStencilState> flameDepth,rainDepth;
 }
 @end
@@ -65,6 +65,7 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
     compositePipeline=pipeline(@"skyVertex",@"compositeClouds",MTLPixelFormatRGBA16Float,NO,NO);
     flamePipeline=pipeline(@"flameVertex",@"flameFragment",MTLPixelFormatRGBA16Float,YES,YES);
     smokePipeline=pipeline(@"trailVolumeVertex",@"trailVolumeFragment",MTLPixelFormatRGBA16Float,NO,2);
+    rcsGasPipeline=pipeline(@"rcsGasVertex",@"rcsGasFragment",MTLPixelFormatRGBA16Float,NO,2);
     trailCompositePipeline=pipeline(@"skyVertex",@"compositeTrail",MTLPixelFormatRGBA16Float,NO,3);
     presentPipeline=pipeline(@"skyVertex",@"toneMap",MTLPixelFormatRGBA16Float,NO,NO);
     rainGlassPipeline=pipeline(@"rainGlassVertex",@"rainGlassFragment",MTLPixelFormatRGBA16Float,YES,NO);
@@ -209,7 +210,7 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
         constexpr double noiseScale=64.;
         Vector phase{std::remainder(p.start.position.x,noiseScale)/noiseScale,std::remainder(p.start.position.y,noiseScale)/noiseScale,std::remainder(p.start.position.z,noiseScale)/noiseScale};
         TrailSegmentUniforms u{visualVector(start,r0),visualVector(end,r1),{(float)o0,(float)o1,(float)p.start.age,(float)p.end.age},visualVector(phase,p.vacuum?1:0)};
-        visibleSmoke.push_back({u,(float)z});
+        visibleSmoke.push_back({u,(float)z,p.kind==ExhaustKind::Rcs});
     }
     if(!count&&visibleSmoke.empty())return;
     if(!visibleSmoke.empty()){
@@ -222,8 +223,14 @@ struct SmokeDraw {TrailSegmentUniforms segment;float depth;};
         id<MTLRenderCommandEncoder> r=[cb renderCommandEncoderWithDescriptor:volumePass];r.label=@"World-space exhaust meshes";
         [r setCullMode:MTLCullModeNone];[r setVertexBytes:&trailFrame length:sizeof(trailFrame) atIndex:0];[r setFragmentBytes:&trailFrame length:sizeof(trailFrame) atIndex:0];
         [r setFragmentTexture:depth atIndex:0];[r setFragmentTexture:_cloudNoise atIndex:1];[r setFragmentTexture:earthCloudMap atIndex:2];
-        [r setRenderPipelineState:smokePipeline];[r setVertexBuffer:buffer offset:0 atIndex:1];[r setVertexTexture:_cloudNoise atIndex:0];
-        [r drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:12*18 instanceCount:visibleSmoke.size()];
+        [r setVertexBuffer:buffer offset:0 atIndex:1];[r setVertexTexture:_cloudNoise atIndex:0];
+        for(size_t first=0;first<visibleSmoke.size();){
+            bool gas=visibleSmoke[first].rcsGas;size_t end=first+1;
+            while(end<visibleSmoke.size()&&visibleSmoke[end].rcsGas==gas)++end;
+            [r setRenderPipelineState:gas?rcsGasPipeline:smokePipeline];
+            [r drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:gas?6:12*18 instanceCount:end-first baseInstance:first];
+            first=end;
+        }
         [r endEncoding];
         MTLRenderPassDescriptor *blendPass=[MTLRenderPassDescriptor renderPassDescriptor];blendPass.colorAttachments[0].texture=lit;
         blendPass.colorAttachments[0].loadAction=MTLLoadActionLoad;blendPass.colorAttachments[0].storeAction=MTLStoreActionStore;

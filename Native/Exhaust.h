@@ -17,13 +17,14 @@ struct ExhaustTrailPuff {
     uint64_t stream,sequence;
     unsigned nozzle;
     bool vacuum;
+    ExhaustKind kind;
 };
 double exhaustTrailRadius(const ExhaustTrailPuff &puff);
 double exhaustTrailOpacity(const ExhaustTrailPuff &puff);
 struct ExhaustTrailPoint {Vector position;double radius,opacity,age;};
 struct ExhaustTrailSegment {
     BodyId body; ExhaustTrailPoint start,end;
-    uint64_t stream; unsigned nozzle; bool vacuum;
+    uint64_t stream; unsigned nozzle; bool vacuum; ExhaustKind kind;
 };
 // Convert points from their emission body's inertial frame to a camera origin.
 // The vessel's orientation is deliberately absent: released exhaust does not turn with it.

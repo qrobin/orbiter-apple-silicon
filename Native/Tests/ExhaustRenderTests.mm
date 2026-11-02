@@ -32,6 +32,7 @@ int main(){@autoreleasepool{
         if(!pipeline){fprintf(stderr,"Metal pipeline failed: %s\n",error.localizedDescription.UTF8String);exit(1);}return pipeline;
     };
     auto flame=makePipeline(@"flameVertex",@"flameFragment",1,true),smoke=makePipeline(@"trailVolumeVertex",@"trailVolumeFragment",2,false);
+    auto gas=makePipeline(@"rcsGasVertex",@"rcsGasFragment",2,false);
     auto composite=makePipeline(@"skyVertex",@"compositeTrail",3,false);
     MTLRenderPipelineDescriptor *depthDesc=[MTLRenderPipelineDescriptor new];depthDesc.vertexFunction=[library newFunctionWithName:@"testDepthVertex"];depthDesc.depthAttachmentPixelFormat=MTLPixelFormatDepth32Float;
     id<MTLRenderPipelineState> depthPipeline=[device newRenderPipelineStateWithDescriptor:depthDesc error:&error];require(depthPipeline!=nil,"Depth fixture pipeline failed");
@@ -55,11 +56,13 @@ int main(){@autoreleasepool{
     id<MTLCommandBuffer> prepare=[queue commandBuffer];id<MTLComputeCommandEncoder> compute=[prepare computeCommandEncoder];
     [compute setComputePipelineState:noiseKernel];[compute setTexture:noise atIndex:0];
     [compute dispatchThreads:MTLSizeMake(32,32,32) threadsPerThreadgroup:MTLSizeMake(4,4,4)];[compute endEncoding];[prepare commit];[prepare waitUntilCompleted];require(prepare.error==nil,"Noise generation failed");
-    auto render=[&](EmitterUniforms jet,float time,float depthClear,bool drawSmoke,float smokeOpacity,bool endOnTrail=false,bool skyBackground=false){
+    auto render=[&](EmitterUniforms jet,float time,float depthClear,bool drawSmoke,float smokeOpacity,bool endOnTrail=false,bool skyBackground=false,bool drawGas=false,bool splitGas=false){
         EffectUniforms effects{};effects.clock={.016f,time,time-.016f,1};
         TrailSegmentUniforms volume{{-6,0,32,2},{6,0,32,2},{smokeOpacity,smokeOpacity,3,3},{0,0,0,0}};
         if(endOnTrail){volume.startRadius={0,0,25,2};volume.endRadius={0,0,35,2};}
-        id<MTLBuffer> puffBuffer=[device newBufferWithBytes:&volume length:sizeof(volume) options:MTLResourceStorageModeShared];
+        TrailSegmentUniforms volumes[2]={volume,volume};
+        if(splitGas){volumes[0].endRadius={0,0,32,2};volumes[1].startRadius={0,0,32,2};volumes[1].noiseMode={6.f/64,0,0,0};}
+        id<MTLBuffer> puffBuffer=[device newBufferWithBytes:volumes length:sizeof(volumes) options:MTLResourceStorageModeShared];
         id<MTLCommandBuffer> cb=[queue commandBuffer];MTLRenderPassDescriptor *clearDepth=[MTLRenderPassDescriptor renderPassDescriptor];
         clearDepth.depthAttachment.texture=depth;clearDepth.depthAttachment.loadAction=MTLLoadActionClear;clearDepth.depthAttachment.storeAction=MTLStoreActionStore;clearDepth.depthAttachment.clearDepth=depthClear;
         id<MTLRenderCommandEncoder> clear=[cb renderCommandEncoderWithDescriptor:clearDepth];[clear endEncoding];
@@ -70,9 +73,9 @@ int main(){@autoreleasepool{
         id<MTLRenderCommandEncoder> r=[cb renderCommandEncoderWithDescriptor:pass];if(!drawSmoke)[r setDepthStencilState:depthState];[r setCullMode:MTLCullModeNone];
         [r setVertexBytes:&frame length:sizeof(frame) atIndex:0];[r setFragmentBytes:&frame length:sizeof(frame) atIndex:0];
         [r setFragmentTexture:depth atIndex:0];[r setFragmentTexture:noise atIndex:1];[r setFragmentTexture:cloudMap atIndex:2];
-        if(drawSmoke){[r setRenderPipelineState:smoke];[r setVertexBuffer:puffBuffer offset:0 atIndex:1];[r setVertexTexture:noise atIndex:0];}
+        if(drawSmoke){[r setRenderPipelineState:drawGas?gas:smoke];[r setVertexBuffer:puffBuffer offset:0 atIndex:1];[r setVertexTexture:noise atIndex:0];}
         else{[r setRenderPipelineState:flame];[r setVertexBytes:&effects length:sizeof(effects) atIndex:1];[r setVertexBytes:&jet length:sizeof(jet) atIndex:2];}
-        [r drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:drawSmoke?12*18:6];[r endEncoding];[cb commit];[cb waitUntilCompleted];
+        [r drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:drawSmoke&&!drawGas?12*18:6 instanceCount:splitGas?2:1];[r endEncoding];[cb commit];[cb waitUntilCompleted];
         if(cb.error){fprintf(stderr,"Metal render failed: %s\n",cb.error.localizedDescription.UTF8String);exit(1);}
         std::vector<unsigned char> pixels(width*height*4);[color getBytes:pixels.data() bytesPerRow:width*4 fromRegion:MTLRegionMake2D(0,0,width,height) mipmapLevel:0];return pixels;
     };
@@ -102,6 +105,15 @@ int main(){@autoreleasepool{
     auto axialEnergy=energy(render(side,30,0,true,.3f,true));if(axialEnergy<=1000)fprintf(stderr,"End-on trail energy: %llu\n",(unsigned long long)axialEnergy);
     require(axialEnergy>1000,"The gas volume must remain visible when viewed down its axis");
     require(energy(render(side,30,.04,true,.3f))==0,"Foreground geometry must occlude the exhaust volume");
+    auto rcs=render(side,30,0,true,.3f,false,false,true);
+    require(energy(rcs)>100,"RCS gas is visible without a flame");
+    require(energy(render(side,30,.04,true,.3f,false,false,true))==0,"Foreground geometry hides RCS gas");
+    require(energy(render(side,30,0,true,.3f,true,false,true))>100,"RCS gas remains visible end-on");
+    uint64_t red=0,green=0,blue=0;for(size_t i=0;i<rcs.size();i+=4){blue+=rcs[i];green+=rcs[i+1];red+=rcs[i+2];}
+    require(red<=green*1.1&&red<=blue*1.1,"RCS gas has no orange combustion glow");
+    auto joined=render(side,30,0,true,.3f,false,false,true,true);
+    auto brightness=[&](int x,int y){size_t i=(y*width+x)*4;return int(joined[i])+joined[i+1]+joined[i+2];};
+    require(brightness(160,90)>std::max(brightness(150,90),brightness(170,90))*.35,"Adjacent RCS gas samples have no visible gap at the join");
     // Exercise the half-resolution volume pass and the production upsampling blend.
     MTLTextureDescriptor *halfDesc=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm width:width/2 height:height/2 mipmapped:NO];
     halfDesc.storageMode=MTLStorageModePrivate;halfDesc.usage=MTLTextureUsageRenderTarget|MTLTextureUsageShaderRead;id<MTLTexture> half=[device newTextureWithDescriptor:halfDesc];
