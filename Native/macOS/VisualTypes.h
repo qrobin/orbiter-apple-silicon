@@ -25,7 +25,7 @@ struct FrameUniforms {
     VFLOAT4 body,haze,equatorX,pole,equatorZ,surfaceColor;
     VFLOAT4 sunShape; // apparent solar radius; flare intensity; test halo disable; irradiance at camera (1 at 1 AU)
     VFLOAT4 terrainOriginHigh,terrainOriginLow; // body-fixed metres, split on a 4096 m grid; high.w enables the local frame
-    VesselLight vesselLights[12]; // camera-relative positions; attenuationInner.w marks cockpit-only lights
+    VesselLight vesselLights[20]; // camera-relative positions; attenuationInner.w marks cockpit-only lights
     VFLOAT4 terrainAxisX,terrainAxisZ; // double-precision CPU rotation, rounded only after forming the axes
     VFLOAT4 reflectedLights[4]; // source position in receiver radii, irradiance at receiver center
 };
@@ -42,5 +42,5 @@ struct SkyRaster { float4 position [[position]]; float2 uv; };
 #undef VFLOAT4
 #undef VMATRIX
 #ifndef __METAL_VERSION__
-static_assert(sizeof(FrameUniforms)==1328 && sizeof(CelestialUniforms)==176 && sizeof(EmitterUniforms)==64 && sizeof(TrailSegmentUniforms)==64 && sizeof(EffectUniforms)==32);
+static_assert(sizeof(FrameUniforms)==1840 && sizeof(CelestialUniforms)==176 && sizeof(EmitterUniforms)==64 && sizeof(TrailSegmentUniforms)==64 && sizeof(EffectUniforms)==32);
 #endif

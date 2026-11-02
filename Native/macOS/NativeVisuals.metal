@@ -22,7 +22,7 @@ float reflectedBodyLight(constant float4 *sources,float3 point,float3 normal){
 // final component distinguishes the cabin floodlight from exterior lights.
 float3 vesselIllumination(constant FrameUniforms &f,float3 point,float3 normal,bool cockpit){
     float3 result=0;
-    for(int i=0;i<12;++i){
+    for(int i=0;i<20;++i){
         VesselLight l=f.vesselLights[i];
         if(l.colorIntensity.w<=0||((l.attenuationInner.w>0.5f)!=cockpit))continue;
         float3 delta=l.positionRange.xyz-point;float distance=length(delta);

@@ -4,6 +4,7 @@
 #import <QuartzCore/QuartzCore.h>
 #import <simd/simd.h>
 #include "Flight.h"
+#include "Exhaust.h"
 #include "TimeAcceleration.h"
 #include "TransX/BurnSkip.h"
 #include "Mesh.h"
@@ -569,7 +570,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     auto localWorld=[&](Vector v){return flight.right*v.x+flight.up*v.y+flight.forward*v.z;};
     size_t lightCount=0;
     auto addLight=[&](Vector p,Vector direction,float range,Vector color,float intensity,float constant,float quadratic,float inner,float outer,bool cabin=false){
-        if(lightCount>=12||intensity<=0)return;
+        if(lightCount>=std::size(uniforms.vesselLights)||intensity<=0)return;
         auto &l=uniforms.vesselLights[lightCount++];l.positionRange=f4(localWorld(p)-offset,range);
         l.directionOuter=f4(localWorld(direction),outer);l.colorIntensity=f4(color,intensity);
         l.attenuationInner={constant,quadratic,inner,cabin?1.f:0.f};
@@ -587,7 +588,8 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         if(lights.landingLightMode==2)addLight({.1,-.3,7.5},{0,sin(-10*RAD),cos(-10*RAD)},5000,{1,.96,.86},.012,.001,2e-7,cos(12.5*RAD),cos(20*RAD));
         else addLight({.3,.3,8.5},{0,0,1},150,{1,.97,.90},.012,.001,.001,cos(15*RAD),cos(30*RAD));
     }
-    addLight({0,0,-10},{},200,{.9,.8,1},(float)lights.mainLevel*.012,.001,.002,0,-1);
+    for(const auto &flame:gliderFlameLights(flight))
+        addLight(flame.position,{},(float)flame.range,flame.color,(float)flame.intensity,.25,.025,0,-1);
     if(cockpit&&lights.cabinLightMode){
         Vector color=lights.cabinLightMode==1?Vector(1,1,1):Vector(.6,.05,0);
         addLight({0,1.65,6.68},{},3,color,(float)(.2+.8*lights.cabinLightBrightness),0,3,0,-1,true);

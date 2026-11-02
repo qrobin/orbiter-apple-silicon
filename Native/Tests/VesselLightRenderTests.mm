@@ -23,5 +23,12 @@ int main(){@autoreleasepool{try{
     frame.vesselLights[0].attenuationInner.w=1;run();
     check(values[0].x==0&&values[3].x>.4f,"cabin floodlight illuminates cockpit only");
     frame.vesselLights[0].colorIntensity.w=0;run();check(values[3].x==0,"switched-off cabin light emits no illumination");
+    // Flame sources share this lighting path for hull and ground and coexist with all marker lights.
+    frame.vesselLights[19].positionRange={0,0,0,32};frame.vesselLights[19].directionOuter={0,0,0,-1};
+    frame.vesselLights[19].colorIntensity={1,.48,.18,1.3};frame.vesselLights[19].attenuationInner={.25,.025,0,0};run();
+    check(values[0].x>values[0].y&&values[0].y>values[0].z&&values[0].z>0,"Flame light gives a nearby facing surface a warm glow");
+    check(values[1].x>0&&values[1].x<values[0].x,"Flame illumination falls off with distance");
+    check(values[2].x>0&&values[3].x==0,"Flame light is omnidirectional and stays outside the cockpit");
+    frame.vesselLights[19].colorIntensity.w=0;run();check(values[0].x==0&&values[1].x==0,"Extinguishing the flame removes its illumination");
     std::cout<<"Vessel light shading, cone, range and cabin isolation passed\n";return 0;
 }catch(const std::exception &e){std::cerr<<e.what()<<'\n';return 1;}}}

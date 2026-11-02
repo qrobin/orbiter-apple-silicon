@@ -46,6 +46,18 @@ std::vector<ExhaustEmitter> gliderExhaust(const Flight &f) {
     for(double x:{-.817096,.817096})jet({x,-.488177,9.729635},{0,0,1},-t.z);
     return out;
 }
+std::vector<FlameLight> gliderFlameLights(const Flight &f){
+    std::vector<FlameLight> lights;lights.reserve(7);
+    for(const auto &jet:gliderExhaust(f)){
+        if(jet.kind==ExhaustKind::Rcs)continue; // These jets render as unlit gas.
+        double strength=jet.kind==ExhaustKind::Main?1.8:jet.kind==ExhaustKind::Hover?1.3:.6;
+        double range=jet.kind==ExhaustKind::Main?45:jet.kind==ExhaustKind::Hover?32:20;
+        double flicker=.96+.04*sin(f.elapsed*17+jet.id*2.17);
+        Vector position=jet.position+jet.direction*(jet.radius*(1.+sqrt(jet.level)));
+        lights.push_back({position,{1,.48,.18},strength*jet.level*flicker,range,jet.id});
+    }
+    return lights;
+}
 static PlumeShape pressureShape(double pressure,ExhaustKind kind) {
     const double air=pow(std::clamp(pressure/101325.,0.,1.),.25);
     if(kind==ExhaustKind::Rcs)return {55, .035, .10+(1-air)*.3};
