@@ -22,22 +22,32 @@ Europa uses the USGS Voyager/Galileo 500 m global mosaic, reduced to
 pole are filled from the previous map. The mosaic contains visible boundaries
 between images and uneven resolution: https://astrogeology.usgs.gov/search/map/europa_voyager_galileo_ssi_global_mosaic_500m.
 
+Phobos uses Philip Stooke's Cornell-controlled multi-mission photomosaic,
+based on the Cornell mosaic by Peter Thomas and colleagues, from the NASA
+PDS small-body maps archive. The 14400 × 7200 source is reduced to 8192 × 4096,
+shifted slightly in longitude, and tinted. Deimos uses Stooke's Viking/Mars
+Reconnaissance Orbiter mosaic at 7200 × 3600, tinted for display. The
+underlying mosaic was compiled with Chris Jongkind and Megan Arntz and uses
+control from Peter Thomas and colleagues:
+https://sbnarchive.psi.edu/pds3/multi_mission/MULTI_SA_MULTI_6_STOOKEMAPS_V3_0/document/00_map_guide.html.
+
 Enceladus uses a 7208 × 3604 crop of the Cassini mosaic PIA14937, with a
 longitude shift and tint. It is contrast-enhanced and does not represent
 uniform surface brightness. Credit: NASA/JPL-Caltech/Space Science Institute;
 https://science.nasa.gov/photojournal/map-of-enceladus-december-2011/.
 
-Mimas and Dione use 5760 × 2880 Cassini mosaics and Rhea uses a 2880 × 1440
-Cassini/Voyager mosaic. They are tinted and shifted in longitude; Dione is
+Mimas and Dione use 5760 × 2880 Cassini mosaics; Rhea and Tethys use 2880 × 1440
+Cassini/Voyager mosaics. They are tinted and shifted in longitude; Dione is
 cropped from the published map, and dark missing pixels use the previous map.
 These contrast-enhanced mosaics contain uneven detail and brightness.
 Credit: NASA/JPL-Caltech/Space Science Institute:
 https://science.nasa.gov/photojournal/map-of-mimas-june-2012/,
-https://science.nasa.gov/photojournal/map-of-dione-may-2008/ and
-https://science.nasa.gov/photojournal/map-of-rhea-february-2010/.
+https://science.nasa.gov/photojournal/map-of-dione-may-2008/,
+https://science.nasa.gov/photojournal/map-of-rhea-february-2010/ and
+https://science.nasa.gov/photojournal/map-of-tethys-february-2010/.
 
-Moon textures for Phobos, Deimos, Io, Ganymede, Callisto,
-Tethys, Iapetus, Ariel, Umbriel, Titania, Oberon,
+Moon textures for Io, Ganymede, Callisto,
+Iapetus, Ariel, Umbriel, Titania, Oberon,
 Miranda and Triton derive from NASA/JPL/Caltech/USGS Solar System Simulator
 mosaics: https://maps.jpl.nasa.gov/tmaps/. Original mosaics are generally
 1440 × 720, based on Voyager and in some cases Galileo imagery. They were
