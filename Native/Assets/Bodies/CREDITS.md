@@ -27,6 +27,11 @@ and shifted in longitude. Small gaps near the poles use the previous map;
 the original mosaic has uneven resolution and visible image joins:
 https://astrogeology.usgs.gov/search/map/ganymede_voyager_galileo_ssi_color_global_mosaic_1_4km.
 
+Callisto uses the USGS Voyager/Galileo 1 km grayscale mosaic, reduced to
+8192 × 4096, shifted half a turn, brightened and tinted. Gaps near the poles
+use the previous map; coverage and lighting vary across the mosaic:
+https://astrogeology.usgs.gov/search/map/callisto_voyager_galileo_ssi_global_mosaic_1km.
+
 Phobos uses Philip Stooke's Cornell-controlled multi-mission photomosaic,
 based on the Cornell mosaic by Peter Thomas and colleagues, from the NASA
 PDS small-body maps archive. The 14400 × 7200 source is reduced to 8192 × 4096,
@@ -64,7 +69,7 @@ nearby image colors and is not observed geography. Credit: NASA/JPL-Caltech,
 Lunar and Planetary Institute and Paul Schenk:
 https://commons.wikimedia.org/wiki/File:Triton_map_no_grid.jpg.
 
-Moon textures for Io, Callisto,
+Moon textures for Io,
 Ariel, Umbriel, Titania, Oberon and Miranda derive from
 NASA/JPL/Caltech/USGS Solar System Simulator
 mosaics: https://maps.jpl.nasa.gov/tmaps/. Original mosaics are generally
@@ -77,8 +82,9 @@ Titan uses the 5760 × 2880 Cassini ISS near-infrared surface mosaic PIA22770,
 tinted for display. It represents surface brightness through the haze in
 near-infrared, not a visible-light view. Credit: NASA/JPL-Caltech/University
 of Arizona; https://science.nasa.gov/photojournal/titan-mosaic-the-surface-under-the-haze/.
-Vesta uses Dawn Framing Camera HAMO mosaic tiles from
-NASA/JPL Vesta Trek: https://trek.nasa.gov/tiles/apidoc/trekAPI.html?body=vesta.
+Vesta uses the Dawn Framing Camera HAMO global mosaic, assembled at
+8192 × 4096 from NASA/JPL Vesta Trek tiles:
+https://trek.nasa.gov/tiles/apidoc/trekAPI.html?body=vesta.
 Hyperion uses a resampled, tinted shaded-relief map by Philip Stooke from the
 NASA PDS archive: https://sbnarchive.psi.edu/pds3/non_mission/EAR_A_3_RDR_STOOKEMAPS_V1_0/maps/.
 Proteus and Nereid are fictional stand-ins made from transformed Phobos
