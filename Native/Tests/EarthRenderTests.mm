@@ -116,13 +116,29 @@ int main(){@autoreleasepool{
     FrameUniforms f{};f.right={1,0,0,0};f.up={0,1,0,0};f.forward={0,0,-1,0};f.position={0,0,3,0};f.sun={0,0,1,1};
     f.screen={(float)width,(float)height,.39f,0};f.environment={2,12742020,0,0};f.body={6371010,1,13000,0};f.haze={.1,.33,.75,78000};
     f.equatorX={1,0,0,1};f.pole={0,1,0,0};f.equatorZ={0,0,1,0};f.surfaceColor={.48,.46,.43,3};
-    id<MTLTexture> surfaceMask=ocean,activeCloudMap=cloudMap,activeShadow=white,activeEarth=earth,activeVolumeNoise=cloudNoise;
+    id<MTLTexture> surfaceMask=ocean,activeCloudMap=cloudMap,activeShadow=white,activeEarth=earth,activeVolumeNoise=cloudNoise,activeReflection=zero;
     auto render=[&](float coverage){f.clouds={1800,6500,coverage,0};id<MTLCommandBuffer> cb=[queue commandBuffer];
         MTLRenderPassDescriptor *pass=[MTLRenderPassDescriptor renderPassDescriptor];pass.colorAttachments[0].texture=scene;pass.colorAttachments[0].loadAction=MTLLoadActionClear;pass.colorAttachments[0].storeAction=MTLStoreActionStore;pass.depthAttachment.texture=depth;pass.depthAttachment.loadAction=MTLLoadActionClear;pass.depthAttachment.clearDepth=0;pass.depthAttachment.storeAction=MTLStoreActionStore;
-        id<MTLRenderCommandEncoder> e=[cb renderCommandEncoderWithDescriptor:pass];[e setDepthStencilState:depthState];[e setRenderPipelineState:sky];[e setFragmentBytes:&f length:sizeof(f) atIndex:1];[e setFragmentTexture:activeEarth atIndex:0];[e setFragmentTexture:activeShadow atIndex:1];[e setFragmentTexture:white atIndex:2];[e setFragmentTexture:surfaceMask atIndex:3];[e setFragmentTexture:activeCloudMap atIndex:4];[e setFragmentTexture:oceanWaves atIndex:5];[e setFragmentTexture:oceanDetail atIndex:6];[e setFragmentTexture:starMap atIndex:7];[e setFragmentTexture:activeVolumeNoise atIndex:8];[e setFragmentTexture:zero atIndex:9];[e drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];[e endEncoding];
+        id<MTLRenderCommandEncoder> e=[cb renderCommandEncoderWithDescriptor:pass];[e setDepthStencilState:depthState];[e setRenderPipelineState:sky];[e setFragmentBytes:&f length:sizeof(f) atIndex:1];[e setFragmentTexture:activeEarth atIndex:0];[e setFragmentTexture:activeShadow atIndex:1];[e setFragmentTexture:white atIndex:2];[e setFragmentTexture:surfaceMask atIndex:3];[e setFragmentTexture:activeCloudMap atIndex:4];[e setFragmentTexture:oceanWaves atIndex:5];[e setFragmentTexture:oceanDetail atIndex:6];[e setFragmentTexture:starMap atIndex:7];[e setFragmentTexture:activeVolumeNoise atIndex:8];[e setFragmentTexture:zero atIndex:9];[e setFragmentTexture:activeReflection atIndex:10];[e drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];[e endEncoding];
         pass=[MTLRenderPassDescriptor renderPassDescriptor];pass.colorAttachments[0].texture=output;pass.colorAttachments[0].loadAction=MTLLoadActionClear;pass.colorAttachments[0].storeAction=MTLStoreActionStore;
         e=[cb renderCommandEncoderWithDescriptor:pass];[e setRenderPipelineState:composite];[e setFragmentBytes:&f length:sizeof(f) atIndex:0];[e setFragmentTexture:scene atIndex:0];[e setFragmentTexture:zero atIndex:1];[e setFragmentTexture:data atIndex:2];[e setFragmentTexture:depth atIndex:3];[e setFragmentTexture:activeCloudMap atIndex:4];[e setFragmentTexture:cloudNoise atIndex:5];[e drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];[e endEncoding];[cb commit];[cb waitUntilCompleted];
         if(cb.error)fprintf(stderr,"Render error: %s\n",cb.error.localizedDescription.UTF8String);require(cb.error==nil,"Earth render failed");std::vector<unsigned char> pixels(width*height*4);[output getBytes:pixels.data() bytesPerRow:width*4 fromRegion:MTLRegionMake2D(0,0,width,height) mipmapLevel:0];return pixels;};
+    {
+        // A bright reflected object changes water pixels, but never land.
+        FrameUniforms saved=f;id<MTLTexture> savedMask=surfaceMask;
+        f.position={0,0,1+1000.0f/6371010,0};f.environment={1000.0f/6371010,1000,0,0};
+        f.sun={0,0,1,1};f.weather={0,0,0,0};
+        id<MTLTexture> reflection=texture(MTLPixelFormatRGBA32Float,1,1,MTLTextureUsageShaderRead);
+        float red[4]={8,0,0,1};[reflection replaceRegion:MTLRegionMake2D(0,0,1,1) mipmapLevel:0 withBytes:red bytesPerRow:sizeof(red)];
+        surfaceMask=white;activeReflection=zero;auto waterWithout=render(0);
+        activeReflection=reflection;auto waterWith=render(0);
+        surfaceMask=zero;activeReflection=zero;auto landWithout=render(0);
+        activeReflection=reflection;auto landWith=render(0);
+        size_t i=(height/2*width+width/2)*4;
+        require(waterWith[i]>waterWithout[i]+10,"Reflected vessels must be visible on water");
+        require(landWith[i]==landWithout[i],"Vessel reflections must not appear on land");
+        activeReflection=zero;surfaceMask=savedMask;f=saved;
+    }
     auto clear=render(0),cloud=render(.48);size_t changed=0;for(size_t i=0;i<cloud.size();i+=4)if(abs(int(cloud[i])-int(clear[i]))>5)++changed;
     require(changed>10000&&changed<width*height*3/4,"Satellite clouds must change the globe without covering the whole sky");
     require(abs(int(cloud[0])-int(clear[0]))<3&&abs(int(cloud[1])-int(clear[1]))<3&&abs(int(cloud[2])-int(clear[2]))<3,
@@ -385,7 +401,7 @@ int main(){@autoreleasepool{
     f.weather.x=0;activeCloudMap=zero;auto clearReflection=render(.48);activeCloudMap=white;auto cloudReflection=render(.48);
     size_t reflected=0;for(size_t i=0;i<clearReflection.size();i+=4)if(abs(int(clearReflection[i])-int(cloudReflection[i]))>2)++reflected;
     require(reflected>1000,"Cloud coverage affects reflected light on water");
-    activeVolumeNoise=emptyCloudNoise;auto emptyVolumeWater=render(.48);activeVolumeNoise=cloudNoise;activeCloudMap=cloudMap;
+    activeVolumeNoise=emptyCloudNoise;auto emptyVolumeWater=render(.48);activeVolumeNoise=cloudNoise,activeReflection=zero;activeCloudMap=cloudMap;
     size_t volumeReflected=0;for(size_t i=0;i<cloudReflection.size();i+=4)if(abs(int(emptyVolumeWater[i])-int(cloudReflection[i]))>2)++volumeReflected;
     require(volumeReflected>1000,"Water reflections follow the 3D cloud volume, not only the coverage map");
     float lat=15*M_PI/180,lon=20*M_PI/180;simd_float3 normal={cosf(lat)*cosf(lon),sinf(lat),cosf(lat)*sinf(lon)};

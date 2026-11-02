@@ -35,6 +35,28 @@ vertex float4 vesselShadowVertex(uint id [[vertex_id]],const device Vertex *vert
     return float4(dot(p,f.shadowAxisX.xyz)/32.0f,dot(p,f.shadowAxisY.xyz)/32.0f,.5f,1);
 }
 fragment float vesselShadowFragment(){return 1;}
+// Mirror the animated exterior about the local sea-level tangent plane. Keep
+// original positions and normals for lighting the actual vessel surface.
+vertex Raster vesselReflectionVertex(uint id [[vertex_id]],const device Vertex *vertices [[buffer(0)]],
+    constant Frame &f [[buffer(1)]],constant Object &o [[buffer(2)]]) {
+    Vertex v=vertices[id];Raster out;
+    float3 world=(o.model*float4(float3(v.position),1)).xyz;
+    float3 mirrored=world-2*(dot(world,f.waterPlane.xyz)-f.waterPlane.w)*f.waterPlane.xyz;
+    float3 view=float3(dot(mirrored,f.right.xyz),dot(mirrored,f.up.xyz),-dot(mirrored,f.forward.xyz));
+    out.position=f.projection*float4(view,1);out.world=world;
+    out.normal=(o.model*float4(float3(v.normal),0)).xyz;out.uv=float2(v.uv);out.local=float3(v.position);
+    return out;
+}
+fragment float4 vesselReflectionFragment(Raster in [[stage_in]],constant Frame &f [[buffer(1)]],
+    constant Object &o [[buffer(2)]],texture2d<float> tex [[texture(0)]],texture2d<float> cloudShade [[texture(1)]]) {
+    constexpr sampler s(filter::linear,mip_filter::linear,address::repeat);
+    float4 albedo=tex.sample(s,in.uv)*o.color;if(albedo.a<.03f)discard_fragment();
+    float3 virtualCamera=2*f.waterPlane.w*f.waterPlane.xyz;
+    float3 normal=normalize(in.normal);if(dot(normal,virtualCamera-in.world)<0)normal=-normal;
+    float sun=max(0.0f,dot(normal,f.sun.xyz))*f.sun.w*cloudShade.sample(s,float2(.5)).r*solarIntensity(f);
+    float3 color=albedo.rgb*(.025f+sun*.8f);
+    return float4(color,albedo.a);
+}
 // Only fully opaque vessel groups use this pass; alpha-tested and transparent
 // geometry retains its original depth and blending behaviour.
 fragment void meshDepthFragment() {}
@@ -252,7 +274,7 @@ AirLight earthAirLight(constant Frame &f,float3 ray,float maximumDistance){
 }
 fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buffer(1)]],
     texture2d<float> map [[texture(0)]],texture2d<float> shadows [[texture(1)]],texture2d<float> rings [[texture(2)]],
-    texture2d<float> oceanMask [[texture(3)]],texture2d<float> cloudMap [[texture(4)]],texture2d<float> oceanWaves [[texture(5)]],texture2d<float> oceanDetail [[texture(6)]],texture2d<float> starMap [[texture(7)]],texture3d<float> cloudNoise [[texture(8)]],texture2d<float> vesselShadow [[texture(9)]]) {
+    texture2d<float> oceanMask [[texture(3)]],texture2d<float> cloudMap [[texture(4)]],texture2d<float> oceanWaves [[texture(5)]],texture2d<float> oceanDetail [[texture(6)]],texture2d<float> starMap [[texture(7)]],texture3d<float> cloudNoise [[texture(8)]],texture2d<float> vesselShadow [[texture(9)]],texture2d<float> vesselReflection [[texture(10)]]) {
     constexpr sampler s(filter::linear,mip_filter::linear,s_address::repeat,t_address::clamp_to_edge);
     float2 xy=in.uv*2-1;float3 ray=normalize(f.forward.xyz+f.right.xyz*xy.x*f.screen.z*(f.screen.x/f.screen.y)+f.up.xyz*xy.y*f.screen.z);
     float3 origin=f.position.xyz;float height=f.environment.x,radius=f.body.x;
@@ -339,6 +361,12 @@ fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buf
                     AirLight reflectedAir=earthAirLight(f,reflected,1e25f);
                     float3 reflection=starMap.sample(stars,skyCoordinates(reflected)).rgb*1.35f*reflectedAir.transmission+reflectedAir.scattering;
                     if(f.clouds.z>0)reflection=reflectCloudVolume(reflection,n*radius,reflected,1e25f,f,cloudNoise,cloudMap);
+                    // The reflected vessel is rendered in screen space against
+                    // the local tangent plane and only composited over water.
+                    constexpr sampler reflectedSampler(filter::linear,address::clamp_to_zero);
+                    float2 reflectionUV=in.position.xy/f.screen.xy;
+                    float4 vessel=vesselReflection.sample(reflectedSampler,reflectionUV);
+                    reflection=mix(reflection,vessel.rgb,vessel.a);
                     ocean+=reflection*(.04f+.38f*fresnelWater)*mix(.65f,1.0f,horizonBlend);
                 }
                 // A rough water microfacet lobe spreads the solar disc over

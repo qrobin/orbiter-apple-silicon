@@ -237,3 +237,11 @@ target_compile_definitions(VesselGroundShadowTests PRIVATE ORBITER_TEST_DATA="${
 target_link_libraries(VesselGroundShadowTests PRIVATE "-framework Foundation" "-framework Metal")
 add_test(NAME Native.VesselGroundShadowMetal COMMAND VesselGroundShadowTests)
 set_tests_properties(Native.VesselGroundShadowMetal PROPERTIES SKIP_RETURN_CODE 77)
+
+add_executable(VesselWaterReflectionTests Tests/VesselWaterReflectionTests.mm)
+target_include_directories(VesselWaterReflectionTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/macOS)
+target_compile_options(VesselWaterReflectionTests PRIVATE -fobjc-arc)
+target_compile_definitions(VesselWaterReflectionTests PRIVATE ORBITER_TEST_DATA="${PROJECT_SOURCE_DIR}")
+target_link_libraries(VesselWaterReflectionTests PRIVATE "-framework Foundation" "-framework Metal")
+add_test(NAME Native.VesselWaterReflectionMetal COMMAND VesselWaterReflectionTests)
+set_tests_properties(Native.VesselWaterReflectionMetal PROPERTIES SKIP_RETURN_CODE 77)

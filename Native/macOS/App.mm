@@ -82,14 +82,14 @@ struct GpuGroup { id<MTLBuffer> vertices,indices; NSUInteger count; size_t mater
     bool rcsDemo;
     NSPoint lastDragPoint;
     bool haveDragPoint;
-    id<MTLRenderPipelineState> meshPipeline,meshDepthPipeline,skyPipeline,vesselShadowPipeline;
+    id<MTLRenderPipelineState> meshPipeline,meshDepthPipeline,skyPipeline,vesselShadowPipeline,vesselReflectionPipeline;
     id<MTLDepthStencilState> depthState,meshShadeDepth,skyDepth,transparentDepth;
     std::array<size_t,2> meshCounts;
     std::vector<GpuGroup> groups;
     std::vector<Material> materials;
     std::vector<bool> opaqueTextures;
     NSMutableArray<id<MTLTexture>> *textures;
-    id<MTLTexture> earthTexture,starTexture,whiteTexture,vesselShadowMask;
+    id<MTLTexture> earthTexture,starTexture,whiteTexture,vesselShadowMask,vesselReflection,vesselReflectionDepth;
     id<MTLTexture> hoverReadoutTexture,mfdLabelTexture;
     std::array<id<MTLTexture>,2> maneuverButtonTextures;
     Image mfdLabelImage,mfdLabelOriginal;
@@ -392,7 +392,11 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     MTLTextureDescriptor *shadowTexture=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatR8Unorm width:512 height:512 mipmapped:NO];
     shadowTexture.storageMode=MTLStorageModePrivate;shadowTexture.usage=MTLTextureUsageRenderTarget|MTLTextureUsageShaderRead;
     vesselShadowMask=[device newTextureWithDescriptor:shadowTexture];
-    if(!vesselShadowPipeline||!vesselShadowMask||!meshPipeline||!meshDepthPipeline||!skyPipeline) @throw [NSException exceptionWithName:@"Metal pipeline error" reason:error.localizedDescription userInfo:nil];
+    MTLRenderPipelineDescriptor *reflectionDescriptor=[MTLRenderPipelineDescriptor new];
+    reflectionDescriptor.vertexFunction=[library newFunctionWithName:@"vesselReflectionVertex"];reflectionDescriptor.fragmentFunction=[library newFunctionWithName:@"vesselReflectionFragment"];
+    reflectionDescriptor.colorAttachments[0].pixelFormat=MTLPixelFormatRGBA16Float;reflectionDescriptor.depthAttachmentPixelFormat=MTLPixelFormatDepth32Float;
+    vesselReflectionPipeline=[device newRenderPipelineStateWithDescriptor:reflectionDescriptor error:&error];
+    if(!vesselReflectionPipeline||!vesselShadowPipeline||!vesselShadowMask||!meshPipeline||!meshDepthPipeline||!skyPipeline) @throw [NSException exceptionWithName:@"Metal pipeline error" reason:error.localizedDescription userInfo:nil];
     MTLDepthStencilDescriptor *dd=[MTLDepthStencilDescriptor new]; dd.depthCompareFunction=MTLCompareFunctionGreater; dd.depthWriteEnabled=YES;
     depthState=[device newDepthStencilStateWithDescriptor:dd]; dd.depthCompareFunction=MTLCompareFunctionAlways; dd.depthWriteEnabled=NO;
     dd.depthWriteEnabled=YES;skyDepth=[device newDepthStencilStateWithDescriptor:dd];
@@ -610,6 +614,27 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     [visuals prepare:&uniforms width:drawable.texture.width height:drawable.texture.height];
     ObjectUniforms object={};
     object.model.columns[0]=f4(flight.right); object.model.columns[1]=f4(flight.up); object.model.columns[2]=f4(flight.forward); object.model.columns[3]=f4(-offset,1);
+    // All exterior vessels share this list. New vessels added here are rendered
+    // in both the main view and the water reflection pass.
+    auto exteriorTransforms=flight.glider.transforms(meshCounts[0],0);
+    struct VesselInstance {int mesh;simd_float4x4 model;Vector position;const std::vector<RigidTransform> *transforms;};
+    std::vector<VesselInstance> vessels{{0,object.model,flight.position,&exteriorTransforms}};
+    if(flight.reference==BodyId::Earth){
+        auto station=issState(flight.issOrbit,flight.mjd+flight.elapsed/86400.);
+        Vector relative=station.position-flight.position-offset;
+        if(relative.length()<250000){
+            simd_float4x4 stationModel;stationModel.columns[0]=f4(station.right);stationModel.columns[1]=f4(station.up);
+            stationModel.columns[2]=f4(station.forward);stationModel.columns[3]=f4(relative,1);
+            vessels.push_back({3,stationModel,station.position,nullptr});
+        }
+    }
+    auto vesselGroupModel=[&](const VesselInstance &vessel,size_t group){
+        if(!vessel.transforms)return vessel.model;
+        const auto &t=(*vessel.transforms)[group];simd_float4x4 local;
+        local.columns[0]=f4({t.rotation.m11,t.rotation.m21,t.rotation.m31});local.columns[1]=f4({t.rotation.m12,t.rotation.m22,t.rotation.m32});
+        local.columns[2]=f4({t.rotation.m13,t.rotation.m23,t.rotation.m33});local.columns[3]=f4(t.translation,1);
+        return simd_mul(vessel.model,local);
+    };
     id<MTLCommandBuffer> cb=[queue commandBuffer]; cb.label=@"Orbiter native flight";
     [visuals encodeShadows:cb frame:uniforms vesselPosition:flight.position];
     MTLRenderPassDescriptor *shadowPass=[MTLRenderPassDescriptor renderPassDescriptor];
@@ -618,7 +643,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     id<MTLRenderCommandEncoder> shadowEncoder=[cb renderCommandEncoderWithDescriptor:shadowPass];
     shadowEncoder.label=@"Sunlit vessel silhouette";[shadowEncoder setRenderPipelineState:vesselShadowPipeline];
     [shadowEncoder setVertexBytes:&uniforms length:sizeof(uniforms) atIndex:1];[shadowEncoder setCullMode:MTLCullModeNone];
-    auto shadowTransforms=flight.glider.transforms(meshCounts[0],0);
+    const auto &shadowTransforms=exteriorTransforms;
     for(const auto &g:groups)if(g.mesh==0&&materials[g.material].diffuse[3]>=.99f){
         const auto &t=shadowTransforms[g.index];simd_float4x4 local;
         local.columns[0]=f4({t.rotation.m11,t.rotation.m21,t.rotation.m31});local.columns[1]=f4({t.rotation.m12,t.rotation.m22,t.rotation.m32});
@@ -628,13 +653,48 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         [shadowEncoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle indexCount:g.count indexType:MTLIndexTypeUInt32 indexBuffer:g.indices indexBufferOffset:0];
     }
     [shadowEncoder endEncoding];
+    if(!vesselReflection||vesselReflection.width!=drawable.texture.width||vesselReflection.height!=drawable.texture.height){
+        MTLTextureDescriptor *reflectionTexture=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA16Float width:drawable.texture.width height:drawable.texture.height mipmapped:NO];
+        reflectionTexture.storageMode=MTLStorageModePrivate;reflectionTexture.usage=MTLTextureUsageRenderTarget|MTLTextureUsageShaderRead;
+        vesselReflection=[self.device newTextureWithDescriptor:reflectionTexture];
+        reflectionTexture.pixelFormat=MTLPixelFormatDepth32Float;reflectionTexture.usage=MTLTextureUsageRenderTarget;
+        vesselReflectionDepth=[self.device newTextureWithDescriptor:reflectionTexture];
+    }
+    MTLRenderPassDescriptor *reflectionPass=[MTLRenderPassDescriptor renderPassDescriptor];
+    reflectionPass.colorAttachments[0].texture=vesselReflection;reflectionPass.colorAttachments[0].loadAction=MTLLoadActionClear;
+    reflectionPass.colorAttachments[0].storeAction=MTLStoreActionStore;reflectionPass.colorAttachments[0].clearColor=MTLClearColorMake(0,0,0,0);
+    reflectionPass.depthAttachment.texture=vesselReflectionDepth;reflectionPass.depthAttachment.loadAction=MTLLoadActionClear;
+    reflectionPass.depthAttachment.clearDepth=0;reflectionPass.depthAttachment.storeAction=MTLStoreActionDontCare;
+    id<MTLRenderCommandEncoder> reflectionEncoder=[cb renderCommandEncoderWithDescriptor:reflectionPass];
+    reflectionEncoder.label=@"Vessel reflection on water";[reflectionEncoder setRenderPipelineState:vesselReflectionPipeline];
+    [reflectionEncoder setDepthStencilState:depthState];[reflectionEncoder setCullMode:MTLCullModeNone];
+    [reflectionEncoder setFragmentTexture:visuals.vesselCloudShadow atIndex:1];
+    if(flight.reference==BodyId::Earth){
+        Vector camera=flight.position+offset;
+        for(const auto &vessel:vessels){
+            double altitude=vessel.position.length()-flight.centralBody().radius;
+            if(altitude<0||altitude>=20000||(vessel.position-camera).length()>=50000)continue;
+            Vector normal=vessel.position.unit(),surface=normal*flight.centralBody().radius-camera;
+            FrameUniforms reflectedFrame=uniforms;reflectedFrame.waterPlane=f4(normal,(float)dotp(surface,normal));
+            [reflectionEncoder setVertexBytes:&reflectedFrame length:sizeof(reflectedFrame) atIndex:1];
+            [reflectionEncoder setFragmentBytes:&reflectedFrame length:sizeof(reflectedFrame) atIndex:1];
+            for(const auto &g:groups)if(g.mesh==vessel.mesh&&materials[g.material].diffuse[3]>=.99f){
+                const auto &mat=materials[g.material];ObjectUniforms reflectedObject={};reflectedObject.model=vesselGroupModel(vessel,g.index);
+                reflectedObject.color={mat.diffuse[0],mat.diffuse[1],mat.diffuse[2],mat.diffuse[3]};
+                [reflectionEncoder setVertexBuffer:g.vertices offset:0 atIndex:0];[reflectionEncoder setVertexBytes:&reflectedObject length:sizeof(reflectedObject) atIndex:2];
+                [reflectionEncoder setFragmentBytes:&reflectedObject length:sizeof(reflectedObject) atIndex:2];[reflectionEncoder setFragmentTexture:textures[g.texture] atIndex:0];
+                [reflectionEncoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle indexCount:g.count indexType:MTLIndexTypeUInt32 indexBuffer:g.indices indexBufferOffset:0];
+            }
+        }
+    }
+    [reflectionEncoder endEncoding];
     id<MTLRenderCommandEncoder> encoder=[cb renderCommandEncoderWithDescriptor:visuals.scenePass];
     [encoder setRenderPipelineState:skyPipeline]; [encoder setDepthStencilState:skyDepth];
     [encoder setFragmentBytes:&uniforms length:sizeof(uniforms) atIndex:1]; [encoder setFragmentTexture:[solar textureForBody:flight.reference] atIndex:0];
     [encoder setFragmentTexture:solar.rings atIndex:2];
     [encoder setFragmentTexture:visuals.cloudShadows atIndex:1];
     [encoder setFragmentTexture:[visuals oceanMask] atIndex:3];[encoder setFragmentTexture:[visuals satelliteClouds] atIndex:4];[encoder setFragmentTexture:[visuals oceanWaves] atIndex:5];[encoder setFragmentTexture:[visuals oceanWaveDetail] atIndex:6];
-    [encoder setFragmentTexture:starTexture atIndex:7];[encoder setFragmentTexture:visuals.cloudNoise atIndex:8];[encoder setFragmentTexture:vesselShadowMask atIndex:9];
+    [encoder setFragmentTexture:starTexture atIndex:7];[encoder setFragmentTexture:visuals.cloudNoise atIndex:8];[encoder setFragmentTexture:vesselShadowMask atIndex:9];[encoder setFragmentTexture:vesselReflection atIndex:10];
     [encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
     [encoder setDepthStencilState:depthState];
     if(flight.centralBody().solid)
@@ -693,23 +753,18 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
                 [encoder setFragmentTexture:textures[g.texture] atIndex:0];[encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle indexCount:g.count indexType:MTLIndexTypeUInt32 indexBuffer:g.indices indexBufferOffset:0];
             }
         }
-        if(flight.reference==BodyId::Earth){
-            auto station=issState(flight.issOrbit,flight.mjd+flight.elapsed/86400.);
-            Vector relative=station.position-flight.position-offset;
-            if(relative.length()<250000){
-                object.model.columns[0]=f4(station.right);object.model.columns[1]=f4(station.up);object.model.columns[2]=f4(station.forward);object.model.columns[3]=f4(relative,1);
-                object.options={0,-1,0,0};
-                for(int transparent=0;transparent<2;++transparent){
-                    [encoder setDepthStencilState:transparent?transparentDepth:depthState];
-                    for(const auto &g:groups)if(g.mesh==3){
-                        const auto &m=materials[g.material];if((m.diffuse[3]<.99)!=(transparent==1))continue;
-                        object.color={m.diffuse[0],m.diffuse[1],m.diffuse[2],m.diffuse[3]};object.specular={m.specular[0],m.specular[1],m.specular[2],m.power};object.emission={0,0,0,0};
-                        [encoder setVertexBuffer:g.vertices offset:0 atIndex:0];[encoder setVertexBytes:&object length:sizeof(object) atIndex:2];[encoder setFragmentBytes:&object length:sizeof(object) atIndex:2];
-                        [encoder setFragmentTexture:textures[g.texture] atIndex:0];[encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle indexCount:g.count indexType:MTLIndexTypeUInt32 indexBuffer:g.indices indexBufferOffset:0];
-                    }
+        for(const auto &vessel:vessels)if(vessel.mesh!=0){
+            object.model=vessel.model;object.options={0,-1,0,0};
+            for(int transparent=0;transparent<2;++transparent){
+                [encoder setDepthStencilState:transparent?transparentDepth:depthState];
+                for(const auto &g:groups)if(g.mesh==vessel.mesh){
+                    const auto &m=materials[g.material];if((m.diffuse[3]<.99)!=(transparent==1))continue;
+                    object.model=vesselGroupModel(vessel,g.index);object.color={m.diffuse[0],m.diffuse[1],m.diffuse[2],m.diffuse[3]};object.specular={m.specular[0],m.specular[1],m.specular[2],m.power};object.emission={0,0,0,0};
+                    [encoder setVertexBuffer:g.vertices offset:0 atIndex:0];[encoder setVertexBytes:&object length:sizeof(object) atIndex:2];[encoder setFragmentBytes:&object length:sizeof(object) atIndex:2];
+                    [encoder setFragmentTexture:textures[g.texture] atIndex:0];[encoder drawIndexedPrimitives:MTLPrimitiveTypeTriangle indexCount:g.count indexType:MTLIndexTypeUInt32 indexBuffer:g.indices indexBufferOffset:0];
                 }
-                [encoder setDepthStencilState:depthState];
             }
+            [encoder setDepthStencilState:depthState];
         }
         [encoder setFragmentTexture:visuals.vesselCloudShadow atIndex:1];
         if(cockpit){
