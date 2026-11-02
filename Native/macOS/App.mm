@@ -9,6 +9,7 @@
 #include "TransX/BurnSkip.h"
 #include "Mesh.h"
 #include "Cockpit.h"
+#include "CockpitInstruments.h"
 #include "Keyboard.h"
 #include "Surface.h"
 #include "Base.h"
@@ -95,6 +96,12 @@ struct GpuGroup { id<MTLBuffer> vertices,indices; NSUInteger count; size_t mater
     Image mfdLabelImage,mfdLabelOriginal;
     std::array<bool,2> lastMfdLabels;
     Image hoverReadoutImage,hoverGlyphs;
+    Image flightInstrumentOriginal,flightInstrumentImage;
+    id<MTLTexture> flightInstrumentTexture;
+    id<MTLBuffer> horizonVertices,flightTapeVertices;
+    std::vector<Vertex> horizonMesh,flightTapeMesh;
+    double displayedAoa,instrumentElapsed;
+    int lastVsScale; bool lastVsCentered;
     std::array<id<MTLTexture>,2> instrumentTextures;
     id<MTLTexture> cockpitHudTexture;
     int activeCockpitControl;
@@ -355,6 +362,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         @throw [NSException exceptionWithName:@"Weather map unavailable" reason:@"The Earth weather data could not be loaded." userInfo:nil];
     if(!loadTerrainMask(resource(@"earth-terrain-mask.r8").fileSystemRepresentation))
         @throw [NSException exceptionWithName:@"Terrain map unavailable" reason:@"The Earth terrain mask could not be loaded." userInfo:nil];
+    displayedAoa=0;instrumentElapsed=-1;lastVsScale=INT_MIN;lastVsCentered=false;
     activeCockpitControl=-1;cockpitPitch=-.25;restartBody=-1;lastBody=BodyId::Earth;
     held.fill(false);lastMfdLabels.fill(false);transxMfd.fill(false);transxAlignDisplay=-1;transxAlignBody=flight.reference;transxRefresh=0; externalCamera.yaw=-.55; externalCamera.pitch=.32; externalCamera.distance=43; helpVisible=false; orbitVisible=true;
     NSNumber *savedFov=[NSUserDefaults.standardUserDefaults objectForKey:@"FieldOfViewDegrees"];
@@ -429,6 +437,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
             MTLTextureDescriptor *desc=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm_sRGB width:image.width height:image.height mipmapped:YES];
             id<MTLTexture> tex=[device newTextureWithDescriptor:desc];
             if(meshIndex==1&&name=="DG/dg_vc4.dds"){mfdLabelTexture=tex;mfdLabelOriginal=image;mfdLabelImage=image;}
+            if(meshIndex==1&&name=="DG/dg_instr.dds"){flightInstrumentTexture=tex;flightInstrumentOriginal=image;}
             [tex replaceRegion:MTLRegionMake2D(0,0,image.width,image.height) mipmapLevel:0 withBytes:image.rgba.data() bytesPerRow:image.width*4];
             id<MTLCommandBuffer> cb=[queue commandBuffer]; id<MTLBlitCommandEncoder> blit=[cb blitCommandEncoder]; [blit generateMipmapsForTexture:tex]; [blit endEncoding]; [cb commit];
             [textures addObject:tex];opaqueTextures.push_back(opaque);
@@ -436,6 +445,8 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
         }
         for(size_t i=0;i<mesh.groups.size();++i) {
             const auto &g=mesh.groups[i]; GpuGroup group;
+            if(meshIndex==1&&i==86)horizonMesh=g.vertices;
+            if(meshIndex==1&&i==123)flightTapeMesh=g.vertices;
             group.vertices=[device newBufferWithBytes:g.vertices.data() length:g.vertices.size()*sizeof(Vertex) options:MTLResourceStorageModeShared];
             group.indices=[device newBufferWithBytes:g.indices.data() length:g.indices.size()*sizeof(uint32_t) options:MTLResourceStorageModeShared];
             group.count=g.indices.size(); group.material=materialBase+g.material;
@@ -554,6 +565,27 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
             default:break;
         }
     }else flight.advance(dt,input);
+    if(cockpit&&!horizonMesh.empty()&&!flightTapeMesh.empty()) {
+        Vector air=flight.airRelativeVelocity();double aoa=atan2(-dotp(air,flight.up),dotp(air,flight.forward));
+        double simdt=instrumentElapsed<0||flight.elapsed<instrumentElapsed?0:flight.elapsed-instrumentElapsed;
+        if(instrumentElapsed<0||flight.elapsed<instrumentElapsed)displayedAoa=0;
+        instrumentElapsed=flight.elapsed;aoa=std::clamp(aoa,-45*RAD,45*RAD);
+        displayedAoa+=std::clamp(aoa-displayedAoa,-20*RAD*simdt,20*RAD*simdt);
+        double vs=dotp(air,flight.position.unit());
+        auto horizon=horizonMesh,tapes=flightTapeMesh;
+        updateHorizon(horizon,flight.pitch(),flight.bank(),flight.heading(),flight.groundAltitude(),air.length());
+        updateFlightTapes(tapes,displayedAoa,vs);
+        horizonVertices=[self.device newBufferWithBytes:horizon.data() length:horizon.size()*sizeof(Vertex) options:MTLResourceStorageModeShared];
+        flightTapeVertices=[self.device newBufferWithBytes:tapes.data() length:tapes.size()*sizeof(Vertex) options:MTLResourceStorageModeShared];
+        int scale=(int)floor(std::clamp(vs*.1,-1e6,1e6));bool centered=fabs(vs*.1)<=4;
+        if(flightInstrumentTexture&&(scale!=lastVsScale||centered!=lastVsCentered)&&paintVerticalSpeedScale(flightInstrumentImage,flightInstrumentOriginal,vs)){
+            lastVsScale=scale;lastVsCentered=centered;auto &image=flightInstrumentImage;
+            id<MTLBuffer> upload=[self.device newBufferWithBytes:image.rgba.data() length:image.rgba.size() options:MTLResourceStorageModeShared];
+            id<MTLCommandBuffer> update=[queue commandBuffer];id<MTLBlitCommandEncoder> blit=[update blitCommandEncoder];
+            [blit copyFromBuffer:upload sourceOffset:0 sourceBytesPerRow:image.width*4 sourceBytesPerImage:image.rgba.size() sourceSize:MTLSizeMake(image.width,image.height,1) toTexture:flightInstrumentTexture destinationSlice:0 destinationLevel:0 destinationOrigin:MTLOriginMake(0,0,0)];
+            [blit generateMipmapsForTexture:flightInstrumentTexture];[blit endEncoding];[update commit];
+        }
+    }
     if(demoLadderQueued&&flight.glider.part(Part::Nose).open()) { flight.glider.command(Part::Ladder,1);demoLadderQueued=false; }
     dispatch_semaphore_wait(inflight,DISPATCH_TIME_FOREVER);
     id<CAMetalDrawable> drawable=self.currentDrawable;
@@ -800,7 +832,9 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
             if(cockpit&&(g.index==85||g.index==100||g.index==101))object.specular={.12f,.12f,.12f,32};
             if(cockpit&&g.index==77)object.options.x=6;
             if(label){object.color={1,1,1,1};object.options.x=4;}
-            [encoder setVertexBuffer:g.vertices offset:0 atIndex:0];[encoder setVertexBytes:&object length:sizeof(object) atIndex:2];
+            if(cockpit&&(g.index==86||g.index==123))object.options.x=4;
+            id<MTLBuffer> vertices=cockpit&&g.index==86&&horizonVertices?horizonVertices:cockpit&&g.index==123&&flightTapeVertices?flightTapeVertices:g.vertices;
+            [encoder setVertexBuffer:vertices offset:0 atIndex:0];[encoder setVertexBytes:&object length:sizeof(object) atIndex:2];
             if(cockpit&&(g.index==88||g.index==89)){object.color={1,1,1,1};object.options.x=3;[encoder setFragmentTexture:instrumentTextures[g.index-88] atIndex:0];}
             else [encoder setFragmentTexture:textures[g.texture] atIndex:0];
             [encoder setFragmentBytes:&object length:sizeof(object) atIndex:2];
@@ -1036,7 +1070,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     [NSUserDefaults.standardUserDefaults setDouble:degrees forKey:@"FieldOfViewDegrees"];
 }
 - (void)resetFlight:(id)sender {
-    [self clearInput];freeCamera.active=false;[visuals reset];demoLadderQueued=false;
+    [self clearInput];freeCamera.active=false;[visuals reset];demoLadderQueued=false;instrumentElapsed=-1;
     flight.weatherPreset=(int)visuals.weather;
     if(restartBody==-2){flight=Flight();flight.startISSApproach();flight.weatherPreset=(int)visuals.weather;}
     else if(restartBody>=0){flight.startOrbit((BodyId)restartBody);flight.weatherPreset=(int)visuals.weather;}

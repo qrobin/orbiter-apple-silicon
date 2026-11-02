@@ -11,7 +11,7 @@ add_library(OrbiterFlightCore STATIC
     ${PROJECT_SOURCE_DIR}/Src/Celbody/Moon/ELP82.cpp
     ${PROJECT_SOURCE_DIR}/Src/Celbody/Galsat/Lieske.cpp
     ${PROJECT_SOURCE_DIR}/Src/Celbody/Satsat/Tass17.cpp
-    Flight.cpp Mesh.cpp Glider.cpp Aerodynamics.cpp Weather.cpp Cockpit.cpp Surface.cpp Base.cpp Hover.cpp Exhaust.cpp Camera.cpp ISS.cpp)
+    Flight.cpp Mesh.cpp Glider.cpp Aerodynamics.cpp Weather.cpp Cockpit.cpp CockpitInstruments.cpp Surface.cpp Base.cpp Hover.cpp Exhaust.cpp Camera.cpp ISS.cpp)
 target_include_directories(OrbiterFlightCore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${CORE})
 target_compile_definitions(OrbiterFlightCore PUBLIC ORBITER_NATIVE=1)
 target_compile_options(OrbiterFlightCore PRIVATE -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable)
@@ -245,3 +245,8 @@ target_compile_definitions(VesselWaterReflectionTests PRIVATE ORBITER_TEST_DATA=
 target_link_libraries(VesselWaterReflectionTests PRIVATE "-framework Foundation" "-framework Metal")
 add_test(NAME Native.VesselWaterReflectionMetal COMMAND VesselWaterReflectionTests)
 set_tests_properties(Native.VesselWaterReflectionMetal PROPERTIES SKIP_RETURN_CODE 77)
+
+add_executable(CockpitInstrumentsTests Tests/CockpitInstrumentsTests.cpp)
+target_link_libraries(CockpitInstrumentsTests PRIVATE OrbiterFlightCore)
+target_compile_definitions(CockpitInstrumentsTests PRIVATE ORBITER_TEST_DATA="${PROJECT_SOURCE_DIR}")
+add_test(NAME Native.CockpitInstruments COMMAND CockpitInstrumentsTests)
