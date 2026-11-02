@@ -28,8 +28,9 @@ int main(){try {
     auto mainJet=gliderExhaust(windy).front();Vector axis=windy.right*mainJet.direction.x+windy.up*mainJet.direction.y+windy.forward*mainJet.direction.z;
     Vector ambient=windy.velocity-windy.airRelativeVelocity();windy.velocity=ambient+windy.right*80;
     Vector drift=flameWindDrift(windy,mainJet,12);
-    check(dotp(drift,windy.right)<-1&&fabs(dotp(drift,axis))<1e-8,"Atmospheric airflow bends the flame downwind across its axis");
-    windy.velocity=ambient-windy.right*80;check(dotp(flameWindDrift(windy,mainJet,12),windy.right)>1,"Reversing airflow reverses flame drift");
+    check(dotp(drift,windy.right)<-.1&&drift.length()<1.44&&fabs(dotp(drift,axis))<1e-8,"Crosswind deflects the high-speed jet slightly without turning it sideways");
+    windy.velocity=ambient-windy.right*80;check(dotp(flameWindDrift(windy,mainJet,12),windy.right)>.1,"Reversing airflow reverses flame drift");
+    windy.velocity=ambient+windy.right*10000;check(flameWindDrift(windy,mainJet,12).length()<=1.44+1e-8,"Even extreme airflow cannot bend the flame excessively");
     windy.position={EarthRadius+400000,0,0};check(flameWindDrift(windy,mainJet,12).length()<.01,"Flame wind drift vanishes in vacuum");
     f.cutEngines();
     for(int axis=0;axis<3;++axis)for(double sign:{-1.,1.}) {

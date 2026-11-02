@@ -88,10 +88,10 @@ int main(){@autoreleasepool{
     auto quickly=render(side,30.03,0,false,0);size_t rapidChanges=0;
     for(size_t i=0;i<first.size();i+=4)if(first[i]!=quickly[i]||first[i+1]!=quickly[i+1]||first[i+2]!=quickly[i+2])++rapidChanges;
     require(rapidChanges>20,"Combustion flow changes visibly within a few frames");
-    EmitterUniforms windUp=side,windDown=side;windUp.windPhase={0,4,0,0};windDown.windPhase={0,-4,0,0};
+    EmitterUniforms windUp=side,windDown=side;windUp.windPhase={0,1,0,0};windDown.windPhase={0,-1,0,0};
     auto upFlame=render(windUp,30,0,false,0),downFlame=render(windDown,30,0,false,0);
     auto verticalMoment=[&](const std::vector<unsigned char>&pixels){double sum=0,weighted=0;for(size_t y=0;y<height;++y)for(size_t x=0;x<width;++x){size_t i=(y*width+x)*4;double b=pixels[i]+pixels[i+1]+pixels[i+2];sum+=b;weighted+=b*y;}return weighted/std::max(1.,sum);};
-    require(fabs(verticalMoment(upFlame)-verticalMoment(downFlame))>2,"Opposite crosswinds visibly bend the flame in opposite directions");
+    require(fabs(verticalMoment(upFlame)-verticalMoment(downFlame))>.5,"Opposite crosswinds gently deflect the flame in opposite directions");
     EmitterUniforms endOn{{0,0,32,1},{0,0,-1,.8f},{0,12,100,.035f}};
     require(energy(render(endOn,30,0,false,0))>1000,"End-on flame must remain visible");
     require(energy(render(endOn,30,.2f/26,false,0))>200,"A flame in front of nearby geometry must remain partially visible");

@@ -988,16 +988,16 @@ fragment float4 flameFragment(FlameRaster in [[stage_in]],constant FrameUniforms
     for(int i=0;i<16&&trans>.015;++i){
         float t=start+(float(i)+.5)*stepLength;float3 local=ro+ray*t;
         float along=saturate(dot(local,axis)/len);float3 lateral=local-axis*dot(local,axis);
-        float phase=in.windPhase.w,flow=along*11-in.time*10+phase;
+        float phase=in.windPhase.w,flow=along*16-in.time*18+phase;
         float sway=along*in.properties.x;
         lateral-=in.windPhase.xyz*(along*along);
-        lateral-=sway*(basis*(.36*sin(flow)+.18*sin(flow*1.8+phase))+second*(.30*cos(flow*.83+phase)+.16*sin(flow*1.6)));
-        float width=in.properties.x*(.90+along*(1.0+in.properties.w*3))*pow(max(.001f,1-along),.35f);
+        lateral-=sway*(basis*(.08*sin(flow)+.04*sin(flow*1.8+phase))+second*(.07*cos(flow*.83+phase)+.03*sin(flow*1.6)));
+        float width=in.properties.x*(.90+along*(.55+in.properties.w*2))*pow(max(.001f,1-along),.35f);
         float2 crossSection=float2(dot(lateral,basis),dot(lateral,second))/max(.001f,width);
         // Advect the turbulent combustion pattern rapidly away from the nozzle.
         float3 samplePoint=float3(along*5-fmod(in.time*24,16.0f)+phase,crossSection*1.4+fmod(in.time*1.1,16.0f));
         float n=noise.sample(s,samplePoint).g,detail=noise.sample(s,samplePoint*2.2+float3(3,1,7)).b;
-        float r=length(crossSection),edge=1-smoothstep(.48f,1.08f,r+(n-.5)*(.65+along*.65)+(detail-.5)*.32);
+        float r=length(crossSection),edge=1-smoothstep(.48f,1.08f,r+(n-.5)*(.42+along*.28)+(detail-.5)*.20);
         float density=edge*(.18+.82*smoothstep(.20f,.72f,n*.72+detail*.28))*(1-smoothstep(.82f,1.0f,along));
         float core=(1-smoothstep(.08f,.75f,r))*(1-along*.55);
         float shock=.90+.10*cos(along*12*M_PI_F-in.time*12)*(1-saturate(in.properties.w*5));

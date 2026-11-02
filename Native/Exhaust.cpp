@@ -59,8 +59,9 @@ Vector flameWindDrift(const Flight &f,const ExhaustEmitter &jet,double length){
     Vector airflow=-f.airRelativeVelocity()-crossp(world(f.angularVelocity),offset);
     Vector lateral=airflow-axis*dotp(airflow,axis);
     double density=std::clamp(bodyAtmosphere(f.reference,f.altitude()).rho/1.225,0.,1.);
-    Vector drift=lateral*(length*sqrt(density)/plumeShape(f,jet.kind).speed*2.);
-    double limit=length*.65,magnitude=drift.length();
+    // Fast exhaust resists crosswinds: keep the bright jet nearly axial.
+    Vector drift=lateral*(length*sqrt(density)/plumeShape(f,jet.kind).speed*.2);
+    double limit=length*.12,magnitude=drift.length();
     if(magnitude>limit)drift*=limit/magnitude;
     return drift;
 }
