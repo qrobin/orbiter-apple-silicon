@@ -27,8 +27,17 @@ longitude shift and tint. It is contrast-enhanced and does not represent
 uniform surface brightness. Credit: NASA/JPL-Caltech/Space Science Institute;
 https://science.nasa.gov/photojournal/map-of-enceladus-december-2011/.
 
-Moon textures for Phobos, Deimos, Io, Ganymede, Callisto, Mimas,
-Tethys, Dione, Rhea, Iapetus, Ariel, Umbriel, Titania, Oberon,
+Mimas and Dione use 5760 × 2880 Cassini mosaics and Rhea uses a 2880 × 1440
+Cassini/Voyager mosaic. They are tinted and shifted in longitude; Dione is
+cropped from the published map, and dark missing pixels use the previous map.
+These contrast-enhanced mosaics contain uneven detail and brightness.
+Credit: NASA/JPL-Caltech/Space Science Institute:
+https://science.nasa.gov/photojournal/map-of-mimas-june-2012/,
+https://science.nasa.gov/photojournal/map-of-dione-may-2008/ and
+https://science.nasa.gov/photojournal/map-of-rhea-february-2010/.
+
+Moon textures for Phobos, Deimos, Io, Ganymede, Callisto,
+Tethys, Iapetus, Ariel, Umbriel, Titania, Oberon,
 Miranda and Triton derive from NASA/JPL/Caltech/USGS Solar System Simulator
 mosaics: https://maps.jpl.nasa.gov/tmaps/. Original mosaics are generally
 1440 × 720, based on Voyager and in some cases Galileo imagery. They were
