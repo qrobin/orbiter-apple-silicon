@@ -6,6 +6,9 @@ file(COPY "${src}/Src/Vessel/ISS/Meshes/ProjectAlpha_ISS.msh" DESTINATION "${dst
 file(COPY "${src}/Src/Vessel/ISS/Textures/" DESTINATION "${dst}/Textures/ISS")
 file(COPY "${src}/Src/Vessel/DeltaGlider/Textures/" DESTINATION "${dst}/Textures/DG")
 file(COPY "${src}/Src/Vessel/DeltaGlider/Textures2/dgmk4_1.dds" "${src}/Src/Vessel/DeltaGlider/Textures2/dgmk4_2.dds" "${src}/Src/Vessel/DeltaGlider/Textures2/dgmk4_2_ns.dds" DESTINATION "${dst}/Textures/DG")
+# Apply the generated atlas to both the shared and native exterior mesh variants.
+configure_file("${src}/Native/GliderTextures/dgmk4_2.dds" "${dst}/Textures/DG/dgmk4_2.dds" COPYONLY)
+configure_file("${src}/Native/GliderTextures/dgmk4_2.dds" "${dst}/Textures/DG/dgmk4_2_ns.dds" COPYONLY)
 file(COPY "${src}/Scenarios/Delta-glider/DG Mk4 in orbit.scn" DESTINATION "${dst}/Scenarios")
 file(COPY "${src}/Native/macOS/Shaders.metal" "${src}/Native/macOS/NativeVisuals.metal" "${src}/Native/macOS/SolarSystem.metal" "${src}/Native/macOS/RayShadows.metal" "${src}/Native/macOS/VisualTypes.h" "${src}/LICENSE" DESTINATION "${dst}")
 file(COPY "${src}/Native/Assets/" DESTINATION "${dst}")

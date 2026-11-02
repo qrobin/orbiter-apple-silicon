@@ -26,6 +26,7 @@ set_target_properties(OrbiterNative PROPERTIES
     MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_SOURCE_DIR}/macOS/Info.plist.in)
 file(GLOB_RECURSE NATIVE_ASSET_INPUTS CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/Assets/*
+    ${CMAKE_CURRENT_SOURCE_DIR}/GliderTextures/*
     ${PROJECT_SOURCE_DIR}/Src/Vessel/DeltaGlider/Textures/*
     ${PROJECT_SOURCE_DIR}/Src/Vessel/DeltaGlider/Textures2/*.dds
     ${PROJECT_SOURCE_DIR}/Src/Vessel/ISS/Textures/*)

@@ -227,6 +227,8 @@ The native panel is a separate macOS window. Click the flight window to return k
 
 ## Build
 
+The native build uses a generated 1254 × 1254 replacement for the Delta-glider's second exterior texture atlas. It is based on the original atlas, but some markings and panels may not line up exactly with the mesh; the other exterior atlas remains original. The upstream texture files are retained under `Src/Vessel/DeltaGlider/Textures2`.
+
 Requires Apple Silicon, macOS 13+, Xcode command-line tools and CMake 3.19+. The native build fetches no dependencies and links only Apple system frameworks/libraries.
 
 ```sh
