@@ -19,7 +19,8 @@
     NSTextField *hoverPitchLabel,*hoverBankLabel,*holdTarget,*holdTargetLabel,*hoverReadout;
     NSButton *captureHoldTarget;
     NSNumberFormatter *holdFormatter;
-    NSSegmentedControl *rcsSelector;
+    NSSegmentedControl *rcsSelector,*landingSelector,*cabinSelector;
+    NSSlider *cabinBrightness;
     NSTimer *refreshTimer;
 }
 - (instancetype)initWithFlightView:(FlightView *)view;
@@ -34,7 +35,7 @@
     panel.releasedWhenClosed=NO;
     NSScrollView *scroll=[[NSScrollView alloc] initWithFrame:NSMakeRect(0,0,440,690)];
     scroll.hasVerticalScroller=YES; scroll.autohidesScrollers=YES;
-    FlippedGliderDocument *doc=[[FlippedGliderDocument alloc] initWithFrame:NSMakeRect(0,0,420,2126)];
+    FlippedGliderDocument *doc=[[FlippedGliderDocument alloc] initWithFrame:NSMakeRect(0,0,420,2280)];
     scroll.documentView=doc; panel.contentView=scroll;
     mechanismButtons=[NSMutableArray new]; mechanismValues=[NSMutableArray new];
     engineSliders=[NSMutableArray new]; engineValues=[NSMutableArray new]; switches=[NSMutableArray new];
@@ -70,7 +71,7 @@
     cut.frame=NSMakeRect(18,854,384,28); [doc addSubview:cut];
     section(@"Cabin and airlock",906);
     pressure=label(@"",18,936,390);
-    NSArray *switchTitles=@[@"Cabin pressure supply",@"Cabin vent",@"Cabin–airlock equalization",@"Airlock vent",@"Airlock pressure supply",@"Coolant pump",@"Navigation lights",@"Red beacons",@"White strobes",@"Landing / docking light",@"Cockpit illumination"];
+    NSArray *switchTitles=@[@"Cabin pressure supply",@"Cabin vent",@"Cabin–airlock equalization",@"Airlock vent",@"Airlock pressure supply",@"Coolant pump",@"Navigation lights",@"Red beacons",@"White strobes",@"Landing / docking light enabled",@"Instrument lighting"];
     for(NSUInteger i=0;i<switchTitles.count;++i) {
         CGFloat y=i<5?966+i*27:1168+(i-5)*27;
         NSButton *button=[NSButton checkboxWithTitle:switchTitles[i] target:self action:@selector(changeSwitch:)];
@@ -120,6 +121,15 @@
         NSButton *capture=[NSButton buttonWithTitle:@"Use current" target:self action:@selector(captureAirTarget:)];capture.frame=NSMakeRect(292,y,110,26);capture.tag=i;[capture setAccessibilityLabel:[NSString stringWithFormat:@"Capture current %@",airLabels[i]]];[doc addSubview:capture];
     }
     airReadout=label(@"",18,237,384,11);airReadout.frame=NSMakeRect(18,237,384,61);airReadout.maximumNumberOfLines=3;
+    section(@"Vessel lighting",2140);
+    label(@"Landing / docking",18,2176,140);
+    landingSelector=[NSSegmentedControl segmentedControlWithLabels:@[@"Off",@"Dock",@"Land"] trackingMode:NSSegmentSwitchTrackingSelectOne target:self action:@selector(changeLandingLight:)];
+    landingSelector.frame=NSMakeRect(155,2172,245,28);[landingSelector setAccessibilityLabel:@"Landing and docking light mode"];[doc addSubview:landingSelector];
+    label(@"Cabin floodlight",18,2212,140);
+    cabinSelector=[NSSegmentedControl segmentedControlWithLabels:@[@"Off",@"White",@"Red"] trackingMode:NSSegmentSwitchTrackingSelectOne target:self action:@selector(changeCabinLight:)];
+    cabinSelector.frame=NSMakeRect(155,2208,245,28);[cabinSelector setAccessibilityLabel:@"Cabin floodlight mode"];[doc addSubview:cabinSelector];
+    label(@"Cabin brightness",18,2246,140);cabinBrightness=[NSSlider sliderWithValue:.7 minValue:0 maxValue:1 target:self action:@selector(changeCabinBrightness:)];
+    cabinBrightness.frame=NSMakeRect(155,2244,245,20);[cabinBrightness setAccessibilityLabel:@"Cabin floodlight brightness"];[doc addSubview:cabinBrightness];
     [self refresh:nil];
     refreshTimer=[NSTimer scheduledTimerWithTimeInterval:.2 target:self selector:@selector(refresh:) userInfo:nil repeats:YES];
     [panel center]; return self;
@@ -164,7 +174,7 @@
     holdButton.toolTip=@"Requires main propellant and flight over a solid body below 120 km. Manual hover throttle or Cut Engines disengages hold.";
     hoverReadout.stringValue=[NSString stringWithFormat:@"Pitch %+.1f°  Bank %+.1f°  Vertical %+.2f m/s\nEngines F %.0f%%  L %.0f%%  R %.0f%%\n%@",Deg(f.pitch()),Deg(f.bank()),f.surfaceVerticalSpeed(),h.levels[0]*100,h.levels[1]*100,h.levels[2]*100,h.attitudeLimited?@"Attitude outside 30° control range":h.thrustLimited?@"Thrust at limit — target may be unreachable":h.holdActive?@"Hold engaged · X cuts engines":@"Hold off · manual hover throttle"];
     hoverReadout.textColor=(h.attitudeLimited||h.thrustLimited)?[NSColor colorWithRed:1 green:.72 blue:.36 alpha:1]:NSColor.labelColor;
-    rcsSelector.selectedSegment=g.rcsMode;
+    rcsSelector.selectedSegment=g.rcsMode;landingSelector.selectedSegment=g.landingLight?std::max(1,g.landingLightMode):0;cabinSelector.selectedSegment=g.cabinLightMode;cabinBrightness.doubleValue=g.cabinLightBrightness;
     pressure.stringValue=[NSString stringWithFormat:@"Cabin %.1f kPa    Airlock %.1f kPa",g.cabinPressure/1000,g.lockPressure/1000];
     thermal.stringValue=[NSString stringWithFormat:@"Coolant %.1f K    Cabin %.1f K",g.coolantTemperature,g.cabinTemperature];
     bool states[]={g.valves[0],g.valves[1],g.valves[2],g.valves[3],g.valves[4],g.coolantPump,g.navLights,g.beacons,g.strobes,g.landingLight,g.instrumentLights};
@@ -218,10 +228,14 @@
 - (void)toggleHoverHold:(id)sender {[flightView toggleHoverHold:nil];[self refresh:nil];}
 - (void)changeParkingBrake:(NSButton *)sender {flightView->flight.glider.parkingBrake=sender.state==NSControlStateValueOn;}
 - (void)changeRCS:(NSSegmentedControl *)sender { flightView->flight.glider.rcsMode=(int)sender.selectedSegment; }
+- (void)changeLandingLight:(NSSegmentedControl *)sender {auto &g=flightView->flight.glider;g.landingLightMode=(int)sender.selectedSegment;g.landingLight=g.landingLightMode!=0;}
+- (void)changeCabinLight:(NSSegmentedControl *)sender {flightView->flight.glider.cabinLightMode=(int)sender.selectedSegment;}
+- (void)changeCabinBrightness:(NSSlider *)sender {flightView->flight.glider.cabinLightBrightness=sender.doubleValue;}
 - (void)changeSwitch:(NSButton *)sender {
     auto &g=flightView->flight.glider;
     bool *values[]={&g.valves[0],&g.valves[1],&g.valves[2],&g.valves[3],&g.valves[4],&g.coolantPump,&g.navLights,&g.beacons,&g.strobes,&g.landingLight,&g.instrumentLights};
     *values[sender.tag]=sender.state==NSControlStateValueOn;
+    if(sender.tag==9)g.landingLightMode=g.landingLight?std::max(1,g.landingLightMode):0;
 }
 - (void)cutEngines:(id)sender { flightView->flight.cutEngines();[self refresh:nil]; }
 @end

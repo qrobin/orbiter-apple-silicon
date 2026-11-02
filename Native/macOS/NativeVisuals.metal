@@ -4,6 +4,23 @@ float solarIntensity(constant FrameUniforms &f);
 struct AirLight {float3 transmission,scattering;};
 AirLight earthAirLight(constant FrameUniforms &f,float3 ray,float maximumDistance);
 float3 planetMaterial(float3 n,float2 uv,float3 color,int id,bool mapped,texture2d<float> map);
+// Local vessel emitters illuminate surfaces in camera-relative metres. The
+// final component distinguishes the cabin floodlight from exterior lights.
+float3 vesselIllumination(constant FrameUniforms &f,float3 point,float3 normal,bool cockpit){
+    float3 result=0;
+    for(int i=0;i<12;++i){
+        VesselLight l=f.vesselLights[i];
+        if(l.colorIntensity.w<=0||((l.attenuationInner.w>0.5f)!=cockpit))continue;
+        float3 delta=l.positionRange.xyz-point;float distance=length(delta);
+        if(distance>=l.positionRange.w||distance<.001f)continue;
+        float3 toward=delta/distance;float cone=1;
+        if(l.directionOuter.w>-1.0f)cone=smoothstep(l.directionOuter.w,l.attenuationInner.z,dot(-toward,l.directionOuter.xyz));
+        float falloff=1-smoothstep(l.positionRange.w*.85f,l.positionRange.w,distance);
+        float attenuation=max(.001f,l.attenuationInner.x+l.attenuationInner.y*distance*distance);
+        result+=l.colorIntensity.rgb*l.colorIntensity.w*max(0.0f,dot(normal,toward))*cone*falloff/attenuation;
+    }
+    return result;
+}
 // An artistic apparent-size boost: strongest through dense air near the
 // horizon, and smoothly absent above the atmosphere.
 float atmosphericDiscScale(constant FrameUniforms &f,float3 direction){
@@ -229,6 +246,7 @@ fragment float4 terrainFragment(TerrainRaster in [[stage_in]],constant FrameUnif
     float footprint=max(length(dfdx(in.local)),length(dfdy(in.local)));
     float grain=mix(.5f,terrainNoise(in.local*(in.material<.5f?float3(18,1.8,18):float3(9))),1-smoothstep(.15f,.7f,footprint));
     float3 color=in.color*(.78f+grain*.44f)*(.01f+day*(in.material<1.5f?.23f:.16f)+light*.8f);
+    color+=in.color*vesselIllumination(f,in.world,normal,false);
     if(in.material>2.5f)color+=in.color*day*.1f; // Thin blades transmit skylight.
     AirLight air=earthAirLight(f,normalize(in.world),length(in.world));
     return float4(color*air.transmission+air.scattering,1);
@@ -426,7 +444,7 @@ fragment float4 groundFragment(GroundRaster in [[stage_in]],constant FrameUnifor
     float day=smoothstep(-.08f,.12f,dot(in.normal,f.sun.xyz))*f.sun.w;
     float shadow=earthBody?shadows.sample(screen,in.position.xy/f.screen.xy).r:1.0f;
     float light=max(0.0f,dot(n,f.sun.xyz))*f.sun.w*shadow*solarIntensity(f);
-    float3 color=albedo*(.012+day*.15+light*.85);
+    float3 color=albedo*(.012+day*.15+light*.85)+albedo*vesselIllumination(f,in.world,n,false);
     if(earthBody){float distance=length(in.world);AirLight air=earthAirLight(f,normalize(in.world),distance);color=color*air.transmission+air.scattering;}
     else if(f.body.y>0){
         float3 ray=normalize(in.world),camera=normalize(f.position.xyz);

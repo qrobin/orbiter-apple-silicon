@@ -37,6 +37,8 @@ public:
     bool parkingBrake=false;
     bool coolantPump=true,navLights=false,beacons=false,strobes=false,landingLight=false,instrumentLights=true;
     std::array<bool,5> valves{};
+    int landingLightMode=0,cabinLightMode=0; // off, docking/white, landing/red
+    double cabinLightBrightness=.7;
     int rcsMode=1; // 0 off, 1 rotation, 2 translation
     double mainLevel=0,retroLevel=0,hoverLevel=0;
     Vector rcsRotation,rcsTranslation;

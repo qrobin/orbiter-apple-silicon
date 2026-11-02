@@ -221,3 +221,11 @@ target_link_libraries(RoutePanelTests PRIVATE NativeTransX "-framework Cocoa" "-
 add_test(NAME Native.RoutePanel COMMAND RoutePanelTests)
 
 target_link_libraries(OrbiterNative PRIVATE NativeTransX)
+
+add_executable(VesselLightRenderTests Tests/VesselLightRenderTests.mm)
+target_include_directories(VesselLightRenderTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/macOS)
+target_compile_options(VesselLightRenderTests PRIVATE -fobjc-arc)
+target_compile_definitions(VesselLightRenderTests PRIVATE ORBITER_TEST_DATA="${PROJECT_SOURCE_DIR}")
+target_link_libraries(VesselLightRenderTests PRIVATE "-framework Foundation" "-framework Metal")
+add_test(NAME Native.VesselLightMetal COMMAND VesselLightRenderTests)
+set_tests_properties(Native.VesselLightMetal PROPERTIES SKIP_RETURN_CODE 77)

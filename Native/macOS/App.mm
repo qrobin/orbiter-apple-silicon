@@ -535,6 +535,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     if(increase!=decrease)flight.setMainThrottle(flight.throttle+dt*.4*(increase?1:-1));
     if((input.pitch||input.yaw||input.roll)&&flight.glider.rcsMode!=2) flight.clearAssist();
     if(smokeFrames&&rcsDemo){input.pitch=.3;input.yaw=-.15;input.roll=.2;flight.clearAssist();}
+    if(activeCockpitControl==22)flight.glider.cabinLightBrightness=std::clamp(flight.glider.cabinLightBrightness+activeCockpitDirection*dt*.3,0.,1.);
     if(activeCockpitControl==62){flight.hud.adjustBrightness(activeCockpitDirection*dt*.3);self.hud.needsDisplay=YES;}
     if(activeCockpitControl>=100&&activeCockpitControl<124&&transxSession){int id=activeCockpitControl-100,b=id%12;if(b==8||b==9)transxSession->button(id/12,b,true);}
     if(panelView)[self.panel2D tick];
@@ -573,6 +574,34 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     uniforms.weather={(float)flight.weatherPreset,(float)weather.storm,(float)weather.rain,(float)weather.flash};
     Vector cameraAir=freeCamera.active?-crossp(flight.centralBody().spin(),freeCamera.position)-weather.wind:flight.airRelativeVelocity();
     uniforms.weatherWind=f4(cameraAir);uniforms.lightning=f4(weather.lightning-flight.position-offset,(float)weather.flash);
+    // Original DG emitter positions and attenuation, with modest marker-light
+    // intensities for the navigation and flashing beacons.
+    auto localWorld=[&](Vector v){return flight.right*v.x+flight.up*v.y+flight.forward*v.z;};
+    size_t lightCount=0;
+    auto addLight=[&](Vector p,Vector direction,float range,Vector color,float intensity,float constant,float quadratic,float inner,float outer,bool cabin=false){
+        if(lightCount>=12||intensity<=0)return;
+        auto &l=uniforms.vesselLights[lightCount++];l.positionRange=f4(localWorld(p)-offset,range);
+        l.directionOuter=f4(localWorld(direction),outer);l.colorIntensity=f4(color,intensity);
+        l.attenuationInner={constant,quadratic,inner,cabin?1.f:0.f};
+    };
+    auto &lights=flight.glider;
+    if(lights.navLights){
+        addLight({-8.6,0,-3.3},{},18,{1,.15,.10},.35,1,.25,0,-1);
+        addLight({8.6,0,-3.3},{},18,{.12,1,.2},.35,1,.25,0,-1);
+        addLight({0,.5,-7.5},{},18,{1,1,1},.25,1,.25,0,-1);
+    }
+    if(lights.beacons&&fmod(flight.elapsed,2)<.15)for(double y:{2.2,-1.4})addLight({0,y,2},{},30,{1,.12,.08},1.2,1,.18,0,-1);
+    if(lights.strobes&&fmod(flight.elapsed,1.13)<.08)for(double x:{-8.9,8.9})addLight({x,2.5,-5.4},{},35,{1,1,1},2,1,.15,0,-1);
+    if(lights.landingLight){
+        addLight({2.5,-.5,6.5},{},18,{1,.95,.75},.35,1,.25,0,-1);
+        if(lights.landingLightMode==2)addLight({.1,-.3,7.5},{0,sin(-10*RAD),cos(-10*RAD)},5000,{1,.96,.86},.012,.001,2e-7,cos(12.5*RAD),cos(20*RAD));
+        else addLight({.3,.3,8.5},{0,0,1},150,{1,.97,.90},.012,.001,.001,cos(15*RAD),cos(30*RAD));
+    }
+    addLight({0,0,-10},{},200,{.9,.8,1},(float)lights.mainLevel*.012,.001,.002,0,-1);
+    if(cockpit&&!panelView&&lights.cabinLightMode){
+        Vector color=lights.cabinLightMode==1?Vector(1,1,1):Vector(.6,.05,0);
+        addLight({0,1.65,6.68},{},3,color,(float)(.2+.8*lights.cabinLightBrightness),0,3,0,-1,true);
+    }
     [visuals prepare:&uniforms width:drawable.texture.width height:drawable.texture.height];
     ObjectUniforms object={};
     object.model.columns[0]=f4(flight.right); object.model.columns[1]=f4(flight.up); object.model.columns[2]=f4(flight.forward); object.model.columns[3]=f4(-offset,1);
@@ -606,7 +635,10 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
                 enabled=values[sw.action-10];
             }
             auto &hover=g.hoverControl;double amount=(enabled?1:-1)*28*RAD;bool lit=false;Vector axis=sw.axis;
-            if(sw.action==30)amount=(1-g.rcsMode)*50*RAD;
+            if(sw.action==19)amount=(g.landingLight?(g.landingLightMode==2?-1:1):0)*28*RAD;
+            else if(sw.action==22)amount=-280*RAD*g.cabinLightBrightness;
+            else if(sw.action==21)amount=(g.cabinLightMode==2?-1:g.cabinLightMode==1?1:0)*28*RAD;
+            else if(sw.action==30)amount=(1-g.rcsMode)*50*RAD;
             else if(sw.action==40)amount=(1-hover.attitudeMode)*50*RAD;
             else if(sw.action>=41&&sw.action<=43)amount=activeCockpitControl==sw.action?activeCockpitDirection*15*RAD:0;
             else if(sw.action==45)amount=activeCockpitControl==45?.004:0;
@@ -683,7 +715,13 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
             local.columns[2]=f4({t.rotation.m13,t.rotation.m23,t.rotation.m33});local.columns[3]=f4(t.translation,1);
             object.model=simd_mul(vesselModel,local);object.options={0,(cockpit&&g.index!=77)?0.f:-1.f,(float)g.index,cockpit?(float)switchData.size():0.f};
             object.color={mat.diffuse[0],mat.diffuse[1],mat.diffuse[2],mat.diffuse[3]};
-            object.specular={mat.specular[0],mat.specular[1],mat.specular[2],mat.power};float emission=cockpit&&flight.glider.instrumentLights?.08f:0.f;object.emission={mat.emissive[0]*emission,mat.emissive[1]*emission,mat.emissive[2]*emission,0};
+            // Dark, neutral painted panels retain the original texture and markings.
+            if(cockpit&&(g.index==85||g.index==100||g.index==101)){object.color.x*=.30f;object.color.y*=.31f;object.color.z*=.32f;}
+            object.specular={mat.specular[0],mat.specular[1],mat.specular[2],mat.power};float emission=cockpit&&flight.glider.instrumentLights?.08f:0.f;object.emission={mat.emissive[0]*emission,mat.emissive[1]*emission,mat.emissive[2]*emission,cockpit?1.f:0.f};
+            // The original VC textures supply panel markings and colour; give
+            // opaque surfaces a restrained satin highlight where the mesh has none.
+            if(cockpit&&g.index!=77&&mat.diffuse[3]>=.99f&&object.specular.w<1){object.specular={.16f,.16f,.16f,24};}
+            if(cockpit&&(g.index==85||g.index==100||g.index==101))object.specular={.12f,.12f,.12f,32};
             if(cockpit&&g.index==77)object.options.x=6;
             if(label){object.color={1,1,1,1};object.options.x=4;}
             [encoder setVertexBuffer:g.vertices offset:0 atIndex:0];[encoder setVertexBytes:&object length:sizeof(object) atIndex:2];
@@ -1184,6 +1222,9 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     if(hit.action>=100&&hit.action<124){int id=hit.action-100;[self operateTransXButton:id%12 display:id/12];activeCockpitControl=hit.action;return;}
     if(hit.action<0)return;
     if(hit.action<9) g.toggle(static_cast<Part>(hit.action));
+    else if(hit.action==19){g.landingLightMode=std::clamp((g.landingLight?std::max(1,g.landingLightMode):0)+(hit.v>.5?-1:1),0,2);g.landingLight=g.landingLightMode!=0;}
+    else if(hit.action==21){g.cabinLightMode=std::clamp(g.cabinLightMode+(hit.v>.5?-1:1),0,2);}
+    else if(hit.action==22){activeCockpitControl=22;activeCockpitDirection=hit.u>.5?1:-1;g.cabinLightBrightness=std::clamp(g.cabinLightBrightness+activeCockpitDirection*.04,0.,1.);}
     else if(hit.action>=10&&hit.action<=20) {
         bool *values[]={&g.valves[0],&g.valves[1],&g.valves[2],&g.valves[3],&g.valves[4],&g.coolantPump,&g.navLights,&g.beacons,&g.strobes,&g.landingLight,&g.instrumentLights};
         *values[hit.action-10]=!*values[hit.action-10];
@@ -1217,6 +1258,7 @@ static void line(CGFloat x,CGFloat y,CGFloat x2,CGFloat y2,NSColor *color,CGFloa
     double deltaX=event.deltaX,deltaY=event.deltaY;NSPoint point=event.locationInWindow;
     if(!deltaX&&!deltaY&&haveDragPoint){deltaX=point.x-lastDragPoint.x;deltaY=lastDragPoint.y-point.y;}
     lastDragPoint=point;haveDragPoint=true;
+    if(activeCockpitControl==22)return;
     if(activeCockpitControl>=200&&activeCockpitControl<202){[self rotateTransXGraph:activeCockpitControl-200 horizontal:deltaX vertical:deltaY];return;}
     if(activeCockpitControl>=100)return;
     if(activeCockpitControl==34||activeCockpitControl==35) {

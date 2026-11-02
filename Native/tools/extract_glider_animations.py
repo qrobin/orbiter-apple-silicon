@@ -64,7 +64,7 @@ for filename in ['GearSubsys.cpp','DockingSubsys.cpp','PressureSubsys.cpp','Ther
 print(f'Extracted {count} animation components from original source.')
 # Cockpit click quadrilaterals, in the original vessel coordinate frame.
 zone_map={'VC_GEARLEVER':0,'VC_NCONELEVER':1,'VC_ELADDER_SWITCH':2,'VC_OLOCK_SWITCH':3,'VC_ILOCK_SWITCH':4,'VC_HATCH_SWITCH':5,'VC_RADIATOR_SWITCH':6,'VC_RCOVER_SWITCH':7,'VC_AIRBRAKELEVER':8,
-'VC_CABIN_O2_SWITCH':10,'VC_VALVE1_SWITCH':11,'VC_VALVE2_SWITCH':12,'VC_VALVE3_SWITCH':13,'VC_LOCK_O2_SWITCH':14,'VC_PUMP_SWITCH':15,'VC_NAVLIGHT_SWITCH':16,'VC_STROBELIGHT_SWITCH':18,'VC_LANDINGLIGHT_SWITCH':19,'VC_INSTRLIGHT_SWITCH':20,
+'VC_CABIN_O2_SWITCH':10,'VC_VALVE1_SWITCH':11,'VC_VALVE2_SWITCH':12,'VC_VALVE3_SWITCH':13,'VC_LOCK_O2_SWITCH':14,'VC_PUMP_SWITCH':15,'VC_NAVLIGHT_SWITCH':16,'VC_STROBELIGHT_SWITCH':18,'VC_LANDINGLIGHT_SWITCH':19,'VC_INSTRLIGHT_SWITCH':20,'VC_FLOODLIGHT_SWITCH':21,'VC_FLOOD_BRIGHTNESS':22,
 'VC_HOVER_DIAL':40,'VC_HOVER_PSWITCH':41,'VC_HOVER_RSWITCH':42,'VC_HOVER_HOLDALT_SWITCH':43,'VC_HOVERMODE_BUTTONS':44,'VC_RCS_DIAL':30,'VC_ETRIMWHEEL':31,'VC_GIMBAL_PSWITCH':32,'VC_GIMBAL_YSWITCH':33,
 'VC_NAV_BUTTONS':60,'VC_HUD_BUTTONS':61,'VC_HUD_BRIGHTNESS':62}
 zones=['// Original cockpit click areas. Copyright (c) Martin Schweiger. MIT License.']
@@ -124,7 +124,7 @@ for groupname,actionbase,count in [('HUDMODE',80,3),('NAVMODE',70,6)]:
         axis='{'+','.join(str(num(n)) for n in vectors[prefix+'_axis'])+'}'
         for group,first,nv,motion in [('GRP_BUTTON3_VC',offsets[prefix],20,1),('GRP_LIT_SURF_VC',offsets[prefix+'_LABEL'],8,2)]:
             switches.append('{'+f'{action},{int(symbols[group])},{first},{nv},{pivot},{axis},{motion}'+'}, // '+prefix)
-for prefix,action,group,first,count,motion in [('VC_HUD_BRIGHTNESS',62,'GRP_HUD_BRIGHTNESS_VC',0,34,0),('VC_HUD_COLBUTTON',63,'GRP_BUTTON2_VC',offsets['VC_HUD_COLBUTTON'],20,1)]:
+for prefix,action,group,first,count,motion in [('VC_FLOOD_BRIGHTNESS',22,'GRP_FLOOD_BRIGHTNESS_VC',0,34,0),('VC_HUD_BRIGHTNESS',62,'GRP_HUD_BRIGHTNESS_VC',0,34,0),('VC_HUD_COLBUTTON',63,'GRP_BUTTON2_VC',offsets['VC_HUD_COLBUTTON'],20,1)]:
     pivot='{'+','.join(str(num(n)) for n in vectors[prefix+'_ref'])+'}'
     axis='{'+','.join(str(num(n)) for n in vectors[prefix+'_axis'])+'}'
     switches.append('{'+f'{action},{int(symbols[group])},{first},{count},{pivot},{axis},{motion}'+'}, // '+prefix)

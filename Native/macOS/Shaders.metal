@@ -112,6 +112,7 @@ float4 shadeMesh(Raster in,constant Frame &f,constant Object &o,texture2d<float>
     float skylight=exp(-max(0.0f,f.environment.y)/9000.0f)*f.body.y*planetDay*.035f;
     float3 sunlight=int(f.surfaceColor.w)==3?earthSunTransmission(f):float3(1);
     float3 color=albedo.rgb*(.006f+max(0.0f,o.options.y)+skylight+o.emission.rgb)+albedo.rgb*sunlight*lit*.8f+albedo.rgb*float3(.76,.84,1.0)*bounce*solarIntensity(f)+spec*sunlight;
+    color+=albedo.rgb*vesselIllumination(f,in.world,normal,o.emission.w>0.5f);
     // A low-cost hemispheric fill approximates sunlight scattered back down
     // by cloud cover; it softens shadows without making clouds emit at night.
     if(int(f.surfaceColor.w)==3&&f.clouds.z>0){
@@ -350,6 +351,7 @@ fragment SkyOutput skyFragment(SkyRaster in [[stage_in]],constant Frame &f [[buf
                 color=mix(color,ocean,water);
             }
         }
+        color+=base*vesselIllumination(f,ray*(t*radius),n,false);
         if(f.body.w>1.5)color=base*80;
         float detail=1-.10*hash(floor(n*radius/2));color*=mix(1.0f,detail,exp(-max(0.0f,height)*radius/1800));
         if(earth){

@@ -11,13 +11,14 @@ int checks=0;
 void check(bool value,const char *message) { ++checks;if(!value) throw std::runtime_error(message); }
 void run(Flight &f,double seconds,const Input &input={}) { for(int i=0;i<(int)(seconds*100);++i) f.advance(.01,input); }
 int main() {try {
-    check(cockpitZones().size()==33&&cockpitSpheres().size()==3,"original cockpit quadrilateral and spherical click zones present");
-    check(cockpitSwitches().size()==50,"mechanical cockpit switch, nav and HUD-control animations present");
+    check(cockpitZones().size()==35&&cockpitSpheres().size()==3,"original cockpit quadrilateral and spherical click zones present");
+    check(cockpitSwitches().size()==52,"mechanical cockpit switch, nav and HUD-control animations present");
     const auto &zone=*std::find_if(cockpitZones().begin(),cockpitZones().end(),[](const CockpitZone &z){return z.action==0;});
     Vector center=(zone.corners[0]+zone.corners[3])*.5;
     Vector normal=crossp(zone.corners[1]-zone.corners[0],zone.corners[2]-zone.corners[0]).unit();
     check(pickCockpit(center-normal*.01,normal).action==0,"ray picks original gear lever quadrilateral");
     check(pickCockpit({100,100,100},{1,0,0}).action==-1,"missed cockpit ray has no action");
+    check(!visibleCockpitGroup(130)&&!visibleCockpitGroup(98)&&!visibleCockpitGroup(99),"HUD glass pane is hidden while HUD glyphs render separately");
     Glider g;
     check(Glider::animations().size()==63,"all extracted animation components present");
     for(const auto &c:Glider::animations()) {
@@ -87,11 +88,13 @@ int main() {try {
     check(balanced.angularVelocity.length()<1e-10,"balanced main engines do not induce torque");
     Flight asymmetric;asymmetric.throttle=.5;asymmetric.glider.mainBalance=1;run(asymmetric,.5);
     check(fabs(asymmetric.angularVelocity.y)>.005,"independent main engine balance induces yaw");
-    Flight saved;saved.glider=g;saved.throttle=.25;saved.glider.hover=.3;saved.glider.retro=.6;saved.glider.navLights=true;saved.glider.trim=.2;
+    Flight saved;saved.glider=g;saved.throttle=.25;saved.glider.hover=.3;saved.glider.retro=.6;saved.glider.navLights=true;saved.glider.landingLight=true;saved.glider.landingLightMode=2;saved.glider.cabinLightMode=2;saved.glider.cabinLightBrightness=.42;saved.glider.trim=.2;
     auto path=std::filesystem::temp_directory_path()/"orbiter-glider-state-test.scn";
     saved.save(path);Flight restored;restored.load(path);std::filesystem::remove(path);
     check(fabs(restored.throttle-.25)<1e-12&&fabs(restored.glider.hover-.3)<1e-12,"engine throttle states persist");
     check(restored.glider.navLights&&restored.glider.trim==.2,"lights and trim persist");
+    check(restored.glider.landingLight&&restored.glider.landingLightMode==2&&restored.glider.cabinLightMode==2&&fabs(restored.glider.cabinLightBrightness-.42)<1e-8,"original landing and cabin light modes persist");
+    Glider legacy;legacy.parse("DGLIGHTS 1 0 0 1 1");check(legacy.landingLight&&legacy.landingLightMode==1,"legacy light state enables docking light");
     for(size_t i=0;i<PartCount;++i) {
         check(fabs(saved.glider.parts[i].position-restored.glider.parts[i].position)<1e-12,"mechanism position persists");
         check(fabs(saved.glider.parts[i].target-restored.glider.parts[i].target)<1e-12,"moving mechanism direction persists");
